@@ -11,6 +11,24 @@ type NotifPrefs = {
   vdotCalibrated: boolean;
 };
 
+type HrZonesPayload =
+  | {
+      configured: true;
+      hrMax: number;
+      hrRest: number;
+      z1Max: number;
+      z2Max: number;
+      source: string | null;
+      updatedAt: string | null;
+    }
+  | {
+      configured: false;
+      hrMax: number | null;
+      hrRest: number | null;
+      source: string | null;
+      updatedAt: string | null;
+    };
+
 type SettingsResponse = {
   status: "ok";
   account: { email: string; name: string | null; createdAt: string };
@@ -26,6 +44,7 @@ type SettingsResponse = {
     overrideAt: string | null;
     overrideRationale: string | null;
   };
+  hrZones: HrZonesPayload;
   notifications: NotifPrefs;
 };
 
@@ -64,6 +83,7 @@ export default function SettingsView() {
 
       <AccountSection account={data.account} />
       <GarminSection garmin={data.garmin} onSaved={load} />
+      <HrZonesSection hrZones={data.hrZones} onSaved={load} />
       <AiCoachSection aiCoach={data.aiCoach} onSaved={load} />
       <PerformanceSection vdot={data.vdot} onSaved={load} />
       <NotificationsSection notifications={data.notifications} onSaved={load} />
@@ -170,6 +190,174 @@ function GarminSection({
         {busy ? "Speichere…" : "Credentials speichern"}
       </Button>
     </Card>
+  );
+}
+
+// ============================================
+// HR Zones (Karvonen HRR)
+// ============================================
+function HrZonesSection({
+  hrZones,
+  onSaved,
+}: {
+  hrZones: HrZonesPayload;
+  onSaved: () => void;
+}) {
+  const [hrMax, setHrMax] = useState<string>(
+    hrZones.hrMax != null ? String(hrZones.hrMax) : "",
+  );
+  const [hrRest, setHrRest] = useState<string>(
+    hrZones.hrRest != null ? String(hrZones.hrRest) : "",
+  );
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Live preview (matches server-side Karvonen).
+  const hrMaxNum = Number.parseInt(hrMax, 10);
+  const hrRestNum = Number.parseInt(hrRest, 10);
+  const valid =
+    Number.isFinite(hrMaxNum) &&
+    Number.isFinite(hrRestNum) &&
+    hrMaxNum >= 120 &&
+    hrMaxNum <= 220 &&
+    hrRestNum >= 30 &&
+    hrRestNum <= 90 &&
+    hrMaxNum - hrRestNum >= 30;
+
+  const preview = valid
+    ? (() => {
+        const hrr = hrMaxNum - hrRestNum;
+        return {
+          z1Max: Math.round(hrRestNum + 0.75 * hrr),
+          z2Max: Math.round(hrRestNum + 0.87 * hrr),
+        };
+      })()
+    : null;
+
+  async function save() {
+    setBusy(true);
+    setMsg(null);
+    setErr(null);
+    try {
+      const r = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hrMax: hrMaxNum,
+          hrRest: hrRestNum,
+          hrZonesSource: "manual",
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        throw new Error(data.error ?? `HTTP ${r.status}`);
+      }
+      setMsg("Gespeichert.");
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold mb-1">HR Zones</h2>
+      <p className="text-xs text-muted-foreground mb-3">
+        Karvonen HRR (Heart Rate Reserve) — Z1 ≤ 75% HRR, Z2 ≤ 87% HRR, Z3 &gt; 87%.
+        Treibt die HR-basierte TID-Auswertung auf /progress.
+      </p>
+
+      <div className="grid grid-cols-2 gap-3">
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium">HRmax (bpm)</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={hrMax}
+            onChange={(e) => setHrMax(e.target.value)}
+            min={120}
+            max={220}
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+            placeholder="z.B. 200"
+          />
+          <span className="text-xs text-muted-foreground">120–220</span>
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium">HRrest (bpm)</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={hrRest}
+            onChange={(e) => setHrRest(e.target.value)}
+            min={30}
+            max={90}
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+            placeholder="z.B. 52"
+          />
+          <span className="text-xs text-muted-foreground">30–90</span>
+        </label>
+      </div>
+
+      {preview ? (
+        <div className="mt-4 rounded-md border bg-muted/40 p-3 text-xs">
+          <div className="grid grid-cols-3 gap-2">
+            <ZoneBadge label="Z1 (easy)" range={`≤ ${preview.z1Max}`} cls="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" />
+            <ZoneBadge
+              label="Z2 (threshold)"
+              range={`${preview.z1Max + 1}–${preview.z2Max}`}
+              cls="bg-yellow-500/15 text-yellow-700 dark:text-yellow-300"
+            />
+            <ZoneBadge
+              label="Z3 (max)"
+              range={`> ${preview.z2Max}`}
+              cls="bg-red-500/15 text-red-700 dark:text-red-300"
+            />
+          </div>
+          <p className="mt-2 text-muted-foreground">
+            HRR = {hrMaxNum - hrRestNum} bpm
+          </p>
+        </div>
+      ) : (
+        <p className="mt-4 text-xs text-muted-foreground">
+          Beide Werte eingeben. HRmax − HRrest muss ≥ 30 sein.
+        </p>
+      )}
+
+      {hrZones.configured && hrZones.updatedAt && (
+        <p className="mt-3 text-[11px] text-muted-foreground">
+          Zuletzt aktualisiert:{" "}
+          {new Date(hrZones.updatedAt).toLocaleDateString("de-DE")}
+          {hrZones.source ? ` · Quelle: ${hrZones.source}` : ""}
+        </p>
+      )}
+
+      {msg && <p className="mt-3 text-sm text-muted-foreground">{msg}</p>}
+      {err && <p className="mt-3 text-sm text-destructive">{err}</p>}
+
+      <Button onClick={save} disabled={busy || !valid} className="mt-4">
+        {busy ? "Speichere…" : "HR Zones speichern"}
+      </Button>
+    </Card>
+  );
+}
+
+function ZoneBadge({
+  label,
+  range,
+  cls,
+}: {
+  label: string;
+  range: string;
+  cls: string;
+}) {
+  return (
+    <div className={`rounded-md px-2 py-1.5 ${cls}`}>
+      <div className="text-[10px] uppercase opacity-70">{label}</div>
+      <div className="font-semibold tabular-nums">{range}</div>
+    </div>
   );
 }
 
@@ -540,17 +728,58 @@ function NotificationsSection({
 // Danger Zone
 // ============================================
 function DangerZone() {
+  const [confirming, setConfirming] = useState(false);
+
   return (
     <Card className="border-destructive/30">
       <h2 className="text-lg font-semibold text-destructive mb-3">Danger Zone</h2>
-      <p className="text-xs text-muted-foreground mb-3">
-        In v0.5 noch nicht implementiert. Cleanup-Optionen folgen in v0.6.
-      </p>
-      <ul className="text-sm text-muted-foreground space-y-1 list-disc pl-4">
-        <li>Macrocycle abbrechen</li>
-        <li>Alle AI-Conversations löschen</li>
-        <li>Account löschen</li>
-      </ul>
+
+      <div className="space-y-4">
+        <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3">
+          <h3 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100">
+            Re-Onboarding starten
+          </h3>
+          <p className="mt-1 text-xs text-yellow-800 dark:text-yellow-200">
+            Generiert einen neuen 20-Wochen-Plan. Der bisherige Macrozyklus wird auf{" "}
+            <em>abandoned</em> gesetzt. Workouts, Sensor-Daten, Knee-Scores,
+            Coach-Conversations & VDOT-Kalibrierung bleiben erhalten.
+          </p>
+          {!confirming ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-3"
+              onClick={() => setConfirming(true)}
+            >
+              Re-Onboarding starten
+            </Button>
+          ) : (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <a
+                href="/onboarding"
+                className="inline-flex items-center justify-center rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
+              >
+                Bestätigen → /onboarding
+              </a>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setConfirming(false)}
+              >
+                Abbrechen
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <div>
+          <p className="text-xs text-muted-foreground mb-1">Weitere Cleanup-Optionen:</p>
+          <ul className="text-sm text-muted-foreground space-y-1 list-disc pl-4">
+            <li>Alle AI-Conversations löschen <span className="opacity-50">(folgt)</span></li>
+            <li>Account löschen <span className="opacity-50">(folgt)</span></li>
+          </ul>
+        </div>
+      </div>
     </Card>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
@@ -31,6 +31,40 @@ export default function OnboardingForm() {
   const [form, setForm] = useState<FormState>(Q_DEFAULTS);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isReOnboarding, setIsReOnboarding] = useState(false);
+  const [preservedVdot, setPreservedVdot] = useState<number | null>(null);
+
+  // Re-onboarding: prefill VDOT from existing effective value (override or
+  // initial) so user doesn't lose calibration. Preserves training history —
+  // workouts, sensors, conversations stay; old macrocycle is marked abandoned.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [statusR, settingsR] = await Promise.all([
+          fetch("/api/onboarding/status"),
+          fetch("/api/settings"),
+        ]);
+        if (!cancelled && statusR.ok) {
+          const s = await statusR.json();
+          if (s.onboarded) setIsReOnboarding(true);
+        }
+        if (!cancelled && settingsR.ok) {
+          const data = await settingsR.json();
+          const effVdot = data?.vdot?.effective;
+          if (typeof effVdot === "number" && effVdot >= 25 && effVdot <= 65) {
+            setPreservedVdot(effVdot);
+            setForm((prev) => ({ ...prev, vdotInitial: effVdot }));
+          }
+        }
+      } catch {
+        /* non-fatal — defaults stay */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -76,6 +110,23 @@ export default function OnboardingForm() {
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-6">
+      {isReOnboarding && (
+        <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm">
+          <strong className="font-medium">Re-Onboarding aktiv.</strong>
+          <p className="mt-1 text-yellow-800 dark:text-yellow-200">
+            Dein bisheriger Plan wird auf <em>abandoned</em> gesetzt — alle Workouts,
+            Sensor-Daten, Knee-Scores und Coach-Conversations bleiben erhalten.
+            Ein neuer 20-Wochen-Plan startet ab heute.
+          </p>
+          {preservedVdot !== null && (
+            <p className="mt-1 text-xs text-yellow-800 dark:text-yellow-200">
+              Effective VDOT wird aus der bisherigen Kalibrierung übernommen:{" "}
+              <strong>{preservedVdot}</strong>.
+            </p>
+          )}
+        </div>
+      )}
+
       <Field label="Race-Distanz">
         <select
           value={form.primaryType}

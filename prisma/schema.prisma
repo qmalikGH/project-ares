@@ -349,6 +349,12 @@ model UserSettings {
   vdotOverrideAt          DateTime?
   vdotOverrideRationale   String?   @db.Text
 
+  // HR Zones (Karvonen HRR — Sprint v0.6)
+  hrMax                   Int?
+  hrRest                  Int?
+  hrZonesUpdatedAt        DateTime?
+  hrZonesSource           String?   // "manual" | "garmin_lthr" | "field_test"
+
   // Notifications (per-type toggle)
   notificationPrefs       Json?
 

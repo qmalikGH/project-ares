@@ -12,6 +12,11 @@ import {
   type AdherenceBand,
   type TIDDistribution,
 } from "./progress-helpers";
+import {
+  computeHrZones,
+  computeHrTID,
+  type SplitForTID,
+} from "@/lib/coach-engine/hr-zones";
 
 // ============================================
 // Goal Progress
@@ -413,5 +418,162 @@ export async function getTIDDistribution(
       z3: Math.round((actual.z3 - planTID.z3) * 10) / 10,
     },
     totalRunMin,
+  };
+}
+
+// ============================================
+// HR-based TID (Karvonen — Sprint v0.6)
+// ============================================
+export interface HrBasedTID {
+  source: "hr";
+  zones: { z1Max: number; z2Max: number; hrMax: number; hrRest: number };
+  z1Pct: number;
+  z2Pct: number;
+  z3Pct: number;
+  totalSec: number;
+  unclassifiedSec: number;
+  sessionsWithHr: number;
+  sessionsWithoutHr: number;
+  /** Drift vs planned TID, percentage points. */
+  driftPP: { z1: number; z2: number; z3: number };
+}
+
+/**
+ * Compute HR-zone-based TID across completed run workouts in scope.
+ * Returns null when user has no HR thresholds configured (caller falls back to plan TID).
+ *
+ * Why HR-based not plan-based: planned `intensityZone` reflects intent, not actual
+ * effort. HR splits show the *real* TID — surfaces "Mitteltempo-Falle" (Z2 too high)
+ * that plan-based aggregation can't see when the athlete drifts.
+ */
+export async function getHrBasedTIDDistribution(
+  userId: string,
+  scope: TIDScope,
+  today: Date,
+): Promise<HrBasedTID | null> {
+  const settings = await db.userSettings.findUnique({ where: { userId } });
+  if (!settings?.hrMax || !settings?.hrRest) return null;
+
+  // Compute zones via Karvonen — throws if invalid; fail-safe by returning null.
+  let zones;
+  try {
+    zones = computeHrZones({ hrMax: settings.hrMax, hrRest: settings.hrRest });
+  } catch {
+    return null;
+  }
+
+  const macro = await db.macrocycle.findFirst({
+    where: { userId, status: "active" },
+    include: { phases: { orderBy: { blockNumber: "asc" } } },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!macro) return null;
+
+  const today0 = dayKey(today);
+  let from: Date;
+  let planTID: TIDDistribution;
+
+  if (scope === "this_block") {
+    const currentPhase = macro.phases.find(
+      (p) =>
+        dayKey(p.startDate).getTime() <= today0.getTime() &&
+        today0.getTime() < dayKey(p.plannedEndDate).getTime(),
+    );
+    if (!currentPhase) return null;
+    from = dayKey(currentPhase.startDate);
+    const config = currentPhase.config as
+      | { enduranceTID?: TIDDistribution }
+      | null;
+    planTID = config?.enduranceTID ?? { z1: 78, z2: 20, z3: 2 };
+  } else {
+    from = dayKey(macro.startDate);
+    planTID = computeWeightedTID(
+      macro.phases.map((p) => {
+        const cfg = p.config as { enduranceTID?: TIDDistribution } | null;
+        const t = cfg?.enduranceTID ?? { z1: 0, z2: 0, z3: 0 };
+        return { ...t, durationWeeks: p.durationWeeks };
+      }),
+    );
+  }
+
+  const to = new Date(today0.getTime() + 86400000);
+  const runWorkouts = await db.workout.findMany({
+    where: {
+      userId,
+      date: { gte: from, lt: to },
+      status: "completed",
+    },
+  });
+
+  const allSplits: SplitForTID[] = [];
+  let sessionsWithHr = 0;
+  let sessionsWithoutHr = 0;
+
+  for (const w of runWorkouts) {
+    if (!isRunType(w.type)) continue;
+    const exec = w.executedSession as
+      | {
+          type?: string;
+          splits?: Array<{ durationSec?: number; averageHr?: number | null }>;
+          averageHr?: number | null;
+          durationSec?: number;
+        }
+      | null;
+    if (!exec || exec.type !== "run") {
+      sessionsWithoutHr += 1;
+      continue;
+    }
+    const splits = Array.isArray(exec.splits) ? exec.splits : [];
+    if (splits.length === 0) {
+      // Fall back to whole-session avg HR if no splits available.
+      if (typeof exec.averageHr === "number" && typeof exec.durationSec === "number") {
+        allSplits.push({
+          durationSec: exec.durationSec,
+          averageHr: exec.averageHr,
+        });
+        sessionsWithHr += 1;
+      } else {
+        sessionsWithoutHr += 1;
+      }
+      continue;
+    }
+    let anyHr = false;
+    for (const s of splits) {
+      const dur = typeof s.durationSec === "number" ? s.durationSec : 0;
+      const hr = typeof s.averageHr === "number" ? s.averageHr : null;
+      if (dur > 0) {
+        allSplits.push({ durationSec: dur, averageHr: hr });
+        if (hr !== null) anyHr = true;
+      }
+    }
+    if (anyHr) sessionsWithHr += 1;
+    else sessionsWithoutHr += 1;
+  }
+
+  const tid = computeHrTID(allSplits, zones);
+  const z1Pct = Math.round(tid.z1Pct * 10) / 10;
+  const z2Pct = Math.round(tid.z2Pct * 10) / 10;
+  const z3Pct = Math.round(tid.z3Pct * 10) / 10;
+
+  return {
+    source: "hr",
+    zones: {
+      z1Max: zones.z1Max,
+      z2Max: zones.z2Max,
+      hrMax: zones.hrMax,
+      hrRest: zones.hrRest,
+    },
+    z1Pct,
+    z2Pct,
+    z3Pct,
+    totalSec: tid.totalSec,
+    unclassifiedSec: tid.unclassifiedSec,
+    sessionsWithHr,
+    sessionsWithoutHr,
+    driftPP: {
+      z1: Math.round((z1Pct - planTID.z1) * 10) / 10,
+      z2: Math.round((z2Pct - planTID.z2) * 10) / 10,
+      z3: Math.round((z3Pct - planTID.z3) * 10) / 10,
+    },
   };
 }

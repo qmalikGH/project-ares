@@ -10,6 +10,7 @@ import {
   getEffectiveVdot,
   getOrCreateUserSettings,
 } from "@/lib/db/queries/settings";
+import { computeHrZones } from "@/lib/coach-engine/hr-zones";
 
 export async function GET() {
   const userId = await getCurrentUserId();
@@ -40,6 +41,40 @@ export async function GET() {
       overrideAt: settings.vdotOverrideAt?.toISOString() ?? null,
       overrideRationale: settings.vdotOverrideRationale,
     },
+    hrZones: (() => {
+      if (settings.hrMax == null || settings.hrRest == null) {
+        return {
+          configured: false as const,
+          hrMax: null,
+          hrRest: null,
+          source: settings.hrZonesSource,
+          updatedAt: settings.hrZonesUpdatedAt?.toISOString() ?? null,
+        };
+      }
+      try {
+        const zones = computeHrZones({
+          hrMax: settings.hrMax,
+          hrRest: settings.hrRest,
+        });
+        return {
+          configured: true as const,
+          hrMax: settings.hrMax,
+          hrRest: settings.hrRest,
+          source: settings.hrZonesSource,
+          updatedAt: settings.hrZonesUpdatedAt?.toISOString() ?? null,
+          z1Max: zones.z1Max,
+          z2Max: zones.z2Max,
+        };
+      } catch {
+        return {
+          configured: false as const,
+          hrMax: settings.hrMax,
+          hrRest: settings.hrRest,
+          source: settings.hrZonesSource,
+          updatedAt: settings.hrZonesUpdatedAt?.toISOString() ?? null,
+        };
+      }
+    })(),
     notifications: settings.notificationPrefs ?? DEFAULT_NOTIFICATION_PREFS,
   });
 }
@@ -49,6 +84,9 @@ const PatchSchema = z.object({
   garminPasswordOverride: z.string().min(1).max(200).nullable().optional(),
   aiCoachEnabled: z.boolean().optional(),
   aiModelPrimaryOverride: z.string().min(3).max(60).nullable().optional(),
+  hrMax: z.number().int().min(120).max(220).nullable().optional(),
+  hrRest: z.number().int().min(30).max(90).nullable().optional(),
+  hrZonesSource: z.enum(["manual", "garmin_lthr", "field_test"]).nullable().optional(),
   notificationPrefs: z
     .object({
       garminFailure: z.boolean(),
@@ -75,11 +113,41 @@ export async function PATCH(req: Request) {
   }
 
   const userId = await getCurrentUserId();
-  await getOrCreateUserSettings(userId); // ensure row exists
+  const existing = await getOrCreateUserSettings(userId);
+
+  // If both hrMax & hrRest end up set together, validate Karvonen spread + stamp updatedAt.
+  const data: Record<string, unknown> = { ...parsed.data };
+  const hrTouched =
+    "hrMax" in parsed.data || "hrRest" in parsed.data;
+  if (hrTouched) {
+    const nextHrMax =
+      "hrMax" in parsed.data ? (parsed.data.hrMax ?? null) : existing.hrMax;
+    const nextHrRest =
+      "hrRest" in parsed.data ? (parsed.data.hrRest ?? null) : existing.hrRest;
+    if (nextHrMax !== null && nextHrRest !== null) {
+      try {
+        computeHrZones({ hrMax: nextHrMax, hrRest: nextHrRest });
+      } catch (e) {
+        return NextResponse.json(
+          {
+            error:
+              e instanceof Error
+                ? e.message
+                : "Invalid HR thresholds (spread too small).",
+          },
+          { status: 400 },
+        );
+      }
+    }
+    data.hrZonesUpdatedAt = new Date();
+    if (!("hrZonesSource" in parsed.data)) {
+      data.hrZonesSource = "manual";
+    }
+  }
 
   const updated = await db.userSettings.update({
     where: { userId },
-    data: parsed.data,
+    data,
   });
 
   return NextResponse.json({ status: "ok", settings: updated });

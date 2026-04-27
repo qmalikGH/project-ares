@@ -3,6 +3,13 @@
 //
 // v0.1 deterministic onboarding — no AI conversation, simple form input.
 // AI goal-extraction is deferred to a future phase.
+//
+// Re-Onboarding rule (Sprint v0.6 P3.1): NEVER hard-delete user history.
+//   - Old Goal + Macrocycle → status = "abandoned" (kept for analytics)
+//   - Workouts, DailySensorData, AIConversation, Notification, BlockReview → untouched
+//   - UserSettings (incl. vdotOverride, hrMax/hrRest, garmin creds) → untouched
+//   The new macrocycle inherits the user's effective VDOT via the form's
+//   vdotInitial, which the client prefills from /api/settings.
 import { z } from "zod";
 import { NextResponse } from "next/server";
 

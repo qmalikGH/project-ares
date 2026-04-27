@@ -62,6 +62,19 @@ type TIDComparison = {
   totalRunMin: number;
 };
 
+type HrTID = {
+  source: "hr";
+  zones: { z1Max: number; z2Max: number; hrMax: number; hrRest: number };
+  z1Pct: number;
+  z2Pct: number;
+  z3Pct: number;
+  totalSec: number;
+  unclassifiedSec: number;
+  sessionsWithHr: number;
+  sessionsWithoutHr: number;
+  driftPP: { z1: number; z2: number; z3: number };
+};
+
 type Response =
   | { status: "NO_ACTIVE_GOAL" }
   | {
@@ -71,6 +84,8 @@ type Response =
       blockStatus: BlockStatus | null;
       adherence: { thisWeek: AdherenceStats; thisBlock: AdherenceStats };
       tid: TIDComparison | null;
+      tidPlan: TIDComparison | null;
+      tidHr: HrTID | null;
     };
 
 export default function ProgressView() {
@@ -114,7 +129,9 @@ export default function ProgressView() {
       <VdotChart points={data.vdotHistory} />
       {data.blockStatus && <BlockProgress blockStatus={data.blockStatus} />}
       <AdherenceSection week={data.adherence.thisWeek} block={data.adherence.thisBlock} />
-      {data.tid && <TIDComparisonSection tid={data.tid} />}
+      {data.tid && (
+        <TIDComparisonSection tidPlan={data.tid} tidHr={data.tidHr ?? null} />
+      )}
     </div>
   );
 }
@@ -468,9 +485,80 @@ function AdherenceCard({ label, stats }: { label: string; stats: AdherenceStats 
 }
 
 // ============================================
-// TID Comparison
+// TID Comparison (Plan-based vs HR-based)
 // ============================================
-function TIDComparisonSection({ tid }: { tid: TIDComparison }) {
+function TIDComparisonSection({
+  tidPlan,
+  tidHr,
+}: {
+  tidPlan: TIDComparison;
+  tidHr: HrTID | null;
+}) {
+  const hasHr = tidHr !== null && tidHr.totalSec - tidHr.unclassifiedSec > 0;
+  const [mode, setMode] = useState<"plan" | "hr">(hasHr ? "hr" : "plan");
+
+  // If HR data shows up later, prefer it on first render once available.
+  useEffect(() => {
+    if (hasHr) setMode("hr");
+  }, [hasHr]);
+
+  return (
+    <Card>
+      <header className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-semibold">TID-Distribution</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {mode === "plan"
+              ? `Plan vs Actual (Plan-Zonen) · ${tidPlan.totalRunMin}min Run`
+              : tidHr
+                ? `Plan vs Actual (HR-Zonen) · ${Math.round(
+                    (tidHr.totalSec - tidHr.unclassifiedSec) / 60,
+                  )}min mit HR`
+                : ""}
+          </p>
+        </div>
+        <div className="flex rounded-md border bg-background text-xs">
+          <button
+            type="button"
+            onClick={() => setMode("plan")}
+            className={`px-3 py-1 transition-colors ${
+              mode === "plan"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            Plan
+          </button>
+          <button
+            type="button"
+            onClick={() => hasHr && setMode("hr")}
+            disabled={!hasHr}
+            className={`px-3 py-1 transition-colors ${
+              mode === "hr"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted"
+            } ${!hasHr ? "opacity-40 cursor-not-allowed" : ""}`}
+            title={
+              hasHr
+                ? "HR-Zonen (Karvonen HRR)"
+                : "Setze HRmax + HRrest in Settings für HR-basierte TID."
+            }
+          >
+            HR
+          </button>
+        </div>
+      </header>
+
+      {mode === "plan" ? (
+        <PlanTidPanel tid={tidPlan} />
+      ) : tidHr ? (
+        <HrTidPanel tid={tidHr} plan={tidPlan.plan} />
+      ) : null}
+    </Card>
+  );
+}
+
+function PlanTidPanel({ tid }: { tid: TIDComparison }) {
   const significantDrift = Math.max(
     Math.abs(tid.driftPP.z1),
     Math.abs(tid.driftPP.z2),
@@ -479,16 +567,7 @@ function TIDComparisonSection({ tid }: { tid: TIDComparison }) {
   const driftWarn = significantDrift > 10;
 
   return (
-    <Card>
-      <header className="flex items-baseline justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">TID-Distribution</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Plan vs Actual (dieser Block) · {tid.totalRunMin}min Run
-          </p>
-        </div>
-      </header>
-
+    <>
       <div className="mt-4 space-y-3">
         <TIDBar label="Plan" tid={tid.plan} />
         <TIDBar label="Actual" tid={tid.actual} />
@@ -525,7 +604,95 @@ function TIDComparisonSection({ tid }: { tid: TIDComparison }) {
           Noch keine Run-Sessions in diesem Block abgeschlossen.
         </p>
       )}
-    </Card>
+    </>
+  );
+}
+
+function HrTidPanel({
+  tid,
+  plan,
+}: {
+  tid: HrTID;
+  plan: { z1: number; z2: number; z3: number };
+}) {
+  const actual = { z1: tid.z1Pct, z2: tid.z2Pct, z3: tid.z3Pct };
+  const classifiedSec = tid.totalSec - tid.unclassifiedSec;
+  const significantDrift = Math.max(
+    Math.abs(tid.driftPP.z1),
+    Math.abs(tid.driftPP.z2),
+    Math.abs(tid.driftPP.z3),
+  );
+  const driftWarn = significantDrift > 10;
+  const z2HighWarn = tid.z2Pct > 25;
+  const z1LowWarn = tid.z1Pct < 70 && classifiedSec > 0;
+
+  return (
+    <>
+      <div className="mt-2 text-[11px] text-muted-foreground">
+        Karvonen HRR · Z1 ≤ {tid.zones.z1Max} · Z2 ≤ {tid.zones.z2Max} · Z3 &gt;{" "}
+        {tid.zones.z2Max} (HRmax {tid.zones.hrMax}, HRrest {tid.zones.hrRest})
+      </div>
+
+      <div className="mt-4 space-y-3">
+        <TIDBar label="Plan" tid={plan} />
+        <TIDBar label="HR Actual" tid={actual} />
+      </div>
+
+      <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+        {(["z1", "z2", "z3"] as const).map((zone) => {
+          const drift = tid.driftPP[zone];
+          const sign = drift > 0 ? "+" : "";
+          const cls =
+            Math.abs(drift) > 10
+              ? "text-red-600 dark:text-red-400"
+              : "text-muted-foreground";
+          return (
+            <div key={zone} className={cls}>
+              <div className="opacity-70 uppercase">{zone}</div>
+              <div className="font-semibold tabular-nums">
+                {sign}
+                {drift.toFixed(1)}pp
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {z2HighWarn && (
+        <div className="mt-3 rounded-md bg-yellow-500/10 border border-yellow-500/30 px-3 py-2 text-xs text-yellow-700 dark:text-yellow-400">
+          Z2 &gt; 25% — Mitteltempo-Falle. Polarisiertes Training will Z1 hoch, Z2 niedrig.
+        </div>
+      )}
+      {z1LowWarn && !z2HighWarn && (
+        <div className="mt-3 rounded-md bg-yellow-500/10 border border-yellow-500/30 px-3 py-2 text-xs text-yellow-700 dark:text-yellow-400">
+          Z1 &lt; 70% — easy runs gehen tendenziell zu hart. Drossel HR auf{" "}
+          ≤{tid.zones.z1Max} bpm.
+        </div>
+      )}
+      {driftWarn && !z2HighWarn && !z1LowWarn && (
+        <div className="mt-3 rounded-md bg-red-500/10 border border-red-500/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+          Distribution-Drift {">"} 10pp vs Plan.
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        <span>{tid.sessionsWithHr} Sessions mit HR</span>
+        <span>·</span>
+        <span>{tid.sessionsWithoutHr} ohne HR</span>
+        {tid.unclassifiedSec > 0 && (
+          <>
+            <span>·</span>
+            <span>{Math.round(tid.unclassifiedSec / 60)}min nicht klassifiziert</span>
+          </>
+        )}
+      </div>
+
+      {classifiedSec === 0 && (
+        <p className="mt-3 text-xs text-muted-foreground italic">
+          Noch keine Run-Sessions mit HR-Daten in diesem Block.
+        </p>
+      )}
+    </>
   );
 }
 
