@@ -1,0 +1,329 @@
+// Project Ares — Prisma Schema v0.1
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================
+// Auth (NextAuth.js)
+// ============================================
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts Account[]
+  sessions Session[]
+
+  // Domain
+  goals          Goal[]
+  macrocycles    Macrocycle[]
+  workouts       Workout[]
+  sensorData     DailySensorData[]
+  conversations  AIConversation[]
+  garminSyncLogs GarminSyncLog[]
+  notifications  Notification[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ============================================
+// Domain: Goal
+// ============================================
+model Goal {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  primaryType  String // "5k_time" | "10k_time" | etc.
+  currentValue Json // {time: "24:30", date: "2026-04-26"}
+  targetValue  Json // {time: "22:00", date: "2026-09-15"}
+  modality     String // "hybrid" | "run_only" | "strength_only"
+  constraints  Json // [{type: "patellar_tendinopathy", severity: "active"}]
+  preferences  Json // {strength_per_week: 3, max_training_days: 6}
+
+  startDate  DateTime
+  targetDate DateTime
+  status     String   @default("active") // "active" | "completed" | "abandoned"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  macrocycles Macrocycle[]
+}
+
+// ============================================
+// Domain: Periodization
+// ============================================
+model Macrocycle {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+  goalId String
+  goal   Goal   @relation(fields: [goalId], references: [id])
+
+  startDate  DateTime
+  endDate    DateTime
+  totalWeeks Int // 20
+
+  phases Phase[]
+
+  status String @default("active")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Phase {
+  id           String     @id @default(cuid())
+  macrocycleId String
+  macrocycle   Macrocycle @relation(fields: [macrocycleId], references: [id])
+
+  blockNumber    Int // 1-5
+  name           String // "ACCUMULATION_AEROBIC_BASE", etc.
+  startDate      DateTime
+  plannedEndDate DateTime
+  actualEndDate  DateTime?
+
+  durationWeeks Int // 4 typically, can be extended
+  config        Json // PhaseConfig from Science-Doc Kap 9
+
+  // Outcome markers
+  performanceMarker Json? // {targetVdot, achievedVdot, ...}
+  blockReviewId     String?      @unique
+  blockReview       BlockReview? @relation(fields: [blockReviewId], references: [id])
+
+  // User-Override Tracking (Q4)
+  userOverrideRationale String?
+  userOverrideAt        DateTime?
+
+  status String @default("active") // "active" | "completed" | "extended"
+
+  weeklyPlans WeeklyPlan[]
+}
+
+model WeeklyPlan {
+  id      String @id @default(cuid())
+  phaseId String
+  phase   Phase  @relation(fields: [phaseId], references: [id])
+
+  weekNumber Int // 1-20 within macrocycle
+  startDate  DateTime
+  endDate    DateTime
+
+  plannedSessions Json // SessionPlan[] for the week (7 days)
+
+  createdAt DateTime @default(now())
+}
+
+// ============================================
+// Domain: Workouts (planned + executed)
+// ============================================
+model Workout {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  date DateTime
+  type String // "easy_run" | "threshold_run" | "strength_a" | etc.
+
+  // Plan (was geplant war)
+  plannedSession Json // SessionPlan
+
+  // Modulation (was die Engine angepasst hat)
+  modulationApplied Boolean @default(false)
+  modulations       Json? // string[] of modifications
+  modulationReason  String?
+
+  // Execution (was tatsächlich passiert ist)
+  status          String @default("planned") // "planned" | "in_progress" | "completed" | "skipped"
+  executedSession Json? // ExecutedSession (real durations, paces, loads)
+
+  // Post-session feedback
+  rpe               Int? // 0-10 sRPE
+  durationActualMin Int?
+  notes             String?
+
+  // Linkage to Garmin data
+  garminActivityId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================
+// Domain: Sensor Data
+// ============================================
+model DailySensorData {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  date DateTime @unique // one entry per day per user
+
+  // From Garmin (auto-synced)
+  garmin           Json? // {hrv_status, hrv_rmssd, sleep_score, sleep_duration_min, body_battery_morning, rhr}
+  garminLastSyncAt DateTime?
+
+  // From User (morning input)
+  userMorning Json? // {subjective_recovery: 1-10, morning_stiffness: 1-10, stairs_score: 1-10}
+
+  // Computed scores (cached, recomputed when inputs change)
+  readinessScore      Int?
+  readinessBand       String? // "GREEN" | "YELLOW" | "ORANGE" | "RED"
+  readinessComponents Json?
+
+  loadMetrics Json? // {daily_load_au, acute_7d, chronic_28d, acwr_rolling, acwr_ewma, band}
+
+  kneeScore    Int? // computed from morning_stiffness + stairs + last_training
+  therapyPhase String? // "REACTIVE" | "DISREPAIR" | "REMODELING" | "SPORT_SPECIFIC"
+
+  computedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================
+// Domain: AI Coach
+// ============================================
+model AIConversation {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  type       String // "onboarding" | "daily_explanation" | "free_chat" | "weekly_review" | "block_review"
+  contextRef String? // ID of related entity (workout, weekplan, block-review)
+
+  messages Json // Message[] in Anthropic format
+
+  modelUsed    String // "claude-opus-4-7" | "claude-sonnet-4-6"
+  tokensInput  Int?
+  tokensOutput Int?
+  costUsd      Decimal? @db.Decimal(10, 4)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================
+// Domain: Garmin Sync Health Tracking (Q1)
+// ============================================
+model GarminSyncLog {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  syncedAt DateTime @default(now())
+  status   String // "SUCCESS" | "FAILURE" | "PARTIAL"
+
+  // Detailed status
+  hrvSyncOk         Boolean
+  sleepSyncOk       Boolean
+  bodyBatterySyncOk Boolean
+  rhrSyncOk         Boolean
+  activitiesSyncOk  Boolean
+
+  errorType    String? // "AUTH_FAILURE" | "RATE_LIMIT" | "API_CHANGED" | "NETWORK" | "PARSE_ERROR"
+  errorMessage String? @db.Text
+  retryCount   Int     @default(0)
+
+  // Health-Check Notification State
+  notificationSent Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, syncedAt(sort: Desc)])
+}
+
+// ============================================
+// Domain: Notifications
+// ============================================
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  type     String // "GARMIN_SYNC_FAILURE" | "VDOT_CALIBRATED" | "BLOCK_REVIEW_DUE" | "TIME_TRIAL_TODAY"
+  title    String
+  message  String @db.Text
+  severity String @default("INFO") // "INFO" | "WARNING" | "CRITICAL"
+
+  read   Boolean   @default(false)
+  readAt DateTime?
+
+  // Optional action link (z.B. settings page für Sync-Failures)
+  actionUrl String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, read, createdAt(sort: Desc)])
+}
+
+// ============================================
+// Domain: Block Reviews
+// ============================================
+model BlockReview {
+  id String @id @default(cuid())
+
+  performanceMarkerResult Json // {test: "5k_TT", target: 23:30, achieved: 23:45}
+  actualTID               Json // {z1: 75, z2: 22, z3: 3} (% actual)
+  averageACWR             Decimal @db.Decimal(4, 2)
+  averageReadiness        Int
+  kneeScoreTrend          String // "stable" | "improving" | "declining"
+  missedSessionsCount     Int
+
+  decision          String // "PROCEED" | "EXTEND_PHASE" | "ADJUST_PHASE" | "DEFER"
+  decisionRationale String @db.Text
+
+  aiSummary String? @db.Text // generated by AI-Coach
+
+  phase Phase?
+
+  createdAt DateTime @default(now())
+}

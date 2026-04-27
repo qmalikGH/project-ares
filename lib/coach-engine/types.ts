@@ -1,0 +1,290 @@
+// Project Ares — Engine Types
+// See science_doc.md Kap 9.7 for the data-flow rationale.
+// Pure types — no DB models, no AI types. Engine layer only.
+
+// ============================================
+// Periodization
+// ============================================
+export type PhaseName =
+  | "ACCUMULATION_AEROBIC_BASE"
+  | "ACCUMULATION_THRESHOLD_INTRO"
+  | "TRANSMUTATION_THRESHOLD"
+  | "TRANSMUTATION_VO2MAX"
+  | "REALIZATION_PEAK_PERFORMANCE";
+
+export type BlockNumber = 1 | 2 | 3 | 4 | 5;
+
+export interface PhaseConfig {
+  blockNumber: BlockNumber;
+  phaseName: PhaseName;
+  durationWeeks: number;
+  enduranceTID: { z1: number; z2: number; z3: number };
+  strengthMode: "linear_progression" | "maintenance" | "minimal";
+  strengthRpeCap: 7 | 8 | 9;
+  volumeProgression: "linear_increase" | "maintain" | "deload";
+  vdotTarget: number;
+}
+
+export interface MacrocyclePlan {
+  totalWeeks: number;
+  startDate: Date;
+  endDate: Date;
+  vdotInitial: number;
+  phases: PhasePlan[];
+  performanceMarkerWeeks: number[]; // week numbers within macrocycle (1-indexed)
+}
+
+export interface PhasePlan {
+  blockNumber: BlockNumber;
+  phaseName: PhaseName;
+  startWeek: number; // 1-indexed within macrocycle
+  endWeek: number;
+  startDate: Date;
+  plannedEndDate: Date;
+  config: PhaseConfig;
+  vdotTarget: number;
+}
+
+export type PhaseTransitionDecision =
+  | { decision: "PROCEED"; nextPhase: PhaseName | null; recoverInNext?: boolean }
+  | { decision: "EXTEND_PHASE"; extendByWeeks: number }
+  | { decision: "ADJUST_PHASE"; reduceIntensityFraction: number }
+  | { decision: "DEFER"; deferByWeeks: number };
+
+export interface BlockReviewInput {
+  performanceMarkerMet: boolean;
+  performanceMarkerClose: boolean; // within 5%
+  performanceMarkerMissed: boolean;
+  healthStable: boolean;
+  healthWarning: boolean;
+  healthDecline: boolean;
+  averageACWR: number;
+  averageReadiness: number;
+  kneeScoreTrend: "stable" | "improving" | "declining";
+  missedSessionsCount: number;
+  actualTID: { z1: number; z2: number; z3: number };
+}
+
+// ============================================
+// Goal (Engine input)
+// ============================================
+export interface GoalInput {
+  primaryType: "5k_time" | "10k_time" | "21k_time";
+  currentValue: { time: string; date: Date };
+  targetValue: { time: string; date: Date };
+  modality: "hybrid" | "run_only" | "strength_only";
+  constraints: { type: string; severity: "active" | "monitoring" | "resolved" }[];
+  preferences: { strengthPerWeek?: number; maxTrainingDays?: number };
+  startDate: Date;
+  vdotInitial: number;
+}
+
+// ============================================
+// Sessions
+// ============================================
+export type SessionType =
+  | "easy_run"
+  | "threshold_run"
+  | "tempo_run"
+  | "vo2max_intervals"
+  | "long_run"
+  | "calibration_run"
+  | "time_trial_5k"
+  | "strength_a"
+  | "strength_b"
+  | "strength_c"
+  | "rest"
+  | "active_recovery"
+  | "cross_training"
+  | "mobility";
+
+export type IntensityZone = 1 | 2 | 3;
+
+export interface PaceTarget {
+  from: string; // "5:45"
+  to: string; // "6:15"
+}
+
+export interface Exercise {
+  name: string;
+  sets: number;
+  reps: number | string;
+  loadPct?: number; // % of 1RM
+  loadAbs?: number; // absolute kg, for hex-bar etc.
+  rpeCap?: number;
+  /**
+   * Tempo notation: eccentric-pause-concentric (in seconds), or "iso" for
+   * isometrics, or "X-X-X" for max-effort moves. See science_doc.md Kap 8.4
+   * (HSR — slow eccentric is the active ingredient for tendon remodeling).
+   */
+  tempo?: string;
+  /** Rest seconds between sets. See science_doc.md Kap 4.5 (Hybrid pauses). */
+  restSec?: number;
+  notes?: string;
+}
+
+export interface SessionPlan {
+  date: Date;
+  type: SessionType;
+  durationMin?: number;
+  paceTarget?: PaceTarget;
+  intensityZone?: IntensityZone;
+  exercises?: Exercise[];
+  rpeTarget?: number;
+  notes?: string;
+  // Optional structure for interval sessions
+  structure?: {
+    warmupMin?: number;
+    workIntervals?: { repeats: number; durationMin?: number; distanceM?: number; paceTarget?: PaceTarget; restMin?: number }[];
+    cooldownMin?: number;
+  };
+}
+
+export interface FinalSession extends SessionPlan {
+  wasModified: boolean;
+  modifications: string[];
+  confidence: number; // 0-100
+  explanation: string;
+}
+
+// ============================================
+// Sensors / Daily Inputs
+// ============================================
+export interface GarminMorningInputs {
+  hrvStatus: string; // "BALANCED" | "UNBALANCED" | "LOW" etc.
+  hrvRmssd: number; // ms
+  sleepScore: number; // 0-100
+  sleepDurationMin: number;
+  bodyBatteryMorning: number; // 0-100
+  rhr: number; // bpm
+}
+
+export interface UserMorningInputs {
+  subjectiveRecovery: number; // 1-10
+  morningStiffness: number; // 1-10 (10 = worst)
+  stairsScore: number; // 1-10 (10 = worst pain)
+}
+
+export interface UserPostSessionInputs {
+  trainingScore: number; // 1-10 knee post-session
+  rpe: number; // 0-10 sRPE
+  durationActualMin: number;
+  notes?: string;
+}
+
+export interface DailySensorInputs {
+  date: Date;
+  garmin?: GarminMorningInputs;
+  userMorning: UserMorningInputs;
+  userPostSession?: UserPostSessionInputs;
+}
+
+export interface SensorBaselines {
+  hrv28dAvg: number;
+  hrv28dSd: number;
+  sleep28dAvg: number;
+  sleep28dSd: number;
+  rhr28dAvg: number;
+  rhr28dSd: number;
+}
+
+// ============================================
+// Sensor Outputs
+// ============================================
+export type ReadinessBand = "GREEN" | "YELLOW" | "ORANGE" | "RED";
+export type Trend7d = "stable" | "improving" | "declining";
+
+export interface ReadinessOutput {
+  score: number; // 0-100
+  band: ReadinessBand;
+  components: {
+    hrv: number;
+    sleep: number;
+    battery: number;
+    rhrDev: number;
+    subjective: number;
+    knee: number;
+  };
+  trend7d: Trend7d;
+}
+
+export type ACWRBand = "BASELINE_BUILDING" | "LOW" | "OPTIMAL" | "HIGH" | "DANGER";
+
+export interface LoadOutput {
+  dailyLoadAu: number;
+  acute7d: number;
+  chronic28d: number;
+  acwrRolling: number;
+  acwrEwma: number;
+  band: ACWRBand;
+  /**
+   * Distinct days of load data observed in the chronic window.
+   * <14 → ACWR is unreliable per Wang 2020; band falls back to BASELINE_BUILDING.
+   */
+  daysOfData: number;
+}
+
+export type TherapyPhase = "REACTIVE" | "DISREPAIR" | "REMODELING" | "SPORT_SPECIFIC";
+
+export interface KneeLog {
+  date: Date;
+  morningStiffness: number;
+  stairsScore: number;
+  postSessionScore?: number;
+}
+
+export interface LimitationsOutput {
+  kneeScoreToday: number;
+  kneeBaseline28d: number;
+  kneeTrend7d: Trend7d;
+  therapyPhase: TherapyPhase;
+  constraints: string[];
+}
+
+// ============================================
+// Run Plan / Strength Plan / Week Plan
+// ============================================
+export interface VDOTPaces {
+  E: PaceTarget; // Easy
+  M: string; // Marathon (single target)
+  T: string; // Threshold
+  I: string; // Interval / VO2max
+  R: string; // Repetition
+}
+
+export interface WeekRunPlan {
+  weekNumber: number;
+  blockNumber: BlockNumber;
+  sessions: SessionPlan[];
+  weeklyVolumeMinTarget: number;
+  paces: VDOTPaces;
+}
+
+export interface WeekStrengthData {
+  weekNumber: number;
+  sessions: { type: "strength_a" | "strength_b" | "strength_c"; rpeReported?: number }[];
+  loadsByExercise?: Record<string, number>;
+}
+
+export interface WeekStrengthPlan {
+  weekNumber: number;
+  blockNumber: BlockNumber;
+  sessions: SessionPlan[];
+}
+
+// ============================================
+// Calibration (W1)
+// ============================================
+export interface W1CalibrationRunData {
+  durationMin: number;
+  distanceKm: number;
+  avgHr: number;
+  maxHr: number;
+  rpe: number;
+}
+
+export interface VDOTCalibrationResult {
+  calibratedVdot: number;
+  pacesUpdated: boolean;
+  notification: string;
+}

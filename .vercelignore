@@ -1,0 +1,23 @@
+# Vercel does NOT respect .gitignore — secrets must be explicitly excluded here.
+# Anything matching these patterns is left out of the deployment upload.
+
+# Env files (Vercel injects env vars from its dashboard / vercel env)
+.env
+.env.local
+.env.*.local
+
+# Local build artifacts
+.next/
+out/
+build/
+coverage/
+
+# Tooling
+.git/
+.vscode/
+.idea/
+*.log
+
+# Test files (not needed in production)
+tests/
+vitest.config.ts
