@@ -21,6 +21,7 @@ import {
 } from "@/lib/ai-coach/prompts/daily-explanation";
 import { loadWorkoutContext } from "@/lib/db/queries/workout-context";
 import { formatWorkoutContext } from "@/lib/ai-coach/prompts/workout-context";
+import { isAiCoachEnabled } from "@/lib/db/queries/settings";
 import { computeReadiness, computeBaselines } from "@/lib/coach-engine/readiness";
 import { buildLoadOutput, computeDailyLoad } from "@/lib/coach-engine/load-monitoring";
 import { computeKneeStatus } from "@/lib/coach-engine/limitations";
@@ -48,10 +49,6 @@ import type {
 const Schema = z.object({ force: z.boolean().optional() });
 
 export async function POST(req: Request) {
-  if (process.env.ENABLE_AI_COACH !== "true") {
-    return NextResponse.json({ status: "AI_COACH_DISABLED" }, { status: 200 });
-  }
-
   let body: unknown = {};
   try {
     body = await req.json();
@@ -64,6 +61,9 @@ export async function POST(req: Request) {
   }
 
   const userId = await getCurrentUserId();
+  if (!(await isAiCoachEnabled(userId))) {
+    return NextResponse.json({ status: "AI_COACH_DISABLED" }, { status: 200 });
+  }
   const today = new Date();
   const todayDay = dayKey(today);
 

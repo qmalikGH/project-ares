@@ -34,6 +34,7 @@ model User {
   conversations  AIConversation[]
   garminSyncLogs GarminSyncLog[]
   notifications  Notification[]
+  settings       UserSettings?
 }
 
 model Account {
@@ -326,4 +327,31 @@ model BlockReview {
   phase Phase?
 
   createdAt DateTime @default(now())
+}
+
+// ============================================
+// User Settings (added in v0.5)
+// ============================================
+model UserSettings {
+  userId                  String    @id
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Garmin override (v0.5: plaintext; v0.6: encrypt at rest)
+  garminUsernameOverride  String?
+  garminPasswordOverride  String?
+
+  // AI Coach
+  aiCoachEnabled          Boolean   @default(true)
+  aiModelPrimaryOverride  String?
+
+  // VDOT override
+  vdotOverride            Int?
+  vdotOverrideAt          DateTime?
+  vdotOverrideRationale   String?   @db.Text
+
+  // Notifications (per-type toggle)
+  notificationPrefs       Json?
+
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 }

@@ -29,6 +29,7 @@ import { getActiveGoal, getActiveMacrocycle } from "@/lib/db/queries/plans";
 import { dayKey, getRecentSensorData } from "@/lib/db/queries/sensors";
 import { loadWorkoutContext } from "@/lib/db/queries/workout-context";
 import { formatWorkoutContext } from "@/lib/ai-coach/prompts/workout-context";
+import { isAiCoachEnabled } from "@/lib/db/queries/settings";
 
 const Schema = z.object({
   // The UI sends `null` on the first turn (useState<string | null>(null));
@@ -38,10 +39,6 @@ const Schema = z.object({
 });
 
 export async function POST(req: Request) {
-  if (process.env.ENABLE_AI_COACH !== "true") {
-    return NextResponse.json({ status: "AI_COACH_DISABLED" }, { status: 200 });
-  }
-
   let body: unknown;
   try {
     body = await req.json();
@@ -54,6 +51,9 @@ export async function POST(req: Request) {
   }
 
   const userId = await getCurrentUserId();
+  if (!(await isAiCoachEnabled(userId))) {
+    return NextResponse.json({ status: "AI_COACH_DISABLED" }, { status: 200 });
+  }
   const { message } = parsed.data;
 
   // Load (or create) the conversation

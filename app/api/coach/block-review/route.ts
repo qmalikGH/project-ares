@@ -22,6 +22,7 @@ import { decidePhaseTransition } from "@/lib/coach-engine/periodization";
 import { buildBlockReviewInput } from "@/lib/block-review/compute";
 import { dayKey } from "@/lib/db/queries/sensors";
 import { loadBlockContext } from "@/lib/db/queries/workout-context";
+import { isAiCoachEnabled } from "@/lib/db/queries/settings";
 import type { PhaseName } from "@/lib/coach-engine/types";
 
 const Schema = z.object({ phaseId: z.string().optional() });
@@ -95,7 +96,7 @@ export async function POST(req: Request) {
   // AI narration
   let aiSummary: string | null = null;
   let aiCostUsd = 0;
-  if (process.env.ENABLE_AI_COACH === "true") {
+  if (await isAiCoachEnabled(userId)) {
     try {
       const baseContent = buildBlockReviewUserContent(phase.blockNumber, phase.name, reviewInput, decision);
       // Append full-block workout history so the AI can reference specific

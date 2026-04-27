@@ -2,6 +2,8 @@
 // See science_doc.md Kap 9.7 for the data-flow rationale.
 // Pure types — no DB models, no AI types. Engine layer only.
 
+import { z } from "zod";
+
 // ============================================
 // Periodization
 // ============================================
@@ -288,3 +290,85 @@ export interface VDOTCalibrationResult {
   pacesUpdated: boolean;
   notification: string;
 }
+
+// ============================================
+// ExecutedSession (post-workout, persisted in Workout.executedSession JSON)
+// ============================================
+
+/** A single set within a strength exercise. */
+export const StrengthSetSchema = z.object({
+  reps: z.number().min(0).max(100),
+  loadKg: z.number().min(0).nullable(),
+  rpe: z.number().min(1).max(10).nullable(),
+  /** For isometrics like Wall Sit. Null for normal lifts. */
+  durationSec: z.number().min(0).nullable(),
+  notes: z.string().optional(),
+});
+
+/** A single exercise's actual execution. */
+export const StrengthExecutedExerciseSchema = z.object({
+  name: z.string(),
+  plannedSets: z.number(),
+  plannedReps: z.union([z.number(), z.string()]),
+  plannedLoadPct: z.number().nullable(),
+
+  actualSets: z.array(StrengthSetSchema),
+  skipped: z.boolean().default(false),
+  exerciseNotes: z.string().optional(),
+});
+
+/** Run executed session — typically auto-imported from Garmin. */
+export const RunExecutedSessionSchema = z.object({
+  type: z.literal("run"),
+  source: z.enum(["garmin_import", "manual"]),
+  garminActivityId: z.number().nullable(),
+
+  startTimeLocal: z.string(),
+  durationSec: z.number(),
+  distanceM: z.number().nullable(),
+  averagePaceSecPerKm: z.number().nullable(),
+  averageHr: z.number().nullable(),
+  maxHr: z.number().nullable(),
+  elevationGainM: z.number().nullable(),
+  calories: z.number().nullable(),
+
+  splits: z
+    .array(
+      z.object({
+        splitNumber: z.number(),
+        distanceM: z.number(),
+        durationSec: z.number(),
+        paceSecPerKm: z.number().nullable(),
+        averageHr: z.number().nullable(),
+        maxHr: z.number().nullable(),
+      }),
+    )
+    .default([]),
+});
+
+/** Strength executed session — manual set-by-set logger. */
+export const StrengthExecutedSessionSchema = z.object({
+  type: z.literal("strength"),
+  source: z.literal("manual"),
+  garminActivityId: z.number().nullable(),
+
+  startTimeLocal: z.string(),
+  durationActualMin: z.number(),
+
+  exercises: z.array(StrengthExecutedExerciseSchema),
+
+  averageHr: z.number().nullable(),
+  maxHr: z.number().nullable(),
+  calories: z.number().nullable(),
+});
+
+export const ExecutedSessionSchema = z.discriminatedUnion("type", [
+  RunExecutedSessionSchema,
+  StrengthExecutedSessionSchema,
+]);
+
+export type StrengthSet = z.infer<typeof StrengthSetSchema>;
+export type StrengthExecutedExercise = z.infer<typeof StrengthExecutedExerciseSchema>;
+export type RunExecutedSession = z.infer<typeof RunExecutedSessionSchema>;
+export type StrengthExecutedSession = z.infer<typeof StrengthExecutedSessionSchema>;
+export type ExecutedSession = z.infer<typeof ExecutedSessionSchema>;

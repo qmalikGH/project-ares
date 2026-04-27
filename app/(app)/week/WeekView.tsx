@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Card,
   ExerciseList,
@@ -26,11 +27,11 @@ type WeekResponse =
 type Span = "1W" | "2W";
 
 export default function WeekView() {
+  const router = useRouter();
   const [span, setSpan] = useState<Span>("1W");
   const [weeks, setWeeks] = useState<WeekResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeDay, setActiveDay] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,7 +63,7 @@ export default function WeekView() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Wochenansicht</h1>
           <p className="text-sm text-muted-foreground">
-            Alle geplanten Sessions. Click auf einen Tag → Details.
+            Alle geplanten Sessions. Click auf einen Tag → Detail-Page.
           </p>
         </div>
         <div className="inline-flex rounded-md border bg-muted/30">
@@ -92,16 +93,12 @@ export default function WeekView() {
       )}
 
       {okWeeks.map((w) => (
-        <WeekBlock key={w.week.weekNumber} week={w.week} onDayClick={setActiveDay} />
-      ))}
-
-      {activeDay && (
-        <DayDetailModal
-          dateStr={activeDay}
-          weeks={okWeeks.map((w) => w.week)}
-          onClose={() => setActiveDay(null)}
+        <WeekBlock
+          key={w.week.weekNumber}
+          week={w.week}
+          onDayClick={(date) => router.push(`/day/${date}`)}
         />
-      )}
+      ))}
     </div>
   );
 }
@@ -210,108 +207,3 @@ function WeekSessionRow({ session }: { session: SessionShape }) {
   );
 }
 
-function DayDetailModal({
-  dateStr,
-  weeks,
-  onClose,
-}: {
-  dateStr: string;
-  weeks: Array<{ sessions: SessionShape[]; weekNumber: number; phaseName: string; blockNumber: number }>;
-  onClose: () => void;
-}) {
-  const todayKey = new Date().toISOString().slice(0, 10);
-  const isPast = dateStr < todayKey;
-  const isFuture = dateStr > todayKey;
-  const isToday = dateStr === todayKey;
-
-  // Find sessions for this day across all loaded weeks
-  const sessions: SessionShape[] = [];
-  let weekNumber = 0;
-  let phaseName = "";
-  let blockNumber = 0;
-  for (const w of weeks) {
-    const wSessions = w.sessions.filter((s) => {
-      const d = typeof s.date === "string" ? s.date : new Date(s.date).toISOString();
-      return d.slice(0, 10) === dateStr;
-    });
-    if (wSessions.length > 0) {
-      sessions.push(...wSessions);
-      weekNumber = w.weekNumber;
-      phaseName = w.phaseName;
-      blockNumber = w.blockNumber;
-      break;
-    }
-  }
-
-  const dateLabel = new Date(dateStr).toLocaleDateString("de-DE", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
-
-  return (
-    <div
-      className="fixed inset-0 z-30 bg-black/50 flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-card border rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="flex items-start justify-between border-b p-5">
-          <div>
-            <h2 className="text-lg font-semibold">{dateLabel}</h2>
-            <p className="text-xs text-muted-foreground">
-              Block {blockNumber} · {prettyPhase(phaseName)} · Woche {weekNumber}
-              {isToday && " · heute"}
-              {isPast && " · vergangen"}
-              {isFuture && " · geplant"}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-sm text-muted-foreground hover:underline"
-          >
-            schließen
-          </button>
-        </header>
-
-        <div className="p-5 space-y-4">
-          {sessions.length === 0 ||
-          (sessions.length === 1 && sessions[0].type === "rest") ? (
-            <p className="text-muted-foreground">Rest-Tag — keine Session geplant.</p>
-          ) : (
-            sessions
-              .filter((s) => s.type !== "rest")
-              .map((s, i) => (
-                <div key={i} className="border-t pt-4 first:border-t-0 first:pt-0">
-                  <h3 className="font-semibold">
-                    {SESSION_LABEL[s.type] ?? s.type}
-                    {s.durationMin ? ` · ${s.durationMin}min` : ""}
-                  </h3>
-                  {s.paceTarget && (
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Pace: {s.paceTarget.from}
-                      {s.paceTarget.from !== s.paceTarget.to ? `–${s.paceTarget.to}` : ""}/km
-                      {s.intensityZone ? ` · Z${s.intensityZone}` : ""}
-                      {s.rpeTarget ? ` · RPE ${s.rpeTarget}` : ""}
-                    </p>
-                  )}
-                  {s.exercises && s.exercises.length > 0 && (
-                    <ExerciseList exercises={s.exercises} />
-                  )}
-                </div>
-              ))
-          )}
-
-          {isFuture && (
-            <p className="text-xs text-muted-foreground italic border-t pt-4">
-              Diese Session wird am Tag basierend auf deiner Recovery (HRV, Sleep, Knee)
-              automatisch angepasst.
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}

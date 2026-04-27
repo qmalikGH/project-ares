@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Card,
   ExerciseList,
@@ -415,9 +416,14 @@ function WorkoutDetail({ workout }: { workout: WorkoutItem }) {
         </div>
       )}
 
-      {/* Garmin link */}
-      {workout.garminActivityId && (
-        <div>
+      <div className="flex items-center gap-4">
+        <Link
+          href={`/day/${new Date(workout.date).toISOString().slice(0, 10)}`}
+          className="text-xs text-primary hover:underline"
+        >
+          → Tag-Detail öffnen
+        </Link>
+        {workout.garminActivityId && (
           <a
             href={`https://connect.garmin.com/modern/activity/${workout.garminActivityId}`}
             target="_blank"
@@ -426,8 +432,8 @@ function WorkoutDetail({ workout }: { workout: WorkoutItem }) {
           >
             → in Garmin Connect öffnen
           </a>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

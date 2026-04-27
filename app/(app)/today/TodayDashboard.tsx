@@ -7,9 +7,12 @@ import {
   Pill,
   TodaySessions,
   prettyPhase,
+  type ExerciseShape,
   type FinalSessionShape,
   type SessionShape,
 } from "@/components/training/shared";
+import { CompletionFlow } from "@/components/workout/CompletionFlow";
+import type { Exercise } from "@/lib/coach-engine/types";
 
 type SensorOutputs = {
   readiness: {
@@ -121,7 +124,12 @@ export default function TodayDashboard() {
             plannedSessions={today.plannedSessions ?? [today.plannedSession]}
           />
           <CoachExplanation finalSession={today.finalSession} />
-          <WorkoutActions onChanged={refresh} sessionType={today.finalSession.type} />
+          <WorkoutActions
+            onChanged={refresh}
+            sessionType={today.finalSession.type}
+            plannedExercises={today.finalSession.exercises ?? []}
+            plannedDurationMin={today.finalSession.durationMin ?? 45}
+          />
         </>
       )}
     </div>
@@ -397,22 +405,22 @@ function CoachExplanation({ finalSession }: { finalSession: FinalSessionShape })
 }
 
 // ============================================
-// Workout actions (start / complete)
+// Workout actions (start / complete via CompletionFlow)
 // ============================================
 function WorkoutActions({
   onChanged,
   sessionType,
+  plannedExercises,
+  plannedDurationMin,
 }: {
   onChanged: () => void;
   sessionType: string;
+  plannedExercises: ExerciseShape[];
+  plannedDurationMin: number;
 }) {
   const [workout, setWorkout] = useState<{ id: string; status: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [rpe, setRpe] = useState(7);
-  const [duration, setDuration] = useState(45);
-  const [trainingScore, setTraining] = useState(3);
-  const [notes, setNotes] = useState("");
 
   useEffect(() => {
     fetch("/api/workouts?days=1")
@@ -455,31 +463,6 @@ function WorkoutActions({
     }
   }
 
-  async function complete() {
-    setBusy(true);
-    setErr(null);
-    try {
-      const res = await fetch("/api/sessions/complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rpe,
-          durationActualMin: duration,
-          notes: notes || undefined,
-          trainingScore,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.status ?? `HTTP ${res.status}`);
-      setWorkout({ id: data.workoutId, status: "completed" });
-      onChanged();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to complete");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   if (workout?.status === "completed") {
     return (
       <Card className="border-emerald-500/30 bg-emerald-500/5">
@@ -501,46 +484,21 @@ function WorkoutActions({
     );
   }
 
+  // status === "in_progress" → render the multi-step CompletionFlow.
+  // Cast ExerciseShape (UI type) to Exercise (engine type) — fields align.
   return (
     <Card>
-      <h3 className="text-sm font-semibold mb-3">Session abschließen</h3>
-      <div className="grid grid-cols-1 gap-4">
-        <Slider
-          label="sRPE (gefühlte Anstrengung)"
-          hint="0=ruhig, 10=maximal"
-          value={rpe}
-          onChange={setRpe}
-          max={10}
-        />
-        <NumberField
-          label="Tatsächliche Dauer (min)"
-          value={duration}
-          onChange={setDuration}
-          min={1}
-          max={300}
-        />
-        <Slider
-          label="Knee Score post-Session"
-          hint="1=schmerzfrei, 10=stark"
-          value={trainingScore}
-          onChange={setTraining}
-          max={10}
-        />
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">Notizen (optional)</span>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={2}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            placeholder="z.B. Wetter, Form, Pace-Range erreicht?"
-          />
-        </label>
-      </div>
-      {err && <p className="mt-2 text-sm text-destructive">{err}</p>}
-      <Button onClick={complete} disabled={busy} size="lg" className="mt-4">
-        {busy ? "Speichere…" : "Abschließen & Load berechnen"}
-      </Button>
+      <h3 className="text-sm font-semibold mb-4">Session abschließen</h3>
+      <CompletionFlow
+        workoutId={workout.id}
+        sessionType={sessionType}
+        plannedExercises={plannedExercises as unknown as Exercise[]}
+        durationMin={plannedDurationMin}
+        onComplete={() => {
+          setWorkout({ id: workout.id, status: "completed" });
+          onChanged();
+        }}
+      />
     </Card>
   );
 }
