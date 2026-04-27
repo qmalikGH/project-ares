@@ -114,3 +114,56 @@ export function computeHrTID(splits: SplitForTID[], zones: HrZones): HrTID {
     totalSec,
   };
 }
+
+// ============================================
+// Garmin 5-zones → Polarized 3-zones (Sprint v0.7)
+// ============================================
+//
+// Garmin reports activity time-in-zone across 5 buckets (Z1=warm-up, Z2=easy,
+// Z3=aerobic, Z4=threshold, Z5=max). Our polarized model (Casado 2022) only
+// distinguishes three buckets:
+//
+//   Polarized Z1 (Easy, sub-LT1)   ←  Garmin Z1 + Z2
+//   Polarized Z2 (Threshold)        ←  Garmin Z3 + Z4
+//   Polarized Z3 (VO2max+)          ←  Garmin Z5
+//
+// Mapping rationale: Garmin Z1+Z2 are both below LT1 in their default 5-zone
+// scheme (50–70% HRmax), so both belong in Easy. Z3+Z4 span aerobic-threshold
+// to anaerobic-threshold — both count as Threshold for polarized accounting.
+// Z5 is supra-VO2max (≥90% HRmax) → Z3 in polarized.
+
+export interface PolarizedTID {
+  z1Sec: number;
+  z2Sec: number;
+  z3Sec: number;
+  z1Pct: number;
+  z2Pct: number;
+  z3Pct: number;
+  totalSec: number;
+}
+
+export interface GarminFiveZoneActivity {
+  zone1Sec: number;
+  zone2Sec: number;
+  zone3Sec: number;
+  zone4Sec: number;
+  zone5Sec: number;
+}
+
+export function mapGarminZonesToPolarizedTID(
+  z: GarminFiveZoneActivity,
+): PolarizedTID {
+  const z1Sec = z.zone1Sec + z.zone2Sec;
+  const z2Sec = z.zone3Sec + z.zone4Sec;
+  const z3Sec = z.zone5Sec;
+  const total = z1Sec + z2Sec + z3Sec;
+  return {
+    z1Sec,
+    z2Sec,
+    z3Sec,
+    totalSec: total,
+    z1Pct: total > 0 ? (z1Sec / total) * 100 : 0,
+    z2Pct: total > 0 ? (z2Sec / total) * 100 : 0,
+    z3Pct: total > 0 ? (z3Sec / total) * 100 : 0,
+  };
+}

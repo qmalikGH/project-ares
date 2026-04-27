@@ -657,3 +657,121 @@ export async function getPaceDriftStatus(
 
   return detectPaceDrift({ recentEasyRuns: samples });
 }
+
+// ============================================
+// Garmin-HR-Zone-based TID (Sprint v0.7)
+// ============================================
+//
+// /progress's most accurate TID source: Garmin computed time-in-each-zone
+// per activity (during the workout, with the device's full HR sample, no
+// km-by-km approximation). For each completed Run-Workout in the window we
+// just sum the polarizedTID payload that was stored at session-complete time.
+//
+// Falls back to null when no Garmin-enriched runs exist; caller then shows
+// the splits-based or plan-based TID instead.
+
+export interface GarminBasedTID {
+  source: "garmin_hr_zones";
+  z1Pct: number;
+  z2Pct: number;
+  z3Pct: number;
+  totalSec: number;
+  /** N runs whose Garmin polarizedTID we summed. */
+  sessions: number;
+  /** Drift vs plan-TID, percentage points. */
+  driftPP: { z1: number; z2: number; z3: number };
+}
+
+export async function getGarminBasedTIDDistribution(
+  userId: string,
+  scope: TIDScope,
+  today: Date,
+): Promise<GarminBasedTID | null> {
+  const macro = await db.macrocycle.findFirst({
+    where: { userId, status: "active" },
+    include: { phases: { orderBy: { blockNumber: "asc" } } },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!macro) return null;
+
+  const today0 = dayKey(today);
+  let from: Date;
+  let planTID: TIDDistribution;
+
+  if (scope === "this_block") {
+    const currentPhase = macro.phases.find(
+      (p) =>
+        dayKey(p.startDate).getTime() <= today0.getTime() &&
+        today0.getTime() < dayKey(p.plannedEndDate).getTime(),
+    );
+    if (!currentPhase) return null;
+    from = dayKey(currentPhase.startDate);
+    const config = currentPhase.config as
+      | { enduranceTID?: TIDDistribution }
+      | null;
+    planTID = config?.enduranceTID ?? { z1: 78, z2: 20, z3: 2 };
+  } else {
+    from = dayKey(macro.startDate);
+    planTID = computeWeightedTID(
+      macro.phases.map((p) => {
+        const cfg = p.config as { enduranceTID?: TIDDistribution } | null;
+        const t = cfg?.enduranceTID ?? { z1: 0, z2: 0, z3: 0 };
+        return { ...t, durationWeeks: p.durationWeeks };
+      }),
+    );
+  }
+
+  const to = new Date(today0.getTime() + 86400000);
+  const runWorkouts = await db.workout.findMany({
+    where: {
+      userId,
+      date: { gte: from, lt: to },
+      status: "completed",
+    },
+  });
+
+  let z1Sec = 0;
+  let z2Sec = 0;
+  let z3Sec = 0;
+  let sessions = 0;
+
+  for (const w of runWorkouts) {
+    if (!isRunType(w.type)) continue;
+    const exec = w.executedSession as
+      | {
+          type?: string;
+          polarizedTID?: {
+            z1Sec: number;
+            z2Sec: number;
+            z3Sec: number;
+          } | null;
+        }
+      | null;
+    if (!exec || exec.type !== "run" || !exec.polarizedTID) continue;
+    z1Sec += exec.polarizedTID.z1Sec;
+    z2Sec += exec.polarizedTID.z2Sec;
+    z3Sec += exec.polarizedTID.z3Sec;
+    sessions += 1;
+  }
+
+  const totalSec = z1Sec + z2Sec + z3Sec;
+  if (totalSec === 0) return null;
+
+  const z1Pct = Math.round(((z1Sec / totalSec) * 100) * 10) / 10;
+  const z2Pct = Math.round(((z2Sec / totalSec) * 100) * 10) / 10;
+  const z3Pct = Math.round(((z3Sec / totalSec) * 100) * 10) / 10;
+
+  return {
+    source: "garmin_hr_zones",
+    z1Pct,
+    z2Pct,
+    z3Pct,
+    totalSec,
+    sessions,
+    driftPP: {
+      z1: Math.round((z1Pct - planTID.z1) * 10) / 10,
+      z2: Math.round((z2Pct - planTID.z2) * 10) / 10,
+      z3: Math.round((z3Pct - planTID.z3) * 10) / 10,
+    },
+  };
+}

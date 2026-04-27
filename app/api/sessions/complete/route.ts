@@ -13,7 +13,8 @@ import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { dayKey } from "@/lib/db/queries/sensors";
-import { getActivityDetail } from "@/lib/garmin/activities";
+import { getActivityDetail, getActivityHrZones } from "@/lib/garmin/activities";
+import { mapGarminZonesToPolarizedTID } from "@/lib/coach-engine/hr-zones";
 import {
   RunExecutedSessionSchema,
   StrengthExecutedSessionSchema,
@@ -21,9 +22,14 @@ import {
   type W1CalibrationRunData,
 } from "@/lib/coach-engine/types";
 import { calibrateVDOTFromW1 } from "@/lib/coach-engine/run-coach";
-import { getEffectiveVdot } from "@/lib/db/queries/settings";
+import {
+  getEffectiveVdot,
+  getOrCreateUserSettings,
+} from "@/lib/db/queries/settings";
 import { regenerateFutureSessionPaces } from "@/lib/db/queries/regenerate";
 import { createNotification } from "@/lib/notifications/create";
+import { getRecentRunSummaries } from "@/lib/garmin/profile";
+import { calibrateVdotFromRuns } from "@/lib/coach-engine/vdot-calculator";
 
 const Schema = z.object({
   rpe: z.number().int().min(0).max(10),
@@ -70,6 +76,14 @@ export async function POST(req: Request) {
   if (parsed.data.garminActivityId) {
     try {
       const detail = await getActivityDetail(parsed.data.garminActivityId);
+      // Sprint v0.7: pull HR-time-in-zones for this activity so /progress
+      // can build TID directly from Garmin's data instead of approximating
+      // from splits. Best-effort — null on any failure.
+      const garminHrZones = await getActivityHrZones(parsed.data.garminActivityId);
+      const polarizedTID = garminHrZones
+        ? mapGarminZonesToPolarizedTID(garminHrZones)
+        : null;
+
       const runExec = RunExecutedSessionSchema.parse({
         type: "run",
         source: "garmin_import",
@@ -90,6 +104,8 @@ export async function POST(req: Request) {
           averageHr: s.averageHr,
           maxHr: s.maxHr,
         })),
+        garminHrZones,
+        polarizedTID,
       });
       executedSession = runExec;
       durationActualMin = Math.max(1, Math.round(detail.durationSec / 60));
@@ -247,6 +263,70 @@ export async function POST(req: Request) {
     console.error("[complete] W1 calibration failed:", e);
   }
 
+  // Sprint v0.7 (Garmin-driven): rolling auto-recalibration.
+  // After ANY Garmin-imported run, re-run the multi-method calibrator on the
+  // last ~7 runs and SUGGEST a VDOT update if it diverges by ≥1 from current.
+  // Suggestion only — never auto-applied. Q decides via a notification action.
+  // Skipped when W1 already updated VDOT (avoids double-notification).
+  let recalibration: {
+    suggested: boolean;
+    currentVdot: number;
+    suggestedVdot: number;
+    confidence: "low" | "medium" | "high";
+  } | null = null;
+  if (
+    !w1Calibration?.applied &&
+    parsed.data.garminActivityId &&
+    executedSession &&
+    typeof executedSession === "object" &&
+    (executedSession as { type?: string }).type === "run"
+  ) {
+    try {
+      const settings = await getOrCreateUserSettings(userId);
+      if (settings.hrMax && settings.hrRest) {
+        const recentRuns = await getRecentRunSummaries(60);
+        const last7 = recentRuns.slice(-7);
+        if (last7.length >= 3) {
+          const recal = calibrateVdotFromRuns(
+            last7,
+            settings.hrMax,
+            settings.hrRest,
+          );
+          const currentVdot = await getEffectiveVdot(userId);
+          if (
+            !recal.insufficient_data &&
+            Math.abs(recal.finalVdot - currentVdot) >= 1
+          ) {
+            const prefs = settings.notificationPrefs as
+              | { vdotCalibrated?: boolean }
+              | null;
+            if (prefs?.vdotCalibrated !== false) {
+              const methodSummary = recal.estimates
+                .map((e) => `${e.method}=${e.vdot}`)
+                .join(", ");
+              await createNotification({
+                userId,
+                type: "VDOT_CALIBRATED",
+                title: `VDOT-Update vorgeschlagen: ${currentVdot} → ${recal.finalVdot}`,
+                message: `Aus den letzten ${last7.length} Runs (rolling window): ${methodSummary}. Konfidenz: ${recal.confidence}, Range ${recal.range.min}-${recal.range.max}. Übernimm in Settings.`,
+                severity: "INFO",
+                actionUrl: `/settings?vdotPrefill=${recal.finalVdot}`,
+              });
+            }
+            recalibration = {
+              suggested: true,
+              currentVdot,
+              suggestedVdot: recal.finalVdot,
+              confidence: recal.confidence,
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[complete] rolling recalibration failed:", e);
+    }
+  }
+
   return NextResponse.json({
     status: "ok",
     workoutId: updated.id,
@@ -254,5 +334,6 @@ export async function POST(req: Request) {
     hasGarminImport: !!parsed.data.garminActivityId,
     hasStrengthLog: !!parsed.data.strengthExecution,
     w1Calibration,
+    recalibration,
   });
 }

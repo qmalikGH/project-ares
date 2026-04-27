@@ -28,6 +28,9 @@ export type SessionShape = {
   rpeTarget?: number;
   exercises?: ExerciseShape[];
   notes?: string;
+  // Sprint v0.7: HR-First control
+  hrTarget?: { from: number; to: number };
+  controlMethod?: "hr_first" | "pace_first";
 };
 
 export type FinalSessionShape = SessionShape & {
@@ -213,13 +216,35 @@ export function SessionBody({
           </span>
         )}
       </div>
-      <p className="text-sm text-muted-foreground mt-1">
-        {final.durationMin ? `${final.durationMin}min` : "—"}
-        {final.paceTarget &&
-          ` · Pace ${final.paceTarget.from}${final.paceTarget.from !== final.paceTarget.to ? `–${final.paceTarget.to}` : ""}/km`}
-        {final.intensityZone && ` · Z${final.intensityZone}`}
-        {final.rpeTarget && ` · RPE ${final.rpeTarget}`}
-      </p>
+
+      {/* HR-First (Sprint v0.7): HR prominent, pace orientierend.
+          Pace_first sessions (time trial) flip the hierarchy. */}
+      {final.hrTarget && final.controlMethod !== "pace_first" ? (
+        <>
+          <p className="text-2xl font-bold tabular-nums mt-2 text-primary">
+            HR {final.hrTarget.from}–{final.hrTarget.to}{" "}
+            <span className="text-sm font-normal text-muted-foreground">bpm</span>
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {final.durationMin ? `${final.durationMin}min` : "—"}
+            {final.paceTarget &&
+              ` · Pace ~${final.paceTarget.from}${final.paceTarget.from !== final.paceTarget.to ? `–${final.paceTarget.to}` : ""}/km (orientierend)`}
+            {final.intensityZone && ` · Z${final.intensityZone}`}
+            {final.rpeTarget && ` · RPE ${final.rpeTarget}`}
+          </p>
+        </>
+      ) : (
+        <p className="text-sm text-muted-foreground mt-1">
+          {final.durationMin ? `${final.durationMin}min` : "—"}
+          {final.paceTarget &&
+            ` · Pace ${final.paceTarget.from}${final.paceTarget.from !== final.paceTarget.to ? `–${final.paceTarget.to}` : ""}/km`}
+          {final.intensityZone && ` · Z${final.intensityZone}`}
+          {final.rpeTarget && ` · RPE ${final.rpeTarget}`}
+          {final.hrTarget && final.controlMethod === "pace_first" &&
+            ` · HR ~${final.hrTarget.from}–${final.hrTarget.to}bpm`}
+        </p>
+      )}
+
       {final.notes && (
         <p className="text-sm italic text-muted-foreground mt-1">{final.notes}</p>
       )}

@@ -19,8 +19,19 @@ import { generateMacrocycle } from "@/lib/coach-engine/periodization";
 import { generateWeekRunPlan } from "@/lib/coach-engine/run-coach";
 import { generateWeekStrengthPlan } from "@/lib/coach-engine/strength-coach";
 import { computeInitialVdotFromGoal } from "@/lib/coach-engine/vdot-table";
+import {
+  calibrateVdotFromRuns,
+  type VdotCalibrationResult,
+} from "@/lib/coach-engine/vdot-calculator";
+import {
+  getGarminProfileMetrics,
+  getRecentRunSummaries,
+  type GarminProfileMetrics,
+  type RunSummary,
+} from "@/lib/garmin/profile";
 import type { GoalInput, SessionPlan, TherapyPhase } from "@/lib/coach-engine/types";
 import { dayKey } from "@/lib/db/queries/sensors";
+import { createNotification } from "@/lib/notifications/create";
 
 const Schema = z.object({
   primaryType: z.enum(["5k_time", "10k_time", "21k_time"]),
@@ -74,16 +85,50 @@ export async function POST(req: Request) {
   const startDate = mondayOf(input.startDate ? new Date(input.startDate) : new Date());
   const targetDate = new Date(input.targetDate);
 
-  // Sprint v0.7 architecture fix: Initial VDOT is derived from Goal.currentValue
-  // via Daniels (currentTime → 5k-equivalent → VDOT). The form's vdotInitial
-  // is a hint but no longer authoritative — actual fitness wins. This way
-  // pace targets out of the box match Q's real form (5:12/km T at VDOT 38),
-  // not a Block-1 projection (4:45/km at VDOT 42).
+  // Sprint v0.7 (Garmin-driven): try multi-method VDOT calibration from the
+  // last 90 days of Garmin run history. If Garmin is unavailable, or the
+  // runner has too few runs, fall back to Daniels-from-Goal.currentValue.
+  //
+  // Both Garmin pulls are best-effort and wrapped — onboarding never crashes
+  // on a Garmin outage; we just lose calibration and use the goal-derived
+  // baseline. UserSettings tracks the source so /settings can show provenance.
   const initialVdotFromGoal = computeInitialVdotFromGoal(
     input.primaryType,
     input.currentTime,
   );
-  const initialVdot = Math.round(initialVdotFromGoal);
+  let garminProfile: GarminProfileMetrics | null = null;
+  let garminRuns: RunSummary[] = [];
+  let garminCalibration: VdotCalibrationResult | null = null;
+  try {
+    garminProfile = await getGarminProfileMetrics();
+  } catch (e) {
+    console.error("[onboarding] garmin profile fetch failed:", e);
+  }
+  try {
+    garminRuns = await getRecentRunSummaries(90);
+  } catch (e) {
+    console.error("[onboarding] garmin runs fetch failed:", e);
+  }
+  if (
+    garminProfile?.hrMax &&
+    garminProfile?.hrRest &&
+    garminRuns.length >= 2
+  ) {
+    garminCalibration = calibrateVdotFromRuns(
+      garminRuns,
+      garminProfile.hrMax,
+      garminProfile.hrRest,
+    );
+  }
+
+  const useGarminCalibration =
+    garminCalibration !== null && !garminCalibration.insufficient_data;
+  const initialVdot = useGarminCalibration
+    ? garminCalibration!.finalVdot
+    : Math.round(initialVdotFromGoal);
+  const vdotRationale = useGarminCalibration
+    ? `Garmin-calibrated VDOT ${initialVdot} (${garminCalibration!.confidence} confidence, range ${garminCalibration!.range.min}-${garminCalibration!.range.max}). Methods: ${garminCalibration!.estimates.map((e) => `${e.method}=${e.vdot}`).join(", ")}. n=${garminRuns.length} runs.`
+    : `Daniels-derived VDOT ${initialVdot} from Goal.currentValue (${input.currentTime} ${input.primaryType}). Garmin run history insufficient for multi-method calibration.`;
 
   const goalInput: GoalInput = {
     primaryType: input.primaryType,
@@ -122,24 +167,25 @@ export async function POST(req: Request) {
       data: { status: "abandoned" },
     });
 
-    // Sprint v0.7: seed UserSettings.vdotOverride with the Daniels-derived
-    // initial-VDOT so getEffectiveVdot() returns Q's actual fitness from day 1.
-    // Re-onboarding overwrites this — that's intentional (new Goal → new VDOT
-    // baseline). Manual VDOT-override after onboarding still wins (user typed
-    // it deliberately, e.g. after a Block-Review test).
+    // Sprint v0.7: seed UserSettings.vdotOverride from Garmin multi-method
+    // calibration when available, else Daniels-from-Goal. Persist Garmin's
+    // HRmax/HRrest too so HR-First targets work out of the box.
+    // Re-onboarding overwrites these; manual override later still wins.
+    const settingsUpdate: Record<string, unknown> = {
+      vdotOverride: initialVdot,
+      vdotOverrideAt: new Date(),
+      vdotOverrideRationale: vdotRationale,
+    };
+    if (garminProfile?.hrMax && garminProfile?.hrRest) {
+      settingsUpdate.hrMax = garminProfile.hrMax;
+      settingsUpdate.hrRest = garminProfile.hrRest;
+      settingsUpdate.hrZonesUpdatedAt = new Date();
+      settingsUpdate.hrZonesSource = "garmin";
+    }
     await tx.userSettings.upsert({
       where: { userId },
-      update: {
-        vdotOverride: initialVdot,
-        vdotOverrideAt: new Date(),
-        vdotOverrideRationale: `Auto-set bei Onboarding aus Goal.currentValue (${input.currentTime} ${input.primaryType}) → Daniels VDOT ${initialVdotFromGoal.toFixed(1)} → ${initialVdot}`,
-      },
-      create: {
-        userId,
-        vdotOverride: initialVdot,
-        vdotOverrideAt: new Date(),
-        vdotOverrideRationale: `Auto-set bei Onboarding aus Goal.currentValue (${input.currentTime} ${input.primaryType}) → Daniels VDOT ${initialVdotFromGoal.toFixed(1)} → ${initialVdot}`,
-      },
+      update: settingsUpdate,
+      create: { userId, ...settingsUpdate },
     });
 
     const goal = await tx.goal.create({
@@ -189,7 +235,16 @@ export async function POST(req: Request) {
         const weekEnd = new Date(weekStart.getTime() + 7 * 86400000);
         const weekNumberInMacro = phase.startWeek + w;
 
-        const runPlan = generateWeekRunPlan(phase.config, weekNumberInMacro, initialVdot, weekStart);
+        const runPlan = generateWeekRunPlan(
+          phase.config,
+          weekNumberInMacro,
+          initialVdot,
+          weekStart,
+          {
+            hrMax: garminProfile?.hrMax ?? undefined,
+            hrRest: garminProfile?.hrRest ?? undefined,
+          },
+        );
         const strengthPlan = generateWeekStrengthPlan(
           phase.config,
           weekNumberInMacro,
@@ -222,9 +277,32 @@ export async function POST(req: Request) {
     return { goalId: goal.id, macrocycleId: macrocycle.id, totalPhases: macrocyclePlan.phases.length };
   });
 
+  // Surface the calibration as a notification so Q sees the result + reasoning.
+  // Best-effort — never fails onboarding.
+  try {
+    await createNotification({
+      userId,
+      type: "VDOT_CALIBRATED",
+      title: useGarminCalibration
+        ? `Initial VDOT: ${initialVdot} (Garmin-calibrated, ${garminCalibration!.confidence})`
+        : `Initial VDOT: ${initialVdot} (Daniels from Goal)`,
+      message: useGarminCalibration
+        ? `Aus ${garminRuns.length} Garmin-Runs der letzten 90 Tage berechnet. Range ${garminCalibration!.range.min}-${garminCalibration!.range.max}. App kalibriert mit jedem Lauf nach.`
+        : `Garmin-Daten reichen für Multi-Method-Calibration nicht — Default aus Goal.currentValue verwendet. App kalibriert nach ein paar Runs nach.`,
+      severity: "INFO",
+      actionUrl: "/settings",
+    });
+  } catch (e) {
+    console.error("[onboarding] notification create failed:", e);
+  }
+
   return NextResponse.json({
     status: "ok",
     ...result,
+    initialVdot,
+    vdotSource: useGarminCalibration ? "garmin_calibration" : "daniels_from_goal",
+    calibration: garminCalibration,
+    garminProfile,
     macrocycle: {
       totalWeeks: macrocyclePlan.totalWeeks,
       startDate: macrocyclePlan.startDate.toISOString(),

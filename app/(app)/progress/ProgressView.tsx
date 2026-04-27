@@ -75,6 +75,16 @@ type HrTID = {
   driftPP: { z1: number; z2: number; z3: number };
 };
 
+type GarminTID = {
+  source: "garmin_hr_zones";
+  z1Pct: number;
+  z2Pct: number;
+  z3Pct: number;
+  totalSec: number;
+  sessions: number;
+  driftPP: { z1: number; z2: number; z3: number };
+};
+
 type PaceDrift = {
   hasDrift: boolean;
   driftType: "vdot_too_high" | "vdot_too_low" | "no_drift";
@@ -96,6 +106,7 @@ type Response =
       tid: TIDComparison | null;
       tidPlan: TIDComparison | null;
       tidHr: HrTID | null;
+      tidGarmin: GarminTID | null;
       paceDrift: PaceDrift | null;
       effectiveVdot: number;
     };
@@ -146,7 +157,11 @@ export default function ProgressView() {
       {data.blockStatus && <BlockProgress blockStatus={data.blockStatus} />}
       <AdherenceSection week={data.adherence.thisWeek} block={data.adherence.thisBlock} />
       {data.tid && (
-        <TIDComparisonSection tidPlan={data.tid} tidHr={data.tidHr ?? null} />
+        <TIDComparisonSection
+          tidPlan={data.tid}
+          tidHr={data.tidHr ?? null}
+          tidGarmin={data.tidGarmin ?? null}
+        />
       )}
     </div>
   );
@@ -501,37 +516,48 @@ function AdherenceCard({ label, stats }: { label: string; stats: AdherenceStats 
 }
 
 // ============================================
-// TID Comparison (Plan-based vs HR-based)
+// TID Comparison (Plan vs HR vs Garmin native)
 // ============================================
+type TidMode = "plan" | "hr" | "garmin";
+
 function TIDComparisonSection({
   tidPlan,
   tidHr,
+  tidGarmin,
 }: {
   tidPlan: TIDComparison;
   tidHr: HrTID | null;
+  tidGarmin: GarminTID | null;
 }) {
   const hasHr = tidHr !== null && tidHr.totalSec - tidHr.unclassifiedSec > 0;
-  const [mode, setMode] = useState<"plan" | "hr">(hasHr ? "hr" : "plan");
+  const hasGarmin = tidGarmin !== null && tidGarmin.totalSec > 0;
 
-  // If HR data shows up later, prefer it on first render once available.
+  // Default-mode hierarchy (Sprint v0.7): Garmin > HR-splits > Plan.
+  const initialMode: TidMode = hasGarmin ? "garmin" : hasHr ? "hr" : "plan";
+  const [mode, setMode] = useState<TidMode>(initialMode);
+
   useEffect(() => {
-    if (hasHr) setMode("hr");
-  }, [hasHr]);
+    if (hasGarmin) setMode("garmin");
+    else if (hasHr) setMode("hr");
+  }, [hasGarmin, hasHr]);
+
+  const subtitle =
+    mode === "plan"
+      ? `Plan vs Actual (Plan-Zonen) · ${tidPlan.totalRunMin}min Run`
+      : mode === "hr" && tidHr
+        ? `Plan vs Actual (HR-Zonen) · ${Math.round(
+            (tidHr.totalSec - tidHr.unclassifiedSec) / 60,
+          )}min mit HR`
+        : mode === "garmin" && tidGarmin
+          ? `Plan vs Actual (Garmin native) · ${tidGarmin.sessions} Runs · ${Math.round(tidGarmin.totalSec / 60)}min`
+          : "";
 
   return (
     <Card>
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
           <h2 className="text-lg font-semibold">TID-Distribution</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {mode === "plan"
-              ? `Plan vs Actual (Plan-Zonen) · ${tidPlan.totalRunMin}min Run`
-              : tidHr
-                ? `Plan vs Actual (HR-Zonen) · ${Math.round(
-                    (tidHr.totalSec - tidHr.unclassifiedSec) / 60,
-                  )}min mit HR`
-                : ""}
-          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
         </div>
         <div className="flex rounded-md border bg-background text-xs">
           <button
@@ -556,21 +582,101 @@ function TIDComparisonSection({
             } ${!hasHr ? "opacity-40 cursor-not-allowed" : ""}`}
             title={
               hasHr
-                ? "HR-Zonen (Karvonen HRR)"
+                ? "HR-Zonen aus Splits (Karvonen HRR)"
                 : "Setze HRmax + HRrest in Settings für HR-basierte TID."
             }
           >
             HR
+          </button>
+          <button
+            type="button"
+            onClick={() => hasGarmin && setMode("garmin")}
+            disabled={!hasGarmin}
+            className={`px-3 py-1 transition-colors ${
+              mode === "garmin"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted"
+            } ${!hasGarmin ? "opacity-40 cursor-not-allowed" : ""}`}
+            title={
+              hasGarmin
+                ? "Garmin native HR-Time-In-Zones (höchste Genauigkeit)"
+                : "Erfordert Garmin-imported Run-Workouts mit HR-Zone-Daten."
+            }
+          >
+            Garmin ★
           </button>
         </div>
       </header>
 
       {mode === "plan" ? (
         <PlanTidPanel tid={tidPlan} />
-      ) : tidHr ? (
+      ) : mode === "hr" && tidHr ? (
         <HrTidPanel tid={tidHr} plan={tidPlan.plan} />
+      ) : mode === "garmin" && tidGarmin ? (
+        <GarminTidPanel tid={tidGarmin} plan={tidPlan.plan} />
       ) : null}
     </Card>
+  );
+}
+
+function GarminTidPanel({
+  tid,
+  plan,
+}: {
+  tid: GarminTID;
+  plan: { z1: number; z2: number; z3: number };
+}) {
+  const actual = { z1: tid.z1Pct, z2: tid.z2Pct, z3: tid.z3Pct };
+  const significantDrift = Math.max(
+    Math.abs(tid.driftPP.z1),
+    Math.abs(tid.driftPP.z2),
+    Math.abs(tid.driftPP.z3),
+  );
+  const driftWarn = significantDrift > 10;
+  const z2HighWarn = tid.z2Pct > 25;
+
+  return (
+    <>
+      <div className="mt-2 text-[11px] text-muted-foreground">
+        Quelle: Garmin time-in-zones pro Activity (Z1+Z2 → polar Z1 · Z3+Z4 → polar Z2 · Z5 → polar Z3)
+      </div>
+      <div className="mt-3 space-y-3">
+        <TIDBar label="Plan" tid={plan} />
+        <TIDBar label="Garmin" tid={actual} />
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+        {(["z1", "z2", "z3"] as const).map((zone) => {
+          const drift = tid.driftPP[zone];
+          const sign = drift > 0 ? "+" : "";
+          const cls =
+            Math.abs(drift) > 10
+              ? "text-red-600 dark:text-red-400"
+              : "text-muted-foreground";
+          return (
+            <div key={zone} className={cls}>
+              <div className="opacity-70 uppercase">{zone}</div>
+              <div className="font-semibold tabular-nums">
+                {sign}
+                {drift.toFixed(1)}pp
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {z2HighWarn && (
+        <div className="mt-3 rounded-md bg-yellow-500/10 border border-yellow-500/30 px-3 py-2 text-xs text-yellow-700 dark:text-yellow-400">
+          Z2 &gt; 25% — Mitteltempo-Falle. Polarisiertes Training will Z1 hoch, Z2 niedrig.
+        </div>
+      )}
+      {driftWarn && !z2HighWarn && (
+        <div className="mt-3 rounded-md bg-red-500/10 border border-red-500/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+          Distribution-Drift {">"} 10pp vs Plan.
+        </div>
+      )}
+      <div className="mt-3 text-[11px] text-muted-foreground">
+        {tid.sessions} Runs aggregiert · {Math.round(tid.totalSec / 60)}min total
+      </div>
+    </>
   );
 }
 

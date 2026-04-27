@@ -6,6 +6,7 @@ import type {
   BlockNumber,
   PhaseConfig,
   SessionPlan,
+  SessionType,
   VDOTPaces,
   W1CalibrationRunData,
   VDOTCalibrationResult,
@@ -194,58 +195,155 @@ function emptySession(date: Date, type: "rest" | "active_recovery"): SessionPlan
   return { date, type };
 }
 
-function easyRun(date: Date, durationMin: number, paces: VDOTPaces): SessionPlan {
+// ============================================
+// HR-First helpers (Sprint v0.7)
+// ============================================
+//
+// HR is the verbindlich primary control variable; pace is orientierend.
+// Targets are derived from each user's HRmax/HRrest via Karvonen HRR ranges
+// per session-type (see science_doc Kap 6.4).
+
+export interface HrTargetParams {
+  sessionType: SessionType;
+  hrMax: number;
+  hrRest: number;
+}
+
+const HR_FRACTIONS_BY_TYPE: Partial<
+  Record<SessionType, { from: number; to: number }>
+> = {
+  easy_run: { from: 0.6, to: 0.75 },
+  long_run: { from: 0.6, to: 0.75 },
+  active_recovery: { from: 0.55, to: 0.7 },
+  tempo_run: { from: 0.75, to: 0.83 },
+  threshold_run: { from: 0.78, to: 0.87 },
+  vo2max_intervals: { from: 0.87, to: 0.95 },
+  calibration_run: { from: 0.55, to: 0.7 },
+};
+
+export function getHrTargetForSession(
+  params: HrTargetParams,
+): { from: number; to: number } | null {
+  const fr = HR_FRACTIONS_BY_TYPE[params.sessionType];
+  if (!fr) return null;
+  const hrr = params.hrMax - params.hrRest;
   return {
-    date,
-    type: "easy_run",
-    durationMin,
-    paceTarget: paces.E,
-    intensityZone: 1,
-    rpeTarget: 4,
+    from: Math.round(params.hrRest + fr.from * hrr),
+    to: Math.round(params.hrRest + fr.to * hrr),
   };
 }
 
-function thresholdRun(date: Date, durationMin: number, paces: VDOTPaces): SessionPlan {
-  return {
-    date,
-    type: "threshold_run",
-    durationMin,
-    paceTarget: { from: paces.T, to: paces.T },
-    intensityZone: 2,
-    rpeTarget: 7,
-    structure: {
-      warmupMin: 12,
-      workIntervals: [{ repeats: 2, durationMin: 10, paceTarget: { from: paces.T, to: paces.T }, restMin: 2 }],
-      cooldownMin: 8,
+interface HrCtx {
+  hrMax?: number;
+  hrRest?: number;
+}
+
+function withHrTarget(
+  session: SessionPlan,
+  type: SessionType,
+  hr: HrCtx,
+): SessionPlan {
+  if (!hr.hrMax || !hr.hrRest) return session;
+  const target = getHrTargetForSession({
+    sessionType: type,
+    hrMax: hr.hrMax,
+    hrRest: hr.hrRest,
+  });
+  if (!target) return session;
+  return { ...session, hrTarget: target, controlMethod: "hr_first" };
+}
+
+// ============================================
+// Session builders
+// ============================================
+function easyRun(
+  date: Date,
+  durationMin: number,
+  paces: VDOTPaces,
+  hr: HrCtx = {},
+): SessionPlan {
+  return withHrTarget(
+    {
+      date,
+      type: "easy_run",
+      durationMin,
+      paceTarget: paces.E,
+      intensityZone: 1,
+      rpeTarget: 4,
     },
-  };
+    "easy_run",
+    hr,
+  );
 }
 
-function vo2maxIntervals(date: Date, paces: VDOTPaces): SessionPlan {
-  return {
-    date,
-    type: "vo2max_intervals",
-    durationMin: 50,
-    paceTarget: { from: paces.I, to: paces.I },
-    intensityZone: 3,
-    rpeTarget: 9,
-    structure: {
-      warmupMin: 15,
-      workIntervals: [{ repeats: 5, durationMin: 3, paceTarget: { from: paces.I, to: paces.I }, restMin: 2 }],
-      cooldownMin: 10,
+function thresholdRun(
+  date: Date,
+  durationMin: number,
+  paces: VDOTPaces,
+  hr: HrCtx = {},
+): SessionPlan {
+  return withHrTarget(
+    {
+      date,
+      type: "threshold_run",
+      durationMin,
+      paceTarget: { from: paces.T, to: paces.T },
+      intensityZone: 2,
+      rpeTarget: 7,
+      structure: {
+        warmupMin: 12,
+        workIntervals: [{ repeats: 2, durationMin: 10, paceTarget: { from: paces.T, to: paces.T }, restMin: 2 }],
+        cooldownMin: 8,
+      },
     },
-  };
+    "threshold_run",
+    hr,
+  );
 }
 
-function longRun(date: Date, durationMin: number, intensityZone: 1 | 2, paces: VDOTPaces): SessionPlan {
-  return {
-    date,
-    type: "long_run",
-    durationMin,
-    paceTarget: paces.E,
-    intensityZone,
-    rpeTarget: intensityZone === 2 ? 6 : 4,
-  };
+function vo2maxIntervals(
+  date: Date,
+  paces: VDOTPaces,
+  hr: HrCtx = {},
+): SessionPlan {
+  return withHrTarget(
+    {
+      date,
+      type: "vo2max_intervals",
+      durationMin: 50,
+      paceTarget: { from: paces.I, to: paces.I },
+      intensityZone: 3,
+      rpeTarget: 9,
+      structure: {
+        warmupMin: 15,
+        workIntervals: [{ repeats: 5, durationMin: 3, paceTarget: { from: paces.I, to: paces.I }, restMin: 2 }],
+        cooldownMin: 10,
+      },
+    },
+    "vo2max_intervals",
+    hr,
+  );
+}
+
+function longRun(
+  date: Date,
+  durationMin: number,
+  intensityZone: 1 | 2,
+  paces: VDOTPaces,
+  hr: HrCtx = {},
+): SessionPlan {
+  return withHrTarget(
+    {
+      date,
+      type: "long_run",
+      durationMin,
+      paceTarget: paces.E,
+      intensityZone,
+      rpeTarget: intensityZone === 2 ? 6 : 4,
+    },
+    "long_run",
+    hr,
+  );
 }
 
 /**
@@ -258,9 +356,11 @@ export function generateWeekRunPlan(
   weekNumber: number,
   vdot: number,
   weekStartDate: Date,
+  hrCtx?: { hrMax?: number; hrRest?: number },
 ): WeekRunPlan {
   const paces = vdotToPaces(vdot);
   const blockNumber = phaseConfig.blockNumber;
+  const hr: HrCtx = hrCtx ?? {};
 
   const dateAt = (offsetDays: number): Date =>
     new Date(weekStartDate.getTime() + offsetDays * 86400000);
@@ -268,44 +368,49 @@ export function generateWeekRunPlan(
   const sessions: SessionPlan[] = [];
 
   // Mon: Easy AM
-  sessions.push(easyRun(dateAt(0), 35, paces));
+  sessions.push(easyRun(dateAt(0), 35, paces, hr));
 
   // Tue: Quality day depends on block
   let qualityDay: SessionPlan;
   if (blockNumber === 1 && weekNumber === 1) {
-    qualityDay = {
-      date: dateAt(1),
-      type: "calibration_run",
-      durationMin: 30,
-      paceTarget: paces.E,
-      intensityZone: 1,
-      rpeTarget: 5,
-      notes: "Calibration run — gentle 5km @ E-pace, log accurate RPE",
-    };
+    qualityDay = withHrTarget(
+      {
+        date: dateAt(1),
+        type: "calibration_run",
+        durationMin: 30,
+        paceTarget: paces.E,
+        intensityZone: 1,
+        rpeTarget: 5,
+        notes: "Calibration run — gentle 5km @ E-pace, log accurate RPE",
+      },
+      "calibration_run",
+      hr,
+    );
   } else if (blockNumber <= 2) {
-    qualityDay = thresholdRun(dateAt(1), 50, paces);
+    qualityDay = thresholdRun(dateAt(1), 50, paces, hr);
   } else if (blockNumber === 3) {
-    qualityDay = thresholdRun(dateAt(1), 55, paces);
+    qualityDay = thresholdRun(dateAt(1), 55, paces, hr);
   } else {
-    qualityDay = vo2maxIntervals(dateAt(1), paces);
+    qualityDay = vo2maxIntervals(dateAt(1), paces, hr);
   }
   sessions.push(qualityDay);
 
   // Wed: Easy AM
-  sessions.push(easyRun(dateAt(2), 30, paces));
+  sessions.push(easyRun(dateAt(2), 30, paces, hr));
 
   // Thu: Rest
   sessions.push(emptySession(dateAt(3), "rest"));
 
   // Fri: Easy AM
-  sessions.push(easyRun(dateAt(4), 35, paces));
+  sessions.push(easyRun(dateAt(4), 35, paces, hr));
 
   // Sat: Long Run
   const longSpec = generateLongRunProgression(weekNumber, blockNumber);
   if (longSpec.durationMin > 0) {
-    sessions.push(longRun(dateAt(5), longSpec.durationMin, longSpec.intensityZone, paces));
+    sessions.push(longRun(dateAt(5), longSpec.durationMin, longSpec.intensityZone, paces, hr));
   } else {
-    // Block 5 time-trial week → time trial on Wed (mid-week), Sat is easy/rest
+    // Block 5 time-trial week → time trial on Wed (mid-week), Sat is easy/rest.
+    // Time-trial deliberately stays pace_first — the goal is hitting a pace.
     sessions[2] = {
       date: dateAt(2),
       type: "time_trial_5k",
@@ -313,9 +418,10 @@ export function generateWeekRunPlan(
       paceTarget: { from: paces.T, to: paces.T },
       intensityZone: 3,
       rpeTarget: 10,
+      controlMethod: "pace_first",
       notes: "5k Time Trial — race-day simulation",
     };
-    sessions.push(easyRun(dateAt(5), 30, paces));
+    sessions.push(easyRun(dateAt(5), 30, paces, hr));
   }
 
   // Sun: Rest

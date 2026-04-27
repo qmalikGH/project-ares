@@ -176,3 +176,68 @@ export async function getActivityDetail(activityId: number): Promise<ActivityDet
 
   return { ...summary, splits };
 }
+
+// ============================================
+// HR Time-in-Zones per Activity (Sprint v0.7)
+// ============================================
+//
+// Garmin reports each activity's HR distribution across its 5 zones, with
+// per-zone seconds + the BPM floor that opens the zone. We pull this raw
+// from the activity-service endpoint and let the engine map it to our 3-zone
+// polarized scheme (see lib/coach-engine/hr-zones.ts mapGarminZonesToPolarizedTID).
+
+export interface ActivityHrZones {
+  zone1Sec: number;
+  zone2Sec: number;
+  zone3Sec: number;
+  zone4Sec: number;
+  zone5Sec: number;
+  zoneFloors: { z1: number; z2: number; z3: number; z4: number; z5: number };
+}
+
+const GC_API_BASE = "https://connectapi.garmin.com";
+
+interface RawHttpClient {
+  get: <T>(url: string) => Promise<T>;
+}
+
+/**
+ * Fetch HR-time-in-zones for one activity. Returns null on any error
+ * (Garmin offline, no HR data, network) — caller falls back to plan-zone TID.
+ */
+export async function getActivityHrZones(
+  activityId: number,
+): Promise<ActivityHrZones | null> {
+  try {
+    const client = await getGarminClient();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const c = client as any;
+    const raw: RawHttpClient = c.client ?? c._client ?? c.http;
+    if (!raw || typeof raw.get !== "function") return null;
+
+    const zones = await raw.get<
+      Array<{ zoneNumber: number; secsInZone: number; zoneLowBoundary: number }>
+    >(`${GC_API_BASE}/activity-service/activity/${activityId}/hrTimeInZones`);
+
+    if (!Array.isArray(zones) || zones.length === 0) return null;
+
+    const get = (n: number) => zones.find((z) => z.zoneNumber === n);
+    return {
+      zone1Sec: Math.round(get(1)?.secsInZone ?? 0),
+      zone2Sec: Math.round(get(2)?.secsInZone ?? 0),
+      zone3Sec: Math.round(get(3)?.secsInZone ?? 0),
+      zone4Sec: Math.round(get(4)?.secsInZone ?? 0),
+      zone5Sec: Math.round(get(5)?.secsInZone ?? 0),
+      zoneFloors: {
+        z1: get(1)?.zoneLowBoundary ?? 0,
+        z2: get(2)?.zoneLowBoundary ?? 0,
+        z3: get(3)?.zoneLowBoundary ?? 0,
+        z4: get(4)?.zoneLowBoundary ?? 0,
+        z5: get(5)?.zoneLowBoundary ?? 0,
+      },
+    };
+  } catch (e) {
+    console.error("[garmin-activity-hr-zones] failed:", e);
+    return null;
+  }
+}

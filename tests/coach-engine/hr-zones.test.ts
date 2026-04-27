@@ -3,6 +3,7 @@ import {
   classifyHrZone,
   computeHrTID,
   computeHrZones,
+  mapGarminZonesToPolarizedTID,
 } from "@/lib/coach-engine/hr-zones";
 
 describe("computeHrZones", () => {
@@ -131,5 +132,56 @@ describe("computeHrTID", () => {
     const tid = computeHrTID(splits, zones);
     expect(tid.z2Pct).toBeCloseTo(50, 1);
     // Caller can flag this as Z2 > 25% threshold violation
+  });
+});
+
+describe("mapGarminZonesToPolarizedTID (Sprint v0.7)", () => {
+  it("collapses Garmin's 5 zones to polarized 3 (Z1+Z2 → Z1, Z3+Z4 → Z2, Z5 → Z3)", () => {
+    const tid = mapGarminZonesToPolarizedTID({
+      zone1Sec: 100,
+      zone2Sec: 200, // → polar Z1: 300
+      zone3Sec: 50,
+      zone4Sec: 150, // → polar Z2: 200
+      zone5Sec: 100, // → polar Z3: 100
+    });
+    expect(tid.z1Sec).toBe(300);
+    expect(tid.z2Sec).toBe(200);
+    expect(tid.z3Sec).toBe(100);
+    expect(tid.totalSec).toBe(600);
+    expect(tid.z1Pct).toBeCloseTo(50, 1);
+    expect(tid.z2Pct).toBeCloseTo(33.33, 1);
+    expect(tid.z3Pct).toBeCloseTo(16.67, 1);
+  });
+
+  it("Q's real Berlin Run example (19-activity-hr-zones.json)", () => {
+    // Garmin: Z1=0, Z2=24s, Z3=311s, Z4=23s, Z5=0
+    const tid = mapGarminZonesToPolarizedTID({
+      zone1Sec: 0,
+      zone2Sec: 24,
+      zone3Sec: 311,
+      zone4Sec: 23,
+      zone5Sec: 0,
+    });
+    expect(tid.z1Sec).toBe(24);
+    expect(tid.z2Sec).toBe(334);
+    expect(tid.z3Sec).toBe(0);
+    // 24 / 358 ≈ 6.7% Z1 (this run was almost entirely "moderate" — Mitteltempo)
+    expect(tid.z1Pct).toBeCloseTo(6.7, 0);
+    expect(tid.z2Pct).toBeCloseTo(93.3, 0);
+    expect(tid.z3Pct).toBe(0);
+  });
+
+  it("returns 0% for an empty session", () => {
+    const tid = mapGarminZonesToPolarizedTID({
+      zone1Sec: 0,
+      zone2Sec: 0,
+      zone3Sec: 0,
+      zone4Sec: 0,
+      zone5Sec: 0,
+    });
+    expect(tid.z1Pct).toBe(0);
+    expect(tid.z2Pct).toBe(0);
+    expect(tid.z3Pct).toBe(0);
+    expect(tid.totalSec).toBe(0);
   });
 });

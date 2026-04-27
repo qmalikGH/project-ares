@@ -43,3 +43,6 @@ next-env.d.ts
 /lib/generated/prisma
 
 .vercel
+
+# Garmin diagnostic raw dumps (Sprint v0.7 discovery — local-only, not for prod)
+garmin-diagnostic-output/

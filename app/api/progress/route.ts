@@ -6,6 +6,7 @@ import { getCurrentUserId } from "@/lib/auth/current-user";
 import {
   getAdherenceStats,
   getBlockStatus,
+  getGarminBasedTIDDistribution,
   getGoalProgress,
   getHrBasedTIDDistribution,
   getPaceDriftStatus,
@@ -26,6 +27,7 @@ export async function GET() {
     adherenceBlock,
     tidBlock,
     tidHrBlock,
+    tidGarminBlock,
     paceDrift,
     effectiveVdot,
   ] = await Promise.all([
@@ -36,6 +38,7 @@ export async function GET() {
     getAdherenceStats(userId, "this_block", today),
     getTIDDistribution(userId, "this_block", today),
     getHrBasedTIDDistribution(userId, "this_block", today),
+    getGarminBasedTIDDistribution(userId, "this_block", today),
     getPaceDriftStatus(userId, 7),
     getEffectiveVdot(userId),
   ]);
@@ -50,11 +53,15 @@ export async function GET() {
     vdotHistory,
     blockStatus,
     adherence: { thisWeek: adherenceWeek, thisBlock: adherenceBlock },
-    // tidPlan = plan-based zone bucketing (intent). tidHr = HR-zone-based (actual effort).
-    // tid kept as alias for backwards compat with /progress UI before v0.6.
+    // TID hierarchy (Sprint v0.7):
+    //   tidGarmin → most accurate, from Garmin's per-activity HR-time-in-zones
+    //   tidHr     → splits-based Karvonen-classified (fallback)
+    //   tidPlan   → plan-zone bucketing (intent only)
+    // `tid` kept as alias for backwards compat with /progress UI before v0.6.
     tid: tidBlock,
     tidPlan: tidBlock,
     tidHr: tidHrBlock,
+    tidGarmin: tidGarminBlock,
     paceDrift,
     effectiveVdot,
   });

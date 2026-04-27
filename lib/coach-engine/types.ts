@@ -159,6 +159,22 @@ export interface SessionPlan {
     workIntervals?: { repeats: number; durationMin?: number; distanceM?: number; paceTarget?: PaceTarget; restMin?: number }[];
     cooldownMin?: number;
   };
+
+  // ============================================
+  // HR-First control (Sprint v0.7)
+  // ============================================
+  /**
+   * Primary HR target range (BPM, verbindlich). Generated from user's HRmax /
+   * HRrest via Karvonen at session-creation time. UI shows this prominently;
+   * Q steers by HR, pace is orientierend.
+   */
+  hrTarget?: { from: number; to: number };
+  /**
+   * Whether HR or pace is the primary control variable for this session.
+   * Default in v0.7+: "hr_first". Threshold-tests / time-trials may flip to
+   * "pace_first" because the goal IS to hit a pace.
+   */
+  controlMethod?: "hr_first" | "pace_first";
 }
 
 export interface FinalSession extends SessionPlan {
@@ -363,6 +379,39 @@ export const RunExecutedSessionSchema = z.object({
       }),
     )
     .default([]),
+
+  // Sprint v0.7: Garmin's per-activity HR-time-in-5-zones, plus the polarized
+  // 3-zone projection. Both optional — only present when Garmin import +
+  // hrTimeInZones endpoint succeeded.
+  garminHrZones: z
+    .object({
+      zone1Sec: z.number(),
+      zone2Sec: z.number(),
+      zone3Sec: z.number(),
+      zone4Sec: z.number(),
+      zone5Sec: z.number(),
+      zoneFloors: z.object({
+        z1: z.number(),
+        z2: z.number(),
+        z3: z.number(),
+        z4: z.number(),
+        z5: z.number(),
+      }),
+    })
+    .nullable()
+    .optional(),
+  polarizedTID: z
+    .object({
+      z1Sec: z.number(),
+      z2Sec: z.number(),
+      z3Sec: z.number(),
+      z1Pct: z.number(),
+      z2Pct: z.number(),
+      z3Pct: z.number(),
+      totalSec: z.number(),
+    })
+    .nullable()
+    .optional(),
 });
 
 /** Strength executed session — manual set-by-set logger. */

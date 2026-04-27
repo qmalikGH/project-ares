@@ -6,6 +6,7 @@ import {
   calibrateVDOTFromW1,
   generateLongRunProgression,
   generateWeekRunPlan,
+  getHrTargetForSession,
 } from "@/lib/coach-engine/run-coach";
 import type { PhaseConfig } from "@/lib/coach-engine/types";
 
@@ -198,5 +199,69 @@ describe("generateWeekRunPlan", () => {
   it("weekly volume includes long run", () => {
     const plan = generateWeekRunPlan(block1Config, 1, 42, monday);
     expect(plan.weeklyVolumeMinTarget).toBeGreaterThan(150);
+  });
+
+  it("threads HR context into easy/threshold/vo2 sessions when provided (Sprint v0.7)", () => {
+    const plan = generateWeekRunPlan(block1Config, 2, 42, monday, {
+      hrMax: 205,
+      hrRest: 53,
+    });
+    const easy = plan.sessions.find((s) => s.type === "easy_run")!;
+    expect(easy.hrTarget).toBeDefined();
+    // Karvonen Easy 60-75% HRR = 144-167 for HRmax 205, HRrest 53
+    expect(easy.hrTarget!.from).toBeGreaterThanOrEqual(140);
+    expect(easy.hrTarget!.to).toBeLessThanOrEqual(170);
+    expect(easy.controlMethod).toBe("hr_first");
+    expect(easy.paceTarget).toBeDefined(); // pace stays as orientierend
+  });
+
+  it("omits hrTarget when hr context missing (back-compat)", () => {
+    const plan = generateWeekRunPlan(block1Config, 2, 42, monday);
+    const easy = plan.sessions.find((s) => s.type === "easy_run")!;
+    expect(easy.hrTarget).toBeUndefined();
+  });
+});
+
+describe("getHrTargetForSession (Sprint v0.7)", () => {
+  it("Q's Easy zone (HRmax 205, HRrest 53): 144-167 bpm", () => {
+    const t = getHrTargetForSession({
+      sessionType: "easy_run",
+      hrMax: 205,
+      hrRest: 53,
+    });
+    expect(t).not.toBeNull();
+    expect(t!.from).toBe(144);
+    expect(t!.to).toBe(167);
+  });
+
+  it("Threshold zone is tighter (78-87% HRR)", () => {
+    const t = getHrTargetForSession({
+      sessionType: "threshold_run",
+      hrMax: 205,
+      hrRest: 53,
+    });
+    expect(t).not.toBeNull();
+    expect(t!.from).toBe(172);
+    expect(t!.to).toBe(185);
+  });
+
+  it("VO2max intervals at 87-95% HRR", () => {
+    const t = getHrTargetForSession({
+      sessionType: "vo2max_intervals",
+      hrMax: 205,
+      hrRest: 53,
+    });
+    expect(t).not.toBeNull();
+    expect(t!.from).toBe(185);
+    expect(t!.to).toBe(197);
+  });
+
+  it("returns null for sessions without HR mapping (rest, time_trial)", () => {
+    expect(
+      getHrTargetForSession({ sessionType: "rest", hrMax: 205, hrRest: 53 }),
+    ).toBeNull();
+    expect(
+      getHrTargetForSession({ sessionType: "time_trial_5k", hrMax: 205, hrRest: 53 }),
+    ).toBeNull();
   });
 });
