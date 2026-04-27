@@ -19,6 +19,11 @@ interface ExerciseLog {
   actualSets: SetData[];
   skipped: boolean;
   exerciseNotes?: string;
+  // Sprint v0.7: superset metadata, propagated from planned Exercise.
+  supersetGroup?: string | null;
+  supersetOrder?: number | null;
+  supersetRationale?: string;
+  restSec?: number;
 }
 
 /**
@@ -57,6 +62,10 @@ export function SetLoggerStep({
       plannedLoadPct: ex.loadPct ?? null,
       actualSets: buildPrefilledSets(ex),
       skipped: false,
+      supersetGroup: ex.supersetGroup ?? null,
+      supersetOrder: ex.supersetOrder ?? null,
+      supersetRationale: ex.supersetRationale,
+      restSec: ex.restSec,
     })),
   );
   const [actualDuration, setActualDuration] = useState(durationMin);
@@ -109,15 +118,27 @@ export function SetLoggerStep({
       </p>
 
       <div className="space-y-3">
-        {logs.map((ex, exIdx) => (
-          <ExerciseBlock
-            key={exIdx}
-            ex={ex}
-            exIdx={exIdx}
-            onSetUpdate={updateSet}
-            onToggleSkipped={() => toggleSkipped(exIdx)}
-          />
-        ))}
+        {groupBySuperset(logs).map((group, gIdx) =>
+          group.kind === "single" ? (
+            <ExerciseBlock
+              key={`s-${gIdx}`}
+              ex={group.item.log}
+              exIdx={group.item.idx}
+              onSetUpdate={updateSet}
+              onToggleSkipped={() => toggleSkipped(group.item.idx)}
+            />
+          ) : (
+            <SupersetBlock
+              key={`g-${gIdx}-${group.groupId}`}
+              groupId={group.groupId}
+              rationale={group.rationale}
+              restSec={group.restSec}
+              items={group.items}
+              onSetUpdate={updateSet}
+              onToggleSkipped={toggleSkipped}
+            />
+          ),
+        )}
       </div>
 
       <div className="border-t pt-4 flex items-center gap-3">
@@ -141,11 +162,117 @@ export function SetLoggerStep({
   );
 }
 
+// ============================================
+// Superset grouping (Sprint v0.7)
+// ============================================
+
+type GroupedItem =
+  | { kind: "single"; item: { log: ExerciseLog; idx: number } }
+  | {
+      kind: "superset";
+      groupId: string;
+      rationale: string | undefined;
+      restSec: number | undefined; // pause after the pair (from order=2 entry)
+      items: { log: ExerciseLog; idx: number }[];
+    };
+
+/**
+ * Walk the exercise list keeping order intact. Consecutive exercises sharing
+ * the same supersetGroup are bundled into a `superset` group; everything else
+ * stays a `single`. Pause-after-pair = restSec of the highest-order member.
+ */
+function groupBySuperset(logs: ExerciseLog[]): GroupedItem[] {
+  const out: GroupedItem[] = [];
+  let i = 0;
+  while (i < logs.length) {
+    const current = logs[i];
+    const groupId = current.supersetGroup ?? null;
+    if (!groupId) {
+      out.push({ kind: "single", item: { log: current, idx: i } });
+      i += 1;
+      continue;
+    }
+    // Collect run of contiguous logs sharing groupId.
+    const items: { log: ExerciseLog; idx: number }[] = [];
+    while (i < logs.length && logs[i].supersetGroup === groupId) {
+      items.push({ log: logs[i], idx: i });
+      i += 1;
+    }
+    const last = items[items.length - 1];
+    out.push({
+      kind: "superset",
+      groupId,
+      rationale: items.find((x) => x.log.supersetRationale)?.log.supersetRationale,
+      restSec: last.log.restSec,
+      items,
+    });
+  }
+  return out;
+}
+
+function SupersetBlock({
+  groupId,
+  rationale,
+  restSec,
+  items,
+  onSetUpdate,
+  onToggleSkipped,
+}: {
+  groupId: string;
+  rationale?: string;
+  restSec?: number;
+  items: { log: ExerciseLog; idx: number }[];
+  onSetUpdate: (
+    exIdx: number,
+    setIdx: number,
+    field: keyof SetData,
+    value: number | null,
+  ) => void;
+  onToggleSkipped: (exIdx: number) => void;
+}) {
+  return (
+    <div className="rounded-md border-l-4 border-blue-500 bg-blue-500/5 p-3 space-y-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <div>
+          <span className="inline-flex items-center rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+            Superset {groupId}
+          </span>
+          {rationale && (
+            <p className="mt-1 text-[11px] text-muted-foreground" title={rationale}>
+              {rationale}
+            </p>
+          )}
+        </div>
+        <p className="text-[11px] text-muted-foreground italic">
+          0–15s zwischen A→B · {restSec ?? "?"}s nach Paar
+        </p>
+      </div>
+      {items.map(({ log, idx }, i) => (
+        <div key={idx} className="relative">
+          {i < items.length - 1 && (
+            <div className="absolute -left-3 top-1/2 -translate-y-1/2 text-blue-500">
+              ↓
+            </div>
+          )}
+          <ExerciseBlock
+            ex={log}
+            exIdx={idx}
+            onSetUpdate={onSetUpdate}
+            onToggleSkipped={() => onToggleSkipped(idx)}
+            inSuperset
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ExerciseBlock({
   ex,
   exIdx,
   onSetUpdate,
   onToggleSkipped,
+  inSuperset,
 }: {
   ex: ExerciseLog;
   exIdx: number;
@@ -156,11 +283,15 @@ function ExerciseBlock({
     value: number | null,
   ) => void;
   onToggleSkipped: () => void;
+  inSuperset?: boolean;
 }) {
   const isIso = typeof ex.plannedReps === "string" && /sec/i.test(ex.plannedReps);
+  const wrapperCls = inSuperset
+    ? `rounded-md bg-background/60 p-2 ${ex.skipped ? "opacity-50" : ""}`
+    : `rounded-md border p-3 ${ex.skipped ? "opacity-50" : ""}`;
 
   return (
-    <div className={`rounded-md border p-3 ${ex.skipped ? "opacity-50" : ""}`}>
+    <div className={wrapperCls}>
       <div className="flex items-baseline justify-between mb-2 gap-2">
         <div className="min-w-0 flex-1">
           <span className="font-medium text-sm">{ex.name}</span>

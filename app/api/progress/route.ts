@@ -8,9 +8,11 @@ import {
   getBlockStatus,
   getGoalProgress,
   getHrBasedTIDDistribution,
+  getPaceDriftStatus,
   getTIDDistribution,
   getVdotHistory,
 } from "@/lib/db/queries/progress";
+import { getEffectiveVdot } from "@/lib/db/queries/settings";
 
 export async function GET() {
   const userId = await getCurrentUserId();
@@ -24,6 +26,8 @@ export async function GET() {
     adherenceBlock,
     tidBlock,
     tidHrBlock,
+    paceDrift,
+    effectiveVdot,
   ] = await Promise.all([
     getGoalProgress(userId, today),
     getVdotHistory(userId),
@@ -32,6 +36,8 @@ export async function GET() {
     getAdherenceStats(userId, "this_block", today),
     getTIDDistribution(userId, "this_block", today),
     getHrBasedTIDDistribution(userId, "this_block", today),
+    getPaceDriftStatus(userId, 7),
+    getEffectiveVdot(userId),
   ]);
 
   if (!goal) {
@@ -49,5 +55,7 @@ export async function GET() {
     tid: tidBlock,
     tidPlan: tidBlock,
     tidHr: tidHrBlock,
+    paceDrift,
+    effectiveVdot,
   });
 }

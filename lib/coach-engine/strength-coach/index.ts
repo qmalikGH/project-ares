@@ -76,6 +76,112 @@ export function adjustLoadForRPE(prevRpe: number, rpeCap: number, currentLoad: n
 }
 
 // ============================================
+// Superset pairing (Sprint v0.7)
+// ============================================
+//
+// HSR-Lifts must NEVER be paired (Kongsgaard 2009): the slow-tempo Hex Bar
+// Deadlift and RDL produce the tendon-loading stimulus only with full 3-min
+// rest. Paired with a quick antagonist, the rest collapses and the stimulus
+// is lost.
+//
+// Other compound + accessory pairs ARE eligible for antagonist supersets per
+// Zhang 2025 (no hypertrophy loss on antagonist pairs at matched volume) and
+// Iversen 2024 (small max-strength reduction on agonist pairs only).
+//
+// Block schedule (sprint_v0.7_prompt.md):
+//   - Block 1 (Aerobic Base + Tendon-Therapy): pure Straight Sets
+//   - Block 2-4 (Build/Specific): accessory antagonist pairs allowed
+//   - Block 5 (Peaking): pure Straight Sets again
+
+const HSR_LIFTS = new Set(["Hex Bar Deadlift", "Romanian Deadlift", "RDL"]);
+
+export function isHsrLift(name: string): boolean {
+  return HSR_LIFTS.has(name);
+}
+
+/** Pause between A and B in a superset pair. Brief: 0-15s. */
+const SUPERSET_INTRA_REST_SEC = 0;
+
+/**
+ * Apply Superset-Pairing rules in-place on a copy of `exercises`.
+ *
+ * Pairing strategy (per session type, only Block 2-4):
+ *   strength_a: Bench Press (1) + Pallof Press (2) → group "A1"
+ *               (push + anti-rotation; minimal antagonist conflict)
+ *   strength_b: Pull-ups (1) + Hip Thrust (2) → group "B1"
+ *               (vertical pull + posterior-chain hinge; different muscle groups)
+ *   strength_c: no pair (Broad Jumps + Farmer's Carry don't antagonize cleanly)
+ *
+ * Pure function — input array is not mutated; returns a new array.
+ */
+export function applySupersetPairing(
+  exercises: Exercise[],
+  blockNumber: number,
+  sessionType: "strength_a" | "strength_b" | "strength_c",
+): Exercise[] {
+  // Block 1 + Block 5 → pure Straight Sets, no modification.
+  if (blockNumber === 1 || blockNumber === 5) {
+    return exercises.map((ex) => ({ ...ex }));
+  }
+
+  return exercises.map((ex) => {
+    // HSR-Lifts NEVER paired — full rest is the active ingredient.
+    if (isHsrLift(ex.name)) return { ...ex };
+
+    if (sessionType === "strength_a") {
+      if (ex.name === "Bench Press") {
+        return {
+          ...ex,
+          supersetGroup: "A1",
+          supersetOrder: 1,
+          supersetRationale:
+            "Push + Anti-rotation: low antagonist conflict, time-efficient.",
+          restSec: SUPERSET_INTRA_REST_SEC,
+        };
+      }
+      if (ex.name === "Pallof Press") {
+        // Original Pallof restSec = 60s; full pair-rest matches the heavier
+        // partner (Bench had 120s) so we don't drop recovery in the chain.
+        return {
+          ...ex,
+          supersetGroup: "A1",
+          supersetOrder: 2,
+          supersetRationale:
+            "Push + Anti-rotation: low antagonist conflict, time-efficient.",
+          restSec: 90,
+        };
+      }
+    }
+
+    if (sessionType === "strength_b") {
+      if (ex.name === "Pull-ups") {
+        return {
+          ...ex,
+          supersetGroup: "B1",
+          supersetOrder: 1,
+          supersetRationale:
+            "Pull + Hip-hinge: different muscle groups, no antagonist conflict.",
+          restSec: SUPERSET_INTRA_REST_SEC,
+        };
+      }
+      if (ex.name === "Hip Thrust") {
+        return {
+          ...ex,
+          supersetGroup: "B1",
+          supersetOrder: 2,
+          supersetRationale:
+            "Pull + Hip-hinge: different muscle groups, no antagonist conflict.",
+          restSec: 120,
+        };
+      }
+    }
+
+    // strength_c → no pairs in v0.7 (no clean antagonist match).
+    return { ...ex };
+  });
+}
+
+// ============================================
 // Volume modulation by strength mode
 // ============================================
 function applyMode(
@@ -122,6 +228,9 @@ export function generateWeekStrengthPlan(
   ): SessionPlan => {
     let exercises = STRENGTH_TEMPLATES[type].map((e) => ({ ...e }));
     exercises = applyMode(exercises, phaseConfig.strengthMode, phaseConfig.strengthRpeCap);
+
+    // Sprint v0.7: layer Superset-Pairing for Block 2-4 (HSR-protected).
+    exercises = applySupersetPairing(exercises, phaseConfig.blockNumber, type);
 
     // Apply RPE-based progression from previous session of same type, if any
     if (prevWeekData) {

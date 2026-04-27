@@ -17,6 +17,16 @@ import {
   computeHrTID,
   type SplitForTID,
 } from "@/lib/coach-engine/hr-zones";
+import {
+  detectPaceDrift,
+  type DriftDetectionResult,
+  type DriftEasyRunSample,
+} from "@/lib/coach-engine/pace-drift";
+
+function paceStringToSec(pace: string): number {
+  const [m, s] = pace.split(":").map(Number);
+  return (Number.isFinite(m) ? m : 0) * 60 + (Number.isFinite(s) ? s : 0);
+}
 
 // ============================================
 // Goal Progress
@@ -576,4 +586,74 @@ export async function getHrBasedTIDDistribution(
       z3: Math.round((z3Pct - planTID.z3) * 10) / 10,
     },
   };
+}
+
+// ============================================
+// Pace-Drift Detection (Sprint v0.7)
+// ============================================
+/**
+ * Pull recent completed Easy Runs (intensityZone === 1) and run pace-drift
+ * detection. Returns the DriftDetectionResult or null when no Goal/Macrocycle.
+ *
+ * Window: latest `limit` Easy Runs that have an actual pace + RPE recorded
+ * (typically 5-7). Workouts without executedSession or non-run types are skipped.
+ */
+export async function getPaceDriftStatus(
+  userId: string,
+  limit = 7,
+): Promise<DriftDetectionResult | null> {
+  const macro = await db.macrocycle.findFirst({
+    where: { userId, status: "active" },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!macro) return null;
+
+  const workouts = await db.workout.findMany({
+    where: {
+      userId,
+      status: "completed",
+      type: { in: ["easy_run"] },
+    },
+    orderBy: { date: "desc" },
+    take: limit,
+  });
+
+  const samples: DriftEasyRunSample[] = [];
+  for (const w of workouts) {
+    const planned = w.plannedSession as unknown as SessionPlan | null;
+    if (!planned || planned.intensityZone !== 1) continue;
+
+    // Plan E-pace upper bound = the "slow" side of the easy band, sec/km.
+    const planPaceTo = planned.paceTarget?.to;
+    if (!planPaceTo) continue;
+    const plannedPaceSecPerKm = paceStringToSec(planPaceTo);
+
+    const exec = w.executedSession as
+      | {
+          type?: string;
+          averagePaceSecPerKm?: number | null;
+          averageHr?: number | null;
+        }
+      | null;
+    if (!exec || exec.type !== "run") continue;
+
+    const actualPaceSecPerKm =
+      typeof exec.averagePaceSecPerKm === "number"
+        ? exec.averagePaceSecPerKm
+        : null;
+    if (actualPaceSecPerKm === null || actualPaceSecPerKm <= 0) continue;
+    if (w.rpe == null) continue;
+
+    samples.push({
+      plannedPaceSecPerKm,
+      actualPaceSecPerKm,
+      plannedRpe: planned.rpeTarget ?? 4,
+      actualRpe: w.rpe,
+      plannedZone: 1,
+      actualHrAvg: typeof exec.averageHr === "number" ? exec.averageHr : null,
+      plannedZoneHrMax: null, // HR-zone tie-in deferred — not needed for v0 trigger
+    });
+  }
+
+  return detectPaceDrift({ recentEasyRuns: samples });
 }

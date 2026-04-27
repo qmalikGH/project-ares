@@ -138,14 +138,38 @@ function formatSession(session: SessionPlan | FinalSession, isModulated: boolean
 
   if (session.exercises && session.exercises.length > 0) {
     lines.push("Übungen:");
+    let lastSupersetGroup: string | null | undefined = undefined;
     for (const ex of session.exercises) {
+      const grp = ex.supersetGroup ?? null;
+
+      // Open / close superset banner whenever the group changes.
+      if (grp !== lastSupersetGroup) {
+        if (grp != null) {
+          const rationale = ex.supersetRationale ? ` — ${ex.supersetRationale}` : "";
+          lines.push(`  Superset ${grp}${rationale}:`);
+        }
+        lastSupersetGroup = grp;
+      }
+
       const parts: string[] = [`${ex.sets} × ${ex.reps}`];
       if (ex.loadPct != null) parts.push(`@ ${Math.round(ex.loadPct)}%`);
       if (ex.tempo) parts.push(`Tempo ${ex.tempo}`);
-      if (ex.restSec != null) parts.push(`Pause ${formatRest(ex.restSec)}`);
+      if (ex.restSec != null) {
+        if (grp != null && ex.supersetOrder === 1) {
+          parts.push(`direkt zu B (0–15s)`);
+        } else if (grp != null && ex.supersetOrder === 2) {
+          parts.push(`Pause nach Paar ${formatRest(ex.restSec)}`);
+        } else {
+          parts.push(`Pause ${formatRest(ex.restSec)}`);
+        }
+      }
       if (ex.rpeCap != null) parts.push(`RPE-Cap ${ex.rpeCap}`);
-      lines.push(`  - ${ex.name}: ${parts.join(", ")}`);
-      if (ex.notes) lines.push(`    Notiz: ${ex.notes}`);
+
+      const indent = grp != null ? "    " : "  - ";
+      const orderTag =
+        grp != null && ex.supersetOrder != null ? `${grp}.${ex.supersetOrder} ` : "";
+      lines.push(`${indent}${orderTag}${ex.name}: ${parts.join(", ")}`);
+      if (ex.notes) lines.push(`${grp != null ? "      " : "    "}Notiz: ${ex.notes}`);
     }
   }
 

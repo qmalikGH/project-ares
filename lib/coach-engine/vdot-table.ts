@@ -122,6 +122,87 @@ export function riegelEquivalent(
   return timeA * Math.pow(distB / distA, 1.06);
 }
 
+// ============================================
+// Goal → Initial-VDOT (Sprint v0.7)
+// ============================================
+// Architektur-Fix: Initial-VDOT für die Engine kommt aus Goal.currentValue
+// (Q's tatsächlicher Fitness-Stand), NICHT aus Phase 1 vdotTarget (was eine
+// Plan-Erwartung am Block-Ende ist). Resultat: Pace-Targets matchen Q's
+// Realität, nicht eine Soll-Projektion (siehe sprint_v0.7_prompt.md Mission).
+
+const DISTANCE_BY_GOAL_TYPE: Record<string, number> = {
+  "5k_time": 5000,
+  "10k_time": 10000,
+  "21k_time": 21097, // legacy goal type from existing onboarding form
+  "half_marathon_time": 21097,
+  "marathon_time": 42195,
+};
+
+/**
+ * Parse a race-time string into seconds.
+ * Supports "mm:ss" (e.g. "24:30") and "hh:mm:ss" (e.g. "1:24:30").
+ */
+export function parseTimeToSec(timeStr: string): number {
+  const trimmed = timeStr.trim();
+  const parts = trimmed.split(":").map((p) => Number.parseInt(p, 10));
+  if (parts.some((n) => !Number.isFinite(n) || n < 0)) {
+    throw new Error(`Invalid time format: ${timeStr}`);
+  }
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  throw new Error(`Invalid time format: ${timeStr}`);
+}
+
+/**
+ * Compute initial VDOT from a Goal's currentValue (or targetValue).
+ *
+ * Pure: input goalType + timeStr, output VDOT (linear-interp against the
+ * Daniels 5k VDOT table; non-5k goals are normalized to 5k via Riegel first).
+ *
+ * Used at onboarding to seed UserSettings.vdotOverride with the runner's
+ * actual baseline — so all pace-targets are immediately realistic.
+ */
+export function computeInitialVdotFromGoal(
+  goalType: string,
+  timeStr: string,
+): number {
+  const sec = parseTimeToSec(timeStr);
+  const dist = DISTANCE_BY_GOAL_TYPE[goalType];
+  if (!dist) {
+    // Unknown goal type — assume the time is already a 5k time. Caller-safe
+    // fallback so onboarding doesn't crash on a typo.
+    return vdotFrom5k(sec);
+  }
+  if (dist === 5000) return vdotFrom5k(sec);
+  const equiv5kSec = riegelEquivalent(dist, sec, 5000);
+  return vdotFrom5k(equiv5kSec);
+}
+
+/**
+ * Compute per-block VDOT targets that interpolate linearly between the
+ * runner's initial-VDOT and goal-VDOT across N blocks.
+ *
+ * Block 1 target = initial + (goal - initial) * 1/N
+ * Block N target = goal
+ *
+ * Used in macrocycle generation: each Phase.config.vdotTarget reflects the
+ * EXPECTED VDOT at the end of that block. Pace-Targets at runtime always
+ * use the CURRENT effective VDOT, never these targets.
+ */
+export function computePhaseVdotTargets(
+  initialVdot: number,
+  goalVdot: number,
+  blockCount: number,
+): number[] {
+  if (blockCount < 1) return [];
+  const span = goalVdot - initialVdot;
+  const out: number[] = [];
+  for (let i = 1; i <= blockCount; i++) {
+    out.push(Math.round((initialVdot + (span * i) / blockCount) * 10) / 10);
+  }
+  return out;
+}
+
 /**
  * Linear interpolation against an integer-keyed monotonic table.
  * Table values must be DESCENDING with key (faster pace / time = higher VDOT).

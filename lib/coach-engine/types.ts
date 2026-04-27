@@ -123,6 +123,25 @@ export interface Exercise {
   /** Rest seconds between sets. See science_doc.md Kap 4.5 (Hybrid pauses). */
   restSec?: number;
   notes?: string;
+
+  // ============================================
+  // Superset support (Sprint v0.7)
+  // ============================================
+  /**
+   * Superset group identifier. Two exercises sharing the same group are
+   * performed back-to-back with 0-15s rest between (`restSec` 0 on the
+   * first, full `restSec` on the second after the pair).
+   * null = standalone Straight Set (default).
+   *
+   * Antagonist-Pairs only (Zhang 2025, Iversen 2024): Push+Pull, Hinge+Pull.
+   * HSR-Lifts (Hex Bar Deadlift, RDL) are NEVER in supersets — Tendon-
+   * Loading needs full 3min rest (Kongsgaard 2009, science_doc Kap 8.4).
+   */
+  supersetGroup?: string | null;
+  /** Order in the pair: 1 = first, 2 = second. null when standalone. */
+  supersetOrder?: number | null;
+  /** Why this exercise is paired — surfaced in UI tooltip + coach-context. */
+  supersetRationale?: string;
 }
 
 export interface SessionPlan {

@@ -47,7 +47,7 @@ REGELN ZUM WORKOUT-PLAN:
 - Bei Strength: nenne konkrete Übungen, Sets, Reps, Tempo, Pausen wenn gefragt. Die Werte stehen im Kontext-Block.
 - Bei Run: Pace-Target, Zone, RPE-Ziel.
 - Wenn Modulationen aktiv waren/sind: erkläre welche und warum (deterministische Engine-Logik).
-- "Superset"-Frage: aktuell sind alle Übungen Straight Sets (eine nach der anderen, Pausen wie angegeben). Sage das klar wenn gefragt — die App nutzt aktuell keine Supersets.
+- Supersets (seit v0.7): wenn zwei Übungen die gleiche supersetGroup haben (z.B. "A1"), werden sie als Paar performt — erst supersetOrder=1, direkt danach supersetOrder=2 (0–15s Pause). Volle Pause (restSec) erst NACH dem Paar. Die Begründung steht in supersetRationale. HSR-Lifts (Hex Bar Deadlift, RDL) sind NIEMALS in Supersets — Tendon-Loading braucht volle 3min-Pause (Kongsgaard 2009). Block 1 (Aerobic Base) und Block 5 (Peaking) haben aktuell ausschließlich Straight Sets. Block 2-4 nutzen Antagonist-Pairs für Accessories. Wenn der Kontext Supersets zeigt: korrekt erklären; wenn nicht: sagen "diese Session ist Straight-Sets only".
 - Wenn der Workout-Context-Block unten fehlt oder leer ist: sage ehrlich "Plan-Daten fehlen aktuell" — niemals erfinden.`;
 
 const KNEE_RE = /\b(knie|knee|tendon|sehne|patellatendinitis|patellatendinopathie|schmerz|stairs|treppen)\b/i;

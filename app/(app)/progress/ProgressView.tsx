@@ -75,6 +75,16 @@ type HrTID = {
   driftPP: { z1: number; z2: number; z3: number };
 };
 
+type PaceDrift = {
+  hasDrift: boolean;
+  driftType: "vdot_too_high" | "vdot_too_low" | "no_drift";
+  affectedSessions: number;
+  rpeDeviation: number;
+  paceDeviation: number;
+  recommendation: string;
+  suggestedVdotDelta: number;
+};
+
 type Response =
   | { status: "NO_ACTIVE_GOAL" }
   | {
@@ -86,6 +96,8 @@ type Response =
       tid: TIDComparison | null;
       tidPlan: TIDComparison | null;
       tidHr: HrTID | null;
+      paceDrift: PaceDrift | null;
+      effectiveVdot: number;
     };
 
 export default function ProgressView() {
@@ -126,6 +138,10 @@ export default function ProgressView() {
       </header>
 
       <GoalHeader goal={data.goal} />
+      <VdotCalibrationStatus
+        drift={data.paceDrift}
+        effectiveVdot={data.effectiveVdot}
+      />
       <VdotChart points={data.vdotHistory} />
       {data.blockStatus && <BlockProgress blockStatus={data.blockStatus} />}
       <AdherenceSection week={data.adherence.thisWeek} block={data.adherence.thisBlock} />
@@ -741,6 +757,86 @@ function TIDBar({ label, tid }: { label: string; tid: { z1: number; z2: number; 
           {tid.z3 >= 12 ? "Z3" : ""}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ============================================
+// VDOT-Calibration-Status (Sprint v0.7)
+// ============================================
+function VdotCalibrationStatus({
+  drift,
+  effectiveVdot,
+}: {
+  drift: PaceDrift | null;
+  effectiveVdot: number;
+}) {
+  // Hide entirely when there's no signal yet (< 3 Easy Runs).
+  if (!drift || (!drift.hasDrift && drift.affectedSessions === 0)) {
+    return null;
+  }
+
+  if (!drift.hasDrift) {
+    return (
+      <Card className="border-emerald-500/30 bg-emerald-500/5">
+        <div className="flex items-baseline justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+              VDOT-Calibration: passt
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Effective VDOT {effectiveVdot}. Pace + RPE liegen im erwarteten Bereich.
+            </p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  const suggestedVdot = effectiveVdot + drift.suggestedVdotDelta;
+  const direction = drift.driftType === "vdot_too_high" ? "zu hoch" : "zu niedrig";
+
+  return (
+    <Card className="border-orange-500/30 bg-orange-500/10">
+      <header className="flex items-baseline justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-orange-900 dark:text-orange-200">
+            VDOT-Drift erkannt: aktueller VDOT {direction}
+          </h2>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Aus den letzten {drift.affectedSessions} Sessions abgeleitet ·
+            Effective VDOT {effectiveVdot}
+          </p>
+        </div>
+      </header>
+
+      <p className="mt-3 text-sm leading-relaxed">{drift.recommendation}</p>
+
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+        <Metric label="Ø RPE-Δ" value={`${drift.rpeDeviation >= 0 ? "+" : ""}${drift.rpeDeviation.toFixed(1)}`} />
+        <Metric label="Ø Pace-Δ" value={`${(drift.paceDeviation * 100).toFixed(1)}%`} />
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Link
+          href={`/settings?vdotPrefill=${suggestedVdot}`}
+          className="inline-flex items-center justify-center rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          VDOT auf {suggestedVdot} anpassen
+        </Link>
+        <span className="text-[11px] text-muted-foreground self-center">
+          Override öffnet sich mit pre-fillet Wert. Engine wendet erst nach Bestätigung an.
+        </span>
+      </div>
+    </Card>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md bg-background/60 px-2 py-1.5 border border-border/60">
+      <div className="opacity-70 uppercase text-[10px]">{label}</div>
+      <div className="font-semibold tabular-nums">{value}</div>
     </div>
   );
 }

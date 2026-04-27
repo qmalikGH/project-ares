@@ -18,6 +18,7 @@ import { getCurrentUserId } from "@/lib/auth/current-user";
 import { generateMacrocycle } from "@/lib/coach-engine/periodization";
 import { generateWeekRunPlan } from "@/lib/coach-engine/run-coach";
 import { generateWeekStrengthPlan } from "@/lib/coach-engine/strength-coach";
+import { computeInitialVdotFromGoal } from "@/lib/coach-engine/vdot-table";
 import type { GoalInput, SessionPlan, TherapyPhase } from "@/lib/coach-engine/types";
 import { dayKey } from "@/lib/db/queries/sensors";
 
@@ -73,6 +74,17 @@ export async function POST(req: Request) {
   const startDate = mondayOf(input.startDate ? new Date(input.startDate) : new Date());
   const targetDate = new Date(input.targetDate);
 
+  // Sprint v0.7 architecture fix: Initial VDOT is derived from Goal.currentValue
+  // via Daniels (currentTime → 5k-equivalent → VDOT). The form's vdotInitial
+  // is a hint but no longer authoritative — actual fitness wins. This way
+  // pace targets out of the box match Q's real form (5:12/km T at VDOT 38),
+  // not a Block-1 projection (4:45/km at VDOT 42).
+  const initialVdotFromGoal = computeInitialVdotFromGoal(
+    input.primaryType,
+    input.currentTime,
+  );
+  const initialVdot = Math.round(initialVdotFromGoal);
+
   const goalInput: GoalInput = {
     primaryType: input.primaryType,
     currentValue: { time: input.currentTime, date: dayKey(new Date()) },
@@ -81,7 +93,7 @@ export async function POST(req: Request) {
     constraints: input.constraints,
     preferences: input.preferences,
     startDate,
-    vdotInitial: input.vdotInitial,
+    vdotInitial: initialVdot,
   };
 
   const macrocyclePlan = generateMacrocycle(goalInput);
@@ -108,6 +120,26 @@ export async function POST(req: Request) {
     await tx.macrocycle.updateMany({
       where: { userId, status: "active" },
       data: { status: "abandoned" },
+    });
+
+    // Sprint v0.7: seed UserSettings.vdotOverride with the Daniels-derived
+    // initial-VDOT so getEffectiveVdot() returns Q's actual fitness from day 1.
+    // Re-onboarding overwrites this — that's intentional (new Goal → new VDOT
+    // baseline). Manual VDOT-override after onboarding still wins (user typed
+    // it deliberately, e.g. after a Block-Review test).
+    await tx.userSettings.upsert({
+      where: { userId },
+      update: {
+        vdotOverride: initialVdot,
+        vdotOverrideAt: new Date(),
+        vdotOverrideRationale: `Auto-set bei Onboarding aus Goal.currentValue (${input.currentTime} ${input.primaryType}) → Daniels VDOT ${initialVdotFromGoal.toFixed(1)} → ${initialVdot}`,
+      },
+      create: {
+        userId,
+        vdotOverride: initialVdot,
+        vdotOverrideAt: new Date(),
+        vdotOverrideRationale: `Auto-set bei Onboarding aus Goal.currentValue (${input.currentTime} ${input.primaryType}) → Daniels VDOT ${initialVdotFromGoal.toFixed(1)} → ${initialVdot}`,
+      },
     });
 
     const goal = await tx.goal.create({
@@ -157,7 +189,7 @@ export async function POST(req: Request) {
         const weekEnd = new Date(weekStart.getTime() + 7 * 86400000);
         const weekNumberInMacro = phase.startWeek + w;
 
-        const runPlan = generateWeekRunPlan(phase.config, weekNumberInMacro, input.vdotInitial, weekStart);
+        const runPlan = generateWeekRunPlan(phase.config, weekNumberInMacro, initialVdot, weekStart);
         const strengthPlan = generateWeekStrengthPlan(
           phase.config,
           weekNumberInMacro,

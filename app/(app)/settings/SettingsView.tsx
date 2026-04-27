@@ -457,6 +457,25 @@ function PerformanceSection({
   onSaved: () => void;
 }) {
   const [showDialog, setShowDialog] = useState(false);
+  const [prefillVdot, setPrefillVdot] = useState<number | null>(null);
+
+  // Sprint v0.7: deep-link from /progress drift card. ?vdotPrefill=N opens
+  // the dialog auto-populated with the suggested VDOT.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get("vdotPrefill");
+    if (!raw) return;
+    const v = Number.parseInt(raw, 10);
+    if (Number.isFinite(v) && v >= 30 && v <= 80) {
+      setPrefillVdot(v);
+      setShowDialog(true);
+      // Strip the query so refresh doesn't re-open.
+      params.delete("vdotPrefill");
+      const next = window.location.pathname + (params.toString() ? `?${params}` : "");
+      window.history.replaceState({}, "", next);
+    }
+  }, []);
 
   return (
     <Card>
@@ -496,9 +515,14 @@ function PerformanceSection({
       {showDialog && (
         <VdotOverrideDialog
           currentVdot={vdot.effective}
-          onClose={() => setShowDialog(false)}
+          prefillNewVdot={prefillVdot}
+          onClose={() => {
+            setShowDialog(false);
+            setPrefillVdot(null);
+          }}
           onSaved={() => {
             setShowDialog(false);
+            setPrefillVdot(null);
             onSaved();
           }}
         />
@@ -509,15 +533,21 @@ function PerformanceSection({
 
 function VdotOverrideDialog({
   currentVdot,
+  prefillNewVdot,
   onClose,
   onSaved,
 }: {
   currentVdot: number;
+  prefillNewVdot?: number | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [newVdot, setNewVdot] = useState(currentVdot);
-  const [rationale, setRationale] = useState("");
+  const [newVdot, setNewVdot] = useState(prefillNewVdot ?? currentVdot);
+  const [rationale, setRationale] = useState(
+    prefillNewVdot != null
+      ? "Empfehlung der Pace-Drift-Detection auf /progress"
+      : "",
+  );
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -737,24 +767,50 @@ function DangerZone() {
       <div className="space-y-4">
         <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3">
           <h3 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100">
-            Re-Onboarding starten
+            Plan zurücksetzen / Re-Onboarding
           </h3>
-          <p className="mt-1 text-xs text-yellow-800 dark:text-yellow-200">
-            Generiert einen neuen 20-Wochen-Plan. Der bisherige Macrozyklus wird auf{" "}
-            <em>abandoned</em> gesetzt. Workouts, Sensor-Daten, Knee-Scores,
-            Coach-Conversations & VDOT-Kalibrierung bleiben erhalten.
+          <p className="mt-2 text-xs text-yellow-800 dark:text-yellow-200">
+            Wenn du dein Goal änderst oder die Engine-Logik aktualisiert wurde,
+            kannst du einen frischen Trainingsplan generieren.
           </p>
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 text-xs">
+            <div>
+              <p className="font-semibold text-yellow-900 dark:text-yellow-100">
+                Was bleibt erhalten:
+              </p>
+              <ul className="mt-1 space-y-0.5 text-yellow-800 dark:text-yellow-200">
+                <li>✓ Alle vergangenen Workouts &amp; History</li>
+                <li>✓ Sensor-Daten und Trends</li>
+                <li>✓ Coach-Conversations</li>
+                <li>✓ Effektiver VDOT (sofern explizit gesetzt)</li>
+                <li>✓ HR-Zonen + Garmin-Credentials</li>
+              </ul>
+            </div>
+            <div>
+              <p className="font-semibold text-yellow-900 dark:text-yellow-100">
+                Was wird neu:
+              </p>
+              <ul className="mt-1 space-y-0.5 text-yellow-800 dark:text-yellow-200">
+                <li>↻ Macrocycle &amp; alle Phases</li>
+                <li>↻ Wochenpläne (Run + Strength) mit aktueller Engine-Logik</li>
+                <li>↻ Initial-VDOT aus aktueller Bestleistung (Daniels)</li>
+                <li>↻ Strength-Templates inkl. Superset-Felder</li>
+              </ul>
+            </div>
+          </div>
+
           {!confirming ? (
             <Button
               variant="outline"
               size="sm"
-              className="mt-3"
+              className="mt-4"
               onClick={() => setConfirming(true)}
             >
               Re-Onboarding starten
             </Button>
           ) : (
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
               <a
                 href="/onboarding"
                 className="inline-flex items-center justify-center rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"

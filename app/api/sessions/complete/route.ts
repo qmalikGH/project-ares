@@ -17,7 +17,13 @@ import { getActivityDetail } from "@/lib/garmin/activities";
 import {
   RunExecutedSessionSchema,
   StrengthExecutedSessionSchema,
+  type SessionPlan,
+  type W1CalibrationRunData,
 } from "@/lib/coach-engine/types";
+import { calibrateVDOTFromW1 } from "@/lib/coach-engine/run-coach";
+import { getEffectiveVdot } from "@/lib/db/queries/settings";
+import { regenerateFutureSessionPaces } from "@/lib/db/queries/regenerate";
+import { createNotification } from "@/lib/notifications/create";
 
 const Schema = z.object({
   rpe: z.number().int().min(0).max(10),
@@ -153,11 +159,100 @@ export async function POST(req: Request) {
     }
   }
 
+  // Sprint v0.7: W1-Calibration auto-trigger.
+  // When the just-completed workout was a `calibration_run` and we have a
+  // valid Garmin-imported run payload, run calibrateVDOTFromW1. If it returns
+  // a non-zero VDOT delta, persist as override + regenerate future paces +
+  // notify. We do NOT auto-apply when source=manual: too noisy without
+  // distance + duration + HR triangulation.
+  let w1Calibration: {
+    applied: boolean;
+    previousVdot: number;
+    calibratedVdot: number;
+    notification: string;
+    updatedSessions: number;
+  } | null = null;
+  try {
+    const planned = (workout.plannedSession as unknown as SessionPlan | null) ?? null;
+    if (
+      planned?.type === "calibration_run" &&
+      executedSession &&
+      typeof executedSession === "object" &&
+      (executedSession as { type?: string }).type === "run" &&
+      (executedSession as { source?: string }).source === "garmin_import"
+    ) {
+      const exec = executedSession as {
+        durationSec: number;
+        distanceM: number | null;
+        averageHr: number | null;
+        maxHr: number | null;
+      };
+      const distanceKm = (exec.distanceM ?? 0) / 1000;
+      if (distanceKm > 0 && exec.durationSec > 0) {
+        const w1Data: W1CalibrationRunData = {
+          distanceKm,
+          durationMin: exec.durationSec / 60,
+          avgHr: exec.averageHr ?? 0,
+          maxHr: exec.maxHr ?? 0,
+          rpe,
+        };
+        const previousVdot = await getEffectiveVdot(userId);
+        const calibration = calibrateVDOTFromW1(previousVdot, w1Data);
+        if (calibration.pacesUpdated) {
+          await db.userSettings.upsert({
+            where: { userId },
+            update: {
+              vdotOverride: calibration.calibratedVdot,
+              vdotOverrideAt: new Date(),
+              vdotOverrideRationale: calibration.notification,
+            },
+            create: {
+              userId,
+              vdotOverride: calibration.calibratedVdot,
+              vdotOverrideAt: new Date(),
+              vdotOverrideRationale: calibration.notification,
+            },
+          });
+          const { updatedSessions } = await regenerateFutureSessionPaces(
+            userId,
+            calibration.calibratedVdot,
+          );
+          // Respect user notification prefs.
+          const settings = await db.userSettings.findUnique({ where: { userId } });
+          const prefs = settings?.notificationPrefs as
+            | { vdotCalibrated?: boolean }
+            | null;
+          if (prefs?.vdotCalibrated !== false) {
+            await createNotification({
+              userId,
+              type: "VDOT_CALIBRATED",
+              title: "VDOT auto-kalibriert (W1 Calibration Run)",
+              message: calibration.notification,
+              severity: "INFO",
+              actionUrl: "/settings",
+            });
+          }
+          w1Calibration = {
+            applied: true,
+            previousVdot,
+            calibratedVdot: calibration.calibratedVdot,
+            notification: calibration.notification,
+            updatedSessions,
+          };
+        }
+      }
+    }
+  } catch (e) {
+    // W1 calibration is best-effort — never fail the session-complete request.
+    console.error("[complete] W1 calibration failed:", e);
+  }
+
   return NextResponse.json({
     status: "ok",
     workoutId: updated.id,
     dailyLoadAu: rpe * (durationActualMin ?? 0),
     hasGarminImport: !!parsed.data.garminActivityId,
     hasStrengthLog: !!parsed.data.strengthExecution,
+    w1Calibration,
   });
 }
