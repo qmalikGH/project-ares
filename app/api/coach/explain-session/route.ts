@@ -19,6 +19,8 @@ import {
   buildDailyExplanationUserContent,
   type DailyExplanationContext,
 } from "@/lib/ai-coach/prompts/daily-explanation";
+import { loadWorkoutContext } from "@/lib/db/queries/workout-context";
+import { formatWorkoutContext } from "@/lib/ai-coach/prompts/workout-context";
 import { computeReadiness, computeBaselines } from "@/lib/coach-engine/readiness";
 import { buildLoadOutput, computeDailyLoad } from "@/lib/coach-engine/load-monitoring";
 import { computeKneeStatus } from "@/lib/coach-engine/limitations";
@@ -144,7 +146,19 @@ export async function POST(req: Request) {
     limitations,
   };
 
-  const userContent = buildDailyExplanationUserContent(ctx, rawSensors);
+  const sessionUserContent = buildDailyExplanationUserContent(ctx, rawSensors);
+
+  // Append workout-context (always-on plan snapshot) so the explanation can
+  // reference upcoming sessions ("warum heute easy: morgen Threshold") and
+  // recent RPE trends.
+  let workoutContextBlock = "";
+  try {
+    const wctx = await loadWorkoutContext(userId, new Date());
+    if (wctx) workoutContextBlock = `\n\n---\n\n${formatWorkoutContext(wctx)}`;
+  } catch {
+    // non-fatal
+  }
+  const userContent = sessionUserContent + workoutContextBlock;
 
   // Frozen system prompt → cache_control:ephemeral. Per-request user content is volatile.
   let response;

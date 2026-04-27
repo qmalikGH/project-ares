@@ -21,6 +21,7 @@ import {
 import { decidePhaseTransition } from "@/lib/coach-engine/periodization";
 import { buildBlockReviewInput } from "@/lib/block-review/compute";
 import { dayKey } from "@/lib/db/queries/sensors";
+import { loadBlockContext } from "@/lib/db/queries/workout-context";
 import type { PhaseName } from "@/lib/coach-engine/types";
 
 const Schema = z.object({ phaseId: z.string().optional() });
@@ -96,7 +97,27 @@ export async function POST(req: Request) {
   let aiCostUsd = 0;
   if (process.env.ENABLE_AI_COACH === "true") {
     try {
-      const userContent = buildBlockReviewUserContent(phase.blockNumber, phase.name, reviewInput, decision);
+      const baseContent = buildBlockReviewUserContent(phase.blockNumber, phase.name, reviewInput, decision);
+      // Append full-block workout history so the AI can reference specific
+      // sessions (RPE trends, missed days, mod patterns) instead of guessing.
+      let blockBlock = "";
+      try {
+        const fullBlock = await loadBlockContext(userId, phase.id);
+        if (fullBlock) {
+          const lines: string[] = [`\n\n---\n\n## Vollständige Workout-Historie dieses Blocks (${fullBlock.workouts.length} Sessions)`];
+          for (const w of fullBlock.workouts) {
+            const dateStr = w.date.toISOString().slice(0, 10);
+            const rpe = w.rpe == null ? "—" : `RPE ${w.rpe}`;
+            const dur = w.durationActualMin == null ? "—" : `${w.durationActualMin}min`;
+            const mod = w.wasModified && w.modifications.length > 0 ? ` [${w.modifications.join("; ")}]` : "";
+            lines.push(`${dateStr}: ${w.type} · ${w.status} · ${rpe} · ${dur}${mod}`);
+          }
+          blockBlock = lines.join("\n");
+        }
+      } catch {
+        // non-fatal
+      }
+      const userContent = baseContent + blockBlock;
       const response = await anthropic.messages.create({
         model: DEFAULT_MODEL,
         max_tokens: 600,

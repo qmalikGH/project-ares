@@ -28,8 +28,27 @@ REGELN:
 5. Standard-Länge: 3-6 Sätze. Längere Antworten nur wenn die Frage es verlangt (z.B. detaillierte Trainings-Wissensfrage).
 6. Du darfst zugeben, dass du etwas nicht weißt. Du darfst sagen "die Engine hat das so entschieden, weil <Regel>" und auf science_doc verweisen wenn nötig.
 
+SKALEN — IMMER User-facing einheiten verwenden, NIEMALS Engine-internal Component-Scores:
+- Knie: "X/10" (1=schmerzfrei, 10=stark) — niemals "Knee 80" oder Component-Score
+- HRV: "X ms" RMSSD — niemals "HRV-Score 80"
+- Sleep: "X/100" Garmin-Score
+- RHR: "X bpm"
+- Subjective: "X/10"
+
 KONTEXT-FORMAT:
-Vor jedem Chat erhältst du strukturierte Sensor-Daten und Profil-Summary. Behandle das als Hintergrund — beantworte die User-Frage direkt, ziehe nur relevante Daten heran.`;
+Du erhältst vor jedem Chat:
+- User-Profil (Goal, Block, VDOT, Trend)
+- Aktueller Workout-Plan: heutige Sessions (modulated wenn morning-input vorliegt), kommende 7 Tage geplant, letzte 5 abgeschlossene mit RPE und Modulationen
+- Optional: Detail-Daten zu Knie/Recovery wenn die Frage es betrifft
+
+REGELN ZUM WORKOUT-PLAN:
+- Du kannst Q über aktuelle/geplante/vergangene Übungen Auskunft geben. Du kennst seinen Plan.
+- Du erfindest keine neuen Workouts. Wenn der Plan etwas nicht enthält, sage das ehrlich ("der Plan listet diese Session/Übung nicht").
+- Bei Strength: nenne konkrete Übungen, Sets, Reps, Tempo, Pausen wenn gefragt. Die Werte stehen im Kontext-Block.
+- Bei Run: Pace-Target, Zone, RPE-Ziel.
+- Wenn Modulationen aktiv waren/sind: erkläre welche und warum (deterministische Engine-Logik).
+- "Superset"-Frage: aktuell sind alle Übungen Straight Sets (eine nach der anderen, Pausen wie angegeben). Sage das klar wenn gefragt — die App nutzt aktuell keine Supersets.
+- Wenn der Workout-Context-Block unten fehlt oder leer ist: sage ehrlich "Plan-Daten fehlen aktuell" — niemals erfinden.`;
 
 const KNEE_RE = /\b(knie|knee|tendon|sehne|patellatendinitis|patellatendinopathie|schmerz|stairs|treppen)\b/i;
 const PERF_RE = /\b(5k|10k|pace|geschwindigkeit|time trial|wettkampf|leistung|tempo|vdot)\b/i;
@@ -119,12 +138,17 @@ Block-Avg Readiness: ${s.averageReadiness ?? "—"}, Avg ACWR: ${s.averageACWR ?
  * Build the messages array for an Anthropic call.
  * `priorMessages` is the existing conversation (excludes the new user msg).
  * `newUserMessage` is what the user just typed.
+ * `workoutContext` is always-on plan info (today + upcoming + recent + block).
+ * `contextBlocks` are intent-driven detail blocks (knee history, recovery trend, etc.).
  */
 export interface BuildFreeChatRequest {
   profile: FreeChatProfile;
   priorMessages: { role: "user" | "assistant"; content: string }[];
   newUserMessage: string;
-  contextBlocks: string[]; // pre-formatted intent-derived context
+  /** Always-on workout-plan context, formatted by formatWorkoutContext(). */
+  workoutContext?: string | null;
+  /** Intent-derived detail context (knee history, recovery trend, …). */
+  contextBlocks: string[];
 }
 
 export function buildFreeChatMessages(
@@ -132,18 +156,18 @@ export function buildFreeChatMessages(
 ): Anthropic.MessageParam[] {
   const result: Anthropic.MessageParam[] = [];
 
-  // 1. Profile summary as a system-style user message (so it shows up in
-  //    history; we keep the actual `system:` field reserved for the frozen
-  //    prompt, which is cacheable).
-  if (req.contextBlocks.length > 0 || req.profile) {
-    const blocks = [formatProfileSummary(req.profile), ...req.contextBlocks].filter(Boolean);
-    if (blocks.length > 0) {
-      // Wrap as an assistant turn so we don't break the user/assistant alternation
-      // — Claude treats this as background context and we tag it accordingly.
-      result.push({ role: "user", content: `[KONTEXT — nicht beantworten]\n\n${blocks.join("\n\n")}` });
-      result.push({ role: "assistant", content: "Verstanden. Womit kann ich helfen?" });
-    }
-  }
+  // 1. Combined context block (profile + workout + intent-driven detail).
+  //    Sent as a "user" message tagged [KONTEXT] so Claude treats it as
+  //    background and not a question to answer.
+  const blocks: string[] = [formatProfileSummary(req.profile)];
+  if (req.workoutContext) blocks.push(req.workoutContext);
+  for (const c of req.contextBlocks) if (c) blocks.push(c);
+
+  result.push({
+    role: "user",
+    content: `[KONTEXT — nicht beantworten, nur als Hintergrund nutzen]\n\n${blocks.join("\n\n")}`,
+  });
+  result.push({ role: "assistant", content: "Verstanden. Womit kann ich helfen?" });
 
   // 2. Last 10 prior messages
   const recent = req.priorMessages.slice(-10);

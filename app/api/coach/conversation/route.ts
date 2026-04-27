@@ -27,6 +27,8 @@ import {
 } from "@/lib/ai-coach/prompts/free-chat";
 import { getActiveGoal, getActiveMacrocycle } from "@/lib/db/queries/plans";
 import { dayKey, getRecentSensorData } from "@/lib/db/queries/sensors";
+import { loadWorkoutContext } from "@/lib/db/queries/workout-context";
+import { formatWorkoutContext } from "@/lib/ai-coach/prompts/workout-context";
 
 const Schema = z.object({
   // The UI sends `null` on the first turn (useState<string | null>(null));
@@ -129,10 +131,21 @@ export async function POST(req: Request) {
     );
   }
 
+  // Always-on workout context (today + upcoming + recent + block position).
+  // CLAUDE.md Rule 3: AI explains, never invents — coach needs the plan visible.
+  let workoutContext: string | null = null;
+  try {
+    const ctx = await loadWorkoutContext(userId, new Date());
+    if (ctx) workoutContext = formatWorkoutContext(ctx);
+  } catch {
+    // Non-fatal — coach still works on profile + intent context alone.
+  }
+
   const messages = buildFreeChatMessages({
     profile,
     priorMessages,
     newUserMessage: message,
+    workoutContext,
     contextBlocks,
   });
 
