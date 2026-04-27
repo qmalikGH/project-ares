@@ -29,7 +29,9 @@ import { getActiveGoal, getActiveMacrocycle } from "@/lib/db/queries/plans";
 import { dayKey, getRecentSensorData } from "@/lib/db/queries/sensors";
 
 const Schema = z.object({
-  conversationId: z.string().optional(),
+  // The UI sends `null` on the first turn (useState<string | null>(null));
+  // accept null AND undefined so the first message of a conversation works.
+  conversationId: z.string().nullable().optional(),
   message: z.string().min(1).max(4000),
 });
 
