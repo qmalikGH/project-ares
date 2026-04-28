@@ -1,12 +1,19 @@
-// Project Ares Service Worker (Sprint v0.9)
+// Project Ares Service Worker (Sprint v0.9 / fix v0.9.3)
 //
-// Minimal app-shell caching. Network-first for /api/* (so trainings-data is
-// always fresh), cache-first for static assets + the /today shell.
-// No web-push subscription handling in v0.9 — that's v1.0+.
-
-const CACHE_VERSION = "ares-v1-2026-04-28";
+// Strategy:
+//   - /api/*               : network-first, offline JSON fallback
+//   - HTML navigations     : NETWORK-FIRST (revalidate every visit) so updates
+//                            land immediately. Falls back to cache only when
+//                            the network fails.
+//   - other static assets  : cache-first with background revalidation.
+//
+// Fix history:
+//   - v0.9.0 (2026-04-28a): cache-first for everything → caused stale UI
+//     after subsequent deploys. Bumped to v0.9.3.
+//   - v0.9.3 (2026-04-28b): HTML moved to network-first. Cache version bumped
+//     to force eviction of the stale settings/today/etc pages.
+const CACHE_VERSION = "ares-v0.9.3-2026-04-28";
 const APP_SHELL = [
-  "/today",
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
@@ -16,7 +23,6 @@ const APP_SHELL = [
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_VERSION).then((cache) =>
-      // addAll fails if any URL fails — wrap in best-effort .catch
       Promise.all(
         APP_SHELL.map((url) =>
           cache.add(url).catch((e) =>
@@ -42,6 +48,12 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+function isHtmlNavigation(request) {
+  if (request.mode === "navigate") return true;
+  const accept = request.headers.get("accept") ?? "";
+  return accept.includes("text/html");
+}
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
@@ -54,7 +66,7 @@ self.addEventListener("fetch", (event) => {
   }
   if (url.origin !== self.location.origin) return;
 
-  // API: network-first with offline fallback
+  // API: network-first with JSON offline fallback
   if (url.pathname.startsWith("/api/")) {
     event.respondWith(
       fetch(req).catch(
@@ -68,7 +80,30 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Static assets / pages: cache-first, fall back to network + populate cache
+  // HTML pages: network-first so updates land immediately. Cache backup only.
+  if (isHtmlNavigation(req)) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches
+              .open(CACHE_VERSION)
+              .then((cache) => cache.put(req, copy))
+              .catch(() => {});
+          }
+          return res;
+        })
+        .catch(() =>
+          caches
+            .match(req)
+            .then((cached) => cached ?? caches.match("/today")),
+        ),
+    );
+    return;
+  }
+
+  // Other static assets: cache-first with background revalidation.
   event.respondWith(
     caches.match(req).then((cached) => {
       if (cached) return cached;
@@ -76,7 +111,10 @@ self.addEventListener("fetch", (event) => {
         .then((res) => {
           if (res.ok && res.status === 200) {
             const copy = res.clone();
-            caches.open(CACHE_VERSION).then((cache) => cache.put(req, copy));
+            caches
+              .open(CACHE_VERSION)
+              .then((cache) => cache.put(req, copy))
+              .catch(() => {});
           }
           return res;
         })
