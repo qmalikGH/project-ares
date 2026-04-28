@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 interface WeekDaySession {
   type: string;
   durationMin?: number;
+  /** Sprint v0.10: periodization week label (e.g. "Build 1", "Deload"). */
+  periodizationLabel?: string;
 }
 
 interface WeekDayCardProps {
@@ -54,6 +56,10 @@ export function WeekDayCard({
 }: WeekDayCardProps) {
   const isoDate = date.slice(0, 10);
   const trainingSessions = sessions.filter((s) => s.type !== "rest");
+  // Sprint v0.10: surface periodization label once per card (use the first
+  // session's label — all sessions in the same week share the same week-in-block).
+  const periodizationLabel = sessions.find((s) => s.periodizationLabel)
+    ?.periodizationLabel;
   return (
     <Link
       href={`/day/${isoDate}`}
@@ -78,6 +84,12 @@ export function WeekDayCard({
           {dayNum}
         </span>
       </div>
+
+      {periodizationLabel && (
+        <span className="mt-1 text-[10px] uppercase tracking-wider text-[var(--text-tertiary)]">
+          {periodizationLabel}
+        </span>
+      )}
 
       <div className="mt-3 flex flex-col gap-1.5 text-xs text-[var(--text-secondary)]">
         {trainingSessions.length === 0 ? (

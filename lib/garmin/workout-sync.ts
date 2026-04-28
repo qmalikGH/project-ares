@@ -228,3 +228,126 @@ export async function removeWorkoutFromGarmin(
     return { removed: false, error: msg };
   }
 }
+
+// ============================================
+// Garmin Re-Sync (Sprint v0.10)
+// ============================================
+
+import { vdotToPaces } from "@/lib/coach-engine/run-coach";
+import { getEffectiveVdot } from "@/lib/db/queries/settings";
+
+export interface ResyncResult {
+  /** Total future workouts considered. */
+  considered: number;
+  /** Number that were unscheduled+deleted from Garmin (orphaned by plan change). */
+  removed: number;
+  /** Number that were (re-)pushed with the new plan. */
+  repushed: number;
+  /** Per-workout error messages for failures. */
+  errors: string[];
+}
+
+// Internal deps interface — exposed for tests so we can inject fakes
+// without intercepting intra-module calls (which vi.spyOn can't reach in ESM).
+export interface ResyncDeps {
+  push: typeof pushWorkoutToGarmin;
+  remove: typeof removeWorkoutFromGarmin;
+}
+
+const DEFAULT_RESYNC_DEPS: ResyncDeps = {
+  push: pushWorkoutToGarmin,
+  remove: removeWorkoutFromGarmin,
+};
+
+/**
+ * Re-sync all future workouts to Garmin after a plan regeneration (Sprint v0.10).
+ *
+ * For every Workout row with date >= cutoff (typically "today midnight"):
+ *   - If new plannedSession.type is "rest" but a Garmin workout exists for it:
+ *     remove from Garmin (the day was a workout, now it's rest).
+ *   - Else: pushWorkoutToGarmin (idempotent — replaces prior push, or creates
+ *     a fresh one if no garminWorkoutId yet).
+ *
+ * Best-effort: per-workout failures are captured into result.errors but the
+ * loop continues. Skipped entirely when garminWorkoutPushEnabled is false.
+ *
+ * `deps` is for tests; production callers pass nothing and get the live
+ * pushWorkoutToGarmin/removeWorkoutFromGarmin.
+ */
+export async function resyncFutureWorkoutsToGarmin(
+  userId: string,
+  cutoffDate: Date,
+  deps: ResyncDeps = DEFAULT_RESYNC_DEPS,
+): Promise<ResyncResult> {
+  const result: ResyncResult = {
+    considered: 0,
+    removed: 0,
+    repushed: 0,
+    errors: [],
+  };
+
+  const userSettings = await db.userSettings.findUnique({ where: { userId } });
+  if (!userSettings?.garminWorkoutPushEnabled) return result;
+
+  const futureWorkouts = await db.workout.findMany({
+    where: { userId, date: { gte: cutoffDate } },
+    orderBy: { date: "asc" },
+  });
+
+  result.considered = futureWorkouts.length;
+  if (futureWorkouts.length === 0) return result;
+
+  const effectiveVdot = await getEffectiveVdot(userId);
+  let paces;
+  try {
+    paces = vdotToPaces(effectiveVdot);
+  } catch (e) {
+    result.errors.push(
+      `vdotToPaces(${effectiveVdot}) failed: ${e instanceof Error ? e.message : String(e)}`,
+    );
+    return result;
+  }
+
+  for (const workout of futureWorkouts) {
+    try {
+      const session = workout.plannedSession as unknown as SessionPlan;
+      const sessionType = session?.type;
+
+      if (workout.garminWorkoutId && sessionType === "rest") {
+        // Was pushed but is now a rest day → unschedule + delete.
+        const r = await deps.remove(workout.id);
+        if (r.removed) result.removed += 1;
+        if (r.error) result.errors.push(`${workout.id}: ${r.error}`);
+        continue;
+      }
+
+      if (sessionType === "rest") {
+        // No prior push, still rest — nothing to do.
+        continue;
+      }
+
+      // Push (idempotent: pushWorkoutToGarmin replaces existing if any).
+      const pushResult = await deps.push(
+        workout.id,
+        session,
+        paces,
+        workout.date,
+      );
+      if (pushResult.pushed) {
+        result.repushed += 1;
+        // pushWorkoutToGarmin internally deletes the prior workout, count it.
+        if (workout.garminWorkoutId) result.removed += 1;
+      } else if (pushResult.error) {
+        result.errors.push(`${workout.id}: ${pushResult.error}`);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "unknown";
+      result.errors.push(
+        `${workout.id} (${workout.date.toISOString().slice(0, 10)}): ${msg}`,
+      );
+      console.error("[garmin-resync] error:", e);
+    }
+  }
+
+  return result;
+}

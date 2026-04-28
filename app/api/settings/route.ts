@@ -77,6 +77,11 @@ export async function GET() {
       }
     })(),
     notifications: settings.notificationPrefs ?? DEFAULT_NOTIFICATION_PREFS,
+    // Sprint v0.10: schedule constraints (ISO 1=Mon..7=Sun).
+    schedule: {
+      forcedRestDays: settings.forcedRestDays ?? [3, 7],
+      preferredLongRunDay: settings.preferredLongRunDay ?? 6,
+    },
   });
 }
 

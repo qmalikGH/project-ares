@@ -26,6 +26,10 @@ const BLOCK_CONFIGS: Record<BlockNumber, PhaseConfig> = {
     strengthRpeCap: 8,
     volumeProgression: "linear_increase",
     vdotTarget: 42,
+    // Sprint v0.10 run-volume baselines (W1; W2-W4 multiplied by progression)
+    longRunBaselineMin: 50,
+    qualityRunBaselineMin: 30,
+    easyRunBaselineMin: 35,
   },
   2: {
     blockNumber: 2,
@@ -36,6 +40,9 @@ const BLOCK_CONFIGS: Record<BlockNumber, PhaseConfig> = {
     strengthRpeCap: 8,
     volumeProgression: "linear_increase",
     vdotTarget: 43,
+    longRunBaselineMin: 60,
+    qualityRunBaselineMin: 40,
+    easyRunBaselineMin: 40,
   },
   3: {
     blockNumber: 3,
@@ -46,6 +53,9 @@ const BLOCK_CONFIGS: Record<BlockNumber, PhaseConfig> = {
     strengthRpeCap: 7,
     volumeProgression: "maintain",
     vdotTarget: 44,
+    longRunBaselineMin: 75,
+    qualityRunBaselineMin: 45,
+    easyRunBaselineMin: 35,
   },
   4: {
     blockNumber: 4,
@@ -56,6 +66,9 @@ const BLOCK_CONFIGS: Record<BlockNumber, PhaseConfig> = {
     strengthRpeCap: 7,
     volumeProgression: "maintain",
     vdotTarget: 46,
+    longRunBaselineMin: 70,
+    qualityRunBaselineMin: 40,
+    easyRunBaselineMin: 30,
   },
   5: {
     blockNumber: 5,
@@ -66,6 +79,9 @@ const BLOCK_CONFIGS: Record<BlockNumber, PhaseConfig> = {
     strengthRpeCap: 7,
     volumeProgression: "deload",
     vdotTarget: 47,
+    longRunBaselineMin: 50,
+    qualityRunBaselineMin: 30,
+    easyRunBaselineMin: 25,
   },
 };
 

@@ -25,6 +25,12 @@ export interface PhaseConfig {
   strengthRpeCap: 7 | 8 | 9;
   volumeProgression: "linear_increase" | "maintain" | "deload";
   vdotTarget: number;
+  // Sprint v0.10: per-block run-volume baselines (W1 baseline, multiplied
+  // by computeRunVolumeProgression for W2-W4). Optional for back-compat;
+  // run-coach falls back to the legacy hard-coded values when absent.
+  longRunBaselineMin?: number;
+  qualityRunBaselineMin?: number;
+  easyRunBaselineMin?: number;
 }
 
 export interface MacrocyclePlan {
@@ -175,6 +181,14 @@ export interface SessionPlan {
    * "pace_first" because the goal IS to hit a pace.
    */
   controlMethod?: "hr_first" | "pace_first";
+
+  // ============================================
+  // Periodization Engine 2.0 (Sprint v0.10)
+  // ============================================
+  /** Short label e.g. "Adaptation", "Build 1", "Build 2 / Peak", "Deload". */
+  periodizationLabel?: string;
+  /** Long human-readable rationale for UI + coach-context (why these loads/sets). */
+  periodizationRationale?: string;
 }
 
 export interface FinalSession extends SessionPlan {
@@ -299,7 +313,12 @@ export interface WeekRunPlan {
 
 export interface WeekStrengthData {
   weekNumber: number;
-  sessions: { type: "strength_a" | "strength_b" | "strength_c"; rpeReported?: number }[];
+  sessions: {
+    type: "strength_a" | "strength_b" | "strength_c";
+    rpeReported?: number;
+    /** Knee pain NRS 0-10, used by HSR pain-override (Sprint v0.10). */
+    kneePainNrs?: number;
+  }[];
   loadsByExercise?: Record<string, number>;
 }
 
@@ -428,6 +447,13 @@ export const StrengthExecutedSessionSchema = z.object({
   averageHr: z.number().nullable(),
   maxHr: z.number().nullable(),
   calories: z.number().nullable(),
+
+  // Sprint v0.10: knee-pain NRS (0-10) reported during the strength session.
+  // Drives the pain-guided HSR override in periodization (NRS≤3 progress,
+  // 4-5 hold, >5 step back). Optional — Q's first sessions won't have it,
+  // null/undefined falls back to "no override".
+  kneePainNrs: z.number().int().min(0).max(10).optional(),
+  kneePainNote: z.string().max(500).optional(),
 });
 
 export const ExecutedSessionSchema = z.discriminatedUnion("type", [

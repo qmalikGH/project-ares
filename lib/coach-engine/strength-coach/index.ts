@@ -10,6 +10,12 @@ import type {
   WeekStrengthData,
   WeekStrengthPlan,
 } from "../types";
+import {
+  applyPeriodization,
+  computePeriodizationAdjustment,
+  getPeriodizationLabel,
+  weekInBlockOf,
+} from "./periodization";
 
 // ============================================
 // Templates
@@ -222,6 +228,11 @@ export function generateWeekStrengthPlan(
 
   const wallSitNeeded = therapyPhase === "REACTIVE" || therapyPhase === "DISREPAIR";
 
+  // Sprint v0.10: derive week-in-block (1-4) from absolute weekNumber. Drives
+  // the 3:1 loading-to-deload pattern in computePeriodizationAdjustment.
+  const weekInBlock = weekInBlockOf(weekNumber, phaseConfig.durationWeeks);
+  const periodizationLabel = getPeriodizationLabel(weekInBlock);
+
   const buildSession = (
     type: "strength_a" | "strength_b" | "strength_c",
     offsetDays: number,
@@ -229,22 +240,24 @@ export function generateWeekStrengthPlan(
     let exercises = STRENGTH_TEMPLATES[type].map((e) => ({ ...e }));
     exercises = applyMode(exercises, phaseConfig.strengthMode, phaseConfig.strengthRpeCap);
 
-    // Sprint v0.7: layer Superset-Pairing for Block 2-4 (HSR-protected).
-    exercises = applySupersetPairing(exercises, phaseConfig.blockNumber, type);
+    // Sprint v0.10: replace the legacy RPE-only adjustment with the full
+    // periodization pipeline (week-pattern + RPE-feedback + pain-override).
+    // The legacy adjustLoadForRPE stays exported for any caller still using
+    // it directly; here we go through the new module.
+    const prevSession = prevWeekData?.sessions.find((s) => s.type === type);
+    const periodAdjustment = computePeriodizationAdjustment({
+      weekInBlock,
+      blockNumber: phaseConfig.blockNumber,
+      prevPainNrs: prevSession?.kneePainNrs ?? null,
+      prevRpeReported: prevSession?.rpeReported ?? null,
+      baselineRpeCap: phaseConfig.strengthRpeCap,
+    });
+    exercises = applyPeriodization(exercises, periodAdjustment);
 
-    // Apply RPE-based progression from previous session of same type, if any
-    if (prevWeekData) {
-      const prevSession = prevWeekData.sessions.find((s) => s.type === type);
-      if (prevSession?.rpeReported !== undefined) {
-        exercises = exercises.map((ex) => {
-          if (ex.loadPct !== undefined) {
-            const adjusted = adjustLoadForRPE(prevSession.rpeReported!, phaseConfig.strengthRpeCap, ex.loadPct);
-            return { ...ex, loadPct: adjusted };
-          }
-          return ex;
-        });
-      }
-    }
+    // Sprint v0.7: layer Superset-Pairing for Block 2-4 (HSR-protected).
+    // Runs AFTER periodization so the periodization-adjusted loads/sets are
+    // what get paired up.
+    exercises = applySupersetPairing(exercises, phaseConfig.blockNumber, type);
 
     // Prepend Wall Sit when active tendon therapy — visible in plannedSessions JSON,
     // so the WeekView can show it without re-running the modulator.
@@ -258,6 +271,8 @@ export function generateWeekStrengthPlan(
       durationMin: phaseConfig.strengthMode === "minimal" ? 30 : 50,
       exercises,
       rpeTarget: phaseConfig.strengthRpeCap - 1,
+      periodizationLabel,
+      periodizationRationale: periodAdjustment.rationale,
     };
   };
 

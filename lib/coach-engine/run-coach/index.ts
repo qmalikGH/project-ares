@@ -12,6 +12,10 @@ import type {
   VDOTCalibrationResult,
   WeekRunPlan,
 } from "../types";
+import {
+  weekInBlockOf,
+  type WeekInBlock,
+} from "../strength-coach/periodization";
 
 // ============================================
 // VDOT → Pace lookup
@@ -351,6 +355,60 @@ function longRun(
  * Day mapping (date offset from `weekStartDate`, 0=Monday):
  *   Mon Easy AM, Tue Quality, Wed Easy AM, Thu Rest, Fri Easy AM, Sat Long, Sun Rest
  */
+// ============================================
+// Run Volume Progression (Sprint v0.10)
+// ============================================
+//
+// 4-week 3:1 pattern parallel to strength-coach periodization.
+//   W1 Adaptation:  baseline (1.0x all)
+//   W2 Build 1:     long +10%, quality +5%, easy 1.0x
+//   W3 Peak:        long +20%, quality +10%, easy 1.0x
+//   W4 Deload:      long -25%, quality -30%, easy -15%
+//
+// Pure: input weekInBlock, output multipliers + rationale.
+
+export interface RunVolumeProgression {
+  longRunMultiplier: number;
+  qualityRunMultiplier: number;
+  easyRunMultiplier: number;
+  rationale: string;
+}
+
+export function computeRunVolumeProgression(
+  weekInBlock: WeekInBlock,
+): RunVolumeProgression {
+  switch (weekInBlock) {
+    case 1:
+      return {
+        longRunMultiplier: 1.0,
+        qualityRunMultiplier: 1.0,
+        easyRunMultiplier: 1.0,
+        rationale: "W1 Adaptation: baseline volume.",
+      };
+    case 2:
+      return {
+        longRunMultiplier: 1.1,
+        qualityRunMultiplier: 1.05,
+        easyRunMultiplier: 1.0,
+        rationale: "W2 Build 1: long run +10%, quality +5%.",
+      };
+    case 3:
+      return {
+        longRunMultiplier: 1.2,
+        qualityRunMultiplier: 1.1,
+        easyRunMultiplier: 1.0,
+        rationale: "W3 Peak: long run +20%, quality +10%.",
+      };
+    case 4:
+      return {
+        longRunMultiplier: 0.75,
+        qualityRunMultiplier: 0.7,
+        easyRunMultiplier: 0.85,
+        rationale: "W4 Deload: long run -25%, quality -30%, easy -15%.",
+      };
+  }
+}
+
 export function generateWeekRunPlan(
   phaseConfig: PhaseConfig,
   weekNumber: number,
@@ -362,13 +420,26 @@ export function generateWeekRunPlan(
   const blockNumber = phaseConfig.blockNumber;
   const hr: HrCtx = hrCtx ?? {};
 
+  // Sprint v0.10: derive week-in-block + volume progression. Per-block
+  // baselines from PhaseConfig (set in periodization/index.ts BLOCK_CONFIGS),
+  // with sane fallbacks for any caller passing a partial config.
+  const weekInBlock = weekInBlockOf(weekNumber, phaseConfig.durationWeeks);
+  const volumeProg = computeRunVolumeProgression(weekInBlock);
+  const longBaseline = phaseConfig.longRunBaselineMin ?? 60;
+  const qualityBaseline = phaseConfig.qualityRunBaselineMin ?? 40;
+  const easyBaseline = phaseConfig.easyRunBaselineMin ?? 35;
+
+  const longRunMin = Math.max(20, Math.round(longBaseline * volumeProg.longRunMultiplier));
+  const qualityRunMin = Math.max(20, Math.round(qualityBaseline * volumeProg.qualityRunMultiplier));
+  const easyRunMin = Math.max(20, Math.round(easyBaseline * volumeProg.easyRunMultiplier));
+
   const dateAt = (offsetDays: number): Date =>
     new Date(weekStartDate.getTime() + offsetDays * 86400000);
 
   const sessions: SessionPlan[] = [];
 
   // Mon: Easy AM
-  sessions.push(easyRun(dateAt(0), 35, paces, hr));
+  sessions.push(easyRun(dateAt(0), easyRunMin, paces, hr));
 
   // Tue: Quality day depends on block
   let qualityDay: SessionPlan;
@@ -387,27 +458,30 @@ export function generateWeekRunPlan(
       hr,
     );
   } else if (blockNumber <= 2) {
-    qualityDay = thresholdRun(dateAt(1), 50, paces, hr);
+    qualityDay = thresholdRun(dateAt(1), qualityRunMin + 20, paces, hr); // include 10min WU + 10min CD
   } else if (blockNumber === 3) {
-    qualityDay = thresholdRun(dateAt(1), 55, paces, hr);
+    qualityDay = thresholdRun(dateAt(1), qualityRunMin + 25, paces, hr);
   } else {
     qualityDay = vo2maxIntervals(dateAt(1), paces, hr);
   }
   sessions.push(qualityDay);
 
-  // Wed: Easy AM
-  sessions.push(easyRun(dateAt(2), 30, paces, hr));
+  // Wed: Easy AM (slightly shorter than Mon/Fri)
+  sessions.push(easyRun(dateAt(2), Math.max(20, easyRunMin - 5), paces, hr));
 
   // Thu: Rest
   sessions.push(emptySession(dateAt(3), "rest"));
 
   // Fri: Easy AM
-  sessions.push(easyRun(dateAt(4), 35, paces, hr));
+  sessions.push(easyRun(dateAt(4), easyRunMin, paces, hr));
 
   // Sat: Long Run
   const longSpec = generateLongRunProgression(weekNumber, blockNumber);
   if (longSpec.durationMin > 0) {
-    sessions.push(longRun(dateAt(5), longSpec.durationMin, longSpec.intensityZone, paces, hr));
+    // Use the volume-progressed long run minutes (W2 +10%, etc.). The legacy
+    // `longSpec.durationMin` is preserved as a floor when block 5 returns 0
+    // (signals time-trial week). intensityZone still comes from longSpec.
+    sessions.push(longRun(dateAt(5), longRunMin, longSpec.intensityZone, paces, hr));
   } else {
     // Block 5 time-trial week → time trial on Wed (mid-week), Sat is easy/rest.
     // Time-trial deliberately stays pace_first — the goal is hitting a pace.
@@ -421,7 +495,7 @@ export function generateWeekRunPlan(
       controlMethod: "pace_first",
       notes: "5k Time Trial — race-day simulation",
     };
-    sessions.push(easyRun(dateAt(5), 30, paces, hr));
+    sessions.push(easyRun(dateAt(5), Math.max(20, easyRunMin - 5), paces, hr));
   }
 
   // Sun: Rest

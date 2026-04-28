@@ -28,6 +28,9 @@ export function ResultStep({
 }) {
   const [rpe, setRpe] = useState(7);
   const [trainingScore, setTraining] = useState(3);
+  // Sprint v0.10: knee-pain NRS during strength sessions. Drives the HSR
+  // pain-override in the next week's periodization.
+  const [kneePainNrs, setKneePainNrs] = useState(0);
   const [duration, setDuration] = useState(
     strengthExecution?.durationActualMin ?? defaultDurationMin,
   );
@@ -58,6 +61,9 @@ export function ResultStep({
           maxHr: null,
           calories: null,
           exercises: strengthExecution.exercises,
+          // Sprint v0.10: pass knee-pain NRS into the strength payload so
+          // the next week's periodization can read prevPainNrs.
+          kneePainNrs,
         };
       } else {
         payload.durationActualMin = duration;
@@ -110,6 +116,14 @@ export function ResultStep({
           value={trainingScore}
           onChange={setTraining}
         />
+        {isStrength && (
+          <SliderRow
+            label="Knieschmerz während der Session (NRS)"
+            hint="0=keine, ≤3 progress, 4-5 hold, >5 step back (Sprint v0.10 HSR-Periodization)"
+            value={kneePainNrs}
+            onChange={setKneePainNrs}
+          />
+        )}
         <label className="flex flex-col gap-1.5">
           <span className="text-sm font-medium">Notizen (optional)</span>
           <textarea

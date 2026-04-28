@@ -50,6 +50,10 @@ type SettingsResponse = {
   };
   hrZones: HrZonesPayload;
   notifications: NotifPrefs;
+  schedule: {
+    forcedRestDays: number[]; // ISO 1=Mon..7=Sun
+    preferredLongRunDay: number;
+  };
 };
 
 const AVAILABLE_MODELS = [
@@ -92,6 +96,7 @@ export default function SettingsView() {
         onSaved={load}
       />
       <HrZonesSection hrZones={data.hrZones} onSaved={load} />
+      <TrainingDaysSection schedule={data.schedule} onSaved={load} />
       <AiCoachSection aiCoach={data.aiCoach} onSaved={load} />
       <PerformanceSection vdot={data.vdot} onSaved={load} />
       <NotificationsSection notifications={data.notifications} onSaved={load} />
@@ -415,7 +420,7 @@ function GarminWorkoutPushSection({
         </div>
         <div>
           <span className="font-semibold text-foreground">Manuell:</span>{" "}
-          „Diese Woche jetzt syncen" pusht <strong>sofort</strong> alle
+          &bdquo;Diese Woche jetzt syncen&ldquo; pusht <strong>sofort</strong> alle
           geplanten Sessions der nächsten 7 Tage. Bluetooth-Sync zur FR165
           dauert dann nochmal 15–60 Min mit iPhone in der Nähe.
         </div>
@@ -548,6 +553,192 @@ function PushStateBadge({ state }: { state: PushItemState }) {
     >
       {c.label}
     </span>
+  );
+}
+
+// ============================================
+// Trainingstage (Sprint v0.10)
+// ============================================
+//
+// Pickt forcedRestDays (Pflicht-Ruhetage) + preferredLongRunDay. Speichern
+// triggert Macrocycle-Regeneration der zukünftigen Wochenpläne + Garmin-Resync.
+
+const ISO_DAY_LABELS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]; // ISO 1..7
+const ISO_DAY_FULL = [
+  "Montag",
+  "Dienstag",
+  "Mittwoch",
+  "Donnerstag",
+  "Freitag",
+  "Samstag",
+  "Sonntag",
+];
+
+function TrainingDaysSection({
+  schedule,
+  onSaved,
+}: {
+  schedule: { forcedRestDays: number[]; preferredLongRunDay: number };
+  onSaved: () => void;
+}) {
+  const [restDays, setRestDays] = useState<number[]>(
+    Array.isArray(schedule.forcedRestDays) ? [...schedule.forcedRestDays] : [3, 7],
+  );
+  const [longRunDay, setLongRunDay] = useState<number>(
+    schedule.preferredLongRunDay ?? 6,
+  );
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  function toggleRestDay(iso: number) {
+    if (iso === longRunDay) return; // can't pick long-run day as rest
+    if (restDays.includes(iso)) {
+      const next = restDays.filter((d) => d !== iso);
+      if (next.length === 0) return; // need at least 1 rest day
+      setRestDays(next);
+    } else {
+      if (restDays.length >= 4) return; // max 4
+      setRestDays([...restDays, iso].sort());
+    }
+  }
+
+  function selectLongRunDay(iso: number) {
+    if (restDays.includes(iso)) return; // can't be a rest day
+    setLongRunDay(iso);
+  }
+
+  async function save() {
+    setBusy(true);
+    setMsg(null);
+    setErr(null);
+    try {
+      const r = await fetch("/api/settings/training-days", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          forcedRestDays: restDays,
+          preferredLongRunDay: longRunDay,
+        }),
+      });
+      const data = (await r.json().catch(() => ({}))) as {
+        regenerated?: number;
+        garminResync?: {
+          considered: number;
+          removed: number;
+          repushed: number;
+          errors: string[];
+        };
+        error?: string;
+      };
+      if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`);
+
+      const parts: string[] = [];
+      if (typeof data.regenerated === "number")
+        parts.push(`${data.regenerated} Wochen regeneriert`);
+      if (data.garminResync) {
+        const g = data.garminResync;
+        if (g.considered > 0)
+          parts.push(
+            `Garmin: ${g.repushed} re-pushed, ${g.removed} removed`,
+          );
+        if (g.errors.length > 0)
+          setErr(`Garmin-Sync-Errors: ${g.errors.slice(0, 3).join(" | ")}`);
+      }
+      setMsg(parts.join(" · ") || "Gespeichert.");
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold mb-1">Trainingstage</h2>
+      <p className="text-xs text-muted-foreground mb-4">
+        Welche Tage sind Pflicht-Ruhetage (z.B. Office, Familie)? Welcher Tag
+        soll für den Long Run reserviert sein? Speichern regeneriert alle
+        zukünftigen Wochenpläne und sendet sie an Garmin (falls aktiv).
+      </p>
+
+      {/* Pflicht-Ruhetage */}
+      <div className="space-y-2 mb-4">
+        <div className="text-sm font-medium">Pflicht-Ruhetage</div>
+        <div className="flex flex-wrap gap-1">
+          {ISO_DAY_LABELS.map((label, i) => {
+            const iso = i + 1;
+            const active = restDays.includes(iso);
+            const isLongRun = iso === longRunDay;
+            return (
+              <button
+                key={iso}
+                type="button"
+                onClick={() => toggleRestDay(iso)}
+                disabled={isLongRun || busy}
+                title={
+                  isLongRun
+                    ? `${ISO_DAY_FULL[i]} ist Long-Run-Tag — kann kein Ruhetag sein`
+                    : ISO_DAY_FULL[i]
+                }
+                className={`min-w-[2.5rem] rounded-md border px-2 py-1 text-xs font-medium transition-colors ${
+                  active
+                    ? "border-[var(--accent)] bg-[var(--accent-muted)] text-[var(--accent)]"
+                    : "border-input text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                } ${isLongRun ? "opacity-30 cursor-not-allowed" : ""}`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          1–4 Tage. Aktuell: {restDays.length}.
+        </p>
+      </div>
+
+      {/* Long-Run-Day */}
+      <div className="space-y-2 mb-4">
+        <div className="text-sm font-medium">Long-Run-Tag</div>
+        <div className="flex flex-wrap gap-1">
+          {ISO_DAY_LABELS.map((label, i) => {
+            const iso = i + 1;
+            const active = iso === longRunDay;
+            const isRest = restDays.includes(iso);
+            return (
+              <button
+                key={iso}
+                type="button"
+                onClick={() => selectLongRunDay(iso)}
+                disabled={isRest || busy}
+                title={
+                  isRest
+                    ? `${ISO_DAY_FULL[i]} ist Pflicht-Ruhetag`
+                    : ISO_DAY_FULL[i]
+                }
+                className={`min-w-[2.5rem] rounded-md border px-2 py-1 text-xs font-medium transition-colors ${
+                  active
+                    ? "border-[var(--accent)] bg-[var(--accent-muted)] text-[var(--accent)]"
+                    : "border-input text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                } ${isRest ? "opacity-30 cursor-not-allowed" : ""}`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {msg && <p className="text-sm text-muted-foreground">{msg}</p>}
+      {err && (
+        <p className="text-sm text-destructive break-words">{err}</p>
+      )}
+
+      <Button onClick={save} disabled={busy} className="mt-2">
+        {busy ? "Regeneriere…" : "Speichern + Pläne neu generieren"}
+      </Button>
+    </Card>
   );
 }
 

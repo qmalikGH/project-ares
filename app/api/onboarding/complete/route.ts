@@ -24,6 +24,11 @@ import {
   type VdotCalibrationResult,
 } from "@/lib/coach-engine/vdot-calculator";
 import {
+  constraintsFromUserSettings,
+  planWeekSchedule,
+} from "@/lib/coach-engine/schedule-strategy";
+import { removeWorkoutFromGarmin } from "@/lib/garmin/workout-sync";
+import {
   getGarminProfileMetrics,
   getRecentRunSummaries,
   type GarminProfileMetrics,
@@ -155,6 +160,30 @@ export async function POST(req: Request) {
       : "REMODELING"
     : null;
 
+  // Sprint v0.10: collect future Workout-IDs that were pushed to Garmin under
+  // the old (about-to-be-abandoned) macrocycle. We clean these from Garmin
+  // OUTSIDE the transaction (Garmin calls are network I/O — slow + can fail,
+  // we don't want the DB transaction to depend on them).
+  const orphanGarminWorkoutIds: string[] = [];
+  try {
+    const userSettingsCheck = await db.userSettings.findUnique({
+      where: { userId },
+    });
+    if (userSettingsCheck?.garminWorkoutPushEnabled) {
+      const orphans = await db.workout.findMany({
+        where: {
+          userId,
+          date: { gte: new Date() },
+          garminWorkoutId: { not: null },
+        },
+        select: { id: true },
+      });
+      for (const o of orphans) orphanGarminWorkoutIds.push(o.id);
+    }
+  } catch (e) {
+    console.error("[onboarding] orphan Garmin scan failed (non-fatal):", e);
+  }
+
   // Persist atomically. Prisma's interactive transaction guarantees rollback if any step fails.
   const result = await db.$transaction(async (tx) => {
     // Mark any previous active goals/macrocycles as abandoned
@@ -186,6 +215,17 @@ export async function POST(req: Request) {
       where: { userId },
       update: settingsUpdate,
       create: { userId, ...settingsUpdate },
+    });
+
+    // Sprint v0.10: read schedule constraints (forcedRestDays, preferredLongRunDay)
+    // for the upcoming planWeekSchedule pass. Defaults baked into UserSettings
+    // already (Wed+Sun rest, Sat long run); user can override via Settings UI.
+    const scheduleSettings = await tx.userSettings.findUnique({
+      where: { userId },
+      select: {
+        forcedRestDays: true,
+        preferredLongRunDay: true,
+      },
     });
 
     const goal = await tx.goal.create({
@@ -253,14 +293,20 @@ export async function POST(req: Request) {
           initialTherapyPhase,
         );
 
-        // Merge: replace placeholder strength sessions in run plan with actual ones,
-        // matched by date. Run plan is the spine (7 days), strength sessions slot into Mon/Wed/Fri afternoons.
-        const mergedSessions: SessionPlan[] = [...runPlan.sessions];
-        for (const strSess of strengthPlan.sessions) {
-          // Strength sessions don't replace run sessions — they're additional PM sessions same day.
-          // Tag them with a different time to differentiate; UI handles display.
-          mergedSessions.push(strSess);
-        }
+        // Sprint v0.10: Schedule-Strategy places sessions per user-specific
+        // constraints (forced rest days, long-run day) and concurrent-training
+        // science (strength A=Mon, B=Thu, C=Fri; quality run alone Tue;
+        // long run alone Sat). Replaces the v0.9 naive "concat run+strength"
+        // merge that had Strength B locked on Wed (Q's office day).
+        const mergedSessions: SessionPlan[] = planWeekSchedule(
+          runPlan.sessions,
+          strengthPlan.sessions,
+          weekStart,
+          constraintsFromUserSettings({
+            forcedRestDaysIso: scheduleSettings?.forcedRestDays ?? null,
+            preferredLongRunDayIso: scheduleSettings?.preferredLongRunDay ?? null,
+          }),
+        );
 
         await tx.weeklyPlan.create({
           data: {
@@ -276,6 +322,24 @@ export async function POST(req: Request) {
 
     return { goalId: goal.id, macrocycleId: macrocycle.id, totalPhases: macrocyclePlan.phases.length };
   });
+
+  // Sprint v0.10: best-effort Garmin cleanup of orphan workouts from the
+  // now-abandoned macrocycle. Fire-and-forget: failures don't block the
+  // onboarding response. Each removeWorkoutFromGarmin call is itself
+  // best-effort (logs but doesn't throw).
+  if (orphanGarminWorkoutIds.length > 0) {
+    void Promise.all(
+      orphanGarminWorkoutIds.map((id) =>
+        removeWorkoutFromGarmin(id).catch((e) =>
+          console.error(
+            "[onboarding] orphan Garmin cleanup failed for",
+            id,
+            e,
+          ),
+        ),
+      ),
+    );
+  }
 
   // Surface the calibration as a notification so Q sees the result + reasoning.
   // Best-effort — never fails onboarding.

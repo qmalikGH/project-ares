@@ -367,6 +367,12 @@ model UserSettings {
   // pushes tomorrow's run-workouts to Garmin Connect, surfaced on FR165.
   garminWorkoutPushEnabled Boolean   @default(false)
 
+  // Schedule constraints (Sprint v0.10) — drive planWeekSchedule.
+  // Stored ISO-style: 1=Mon..7=Sun, easy to read in DB tools.
+  // Default Q: Wed (3) + Sun (7) forced rest, Sat (6) long run.
+  forcedRestDays           Int[]     @default([3, 7])
+  preferredLongRunDay      Int       @default(6)
+
   // Notifications (per-type toggle)
   notificationPrefs       Json?
 
