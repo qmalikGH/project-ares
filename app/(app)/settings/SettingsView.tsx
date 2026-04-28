@@ -32,7 +32,11 @@ type HrZonesPayload =
 type SettingsResponse = {
   status: "ok";
   account: { email: string; name: string | null; createdAt: string };
-  garmin: { hasOverride: boolean; usernameDisplay: string | null };
+  garmin: {
+    hasOverride: boolean;
+    usernameDisplay: string | null;
+    workoutPushEnabled: boolean;
+  };
   aiCoach: {
     enabled: boolean;
     modelOverride: string | null;
@@ -83,6 +87,10 @@ export default function SettingsView() {
 
       <AccountSection account={data.account} />
       <GarminSection garmin={data.garmin} onSaved={load} />
+      <GarminWorkoutPushSection
+        enabled={data.garmin.workoutPushEnabled}
+        onSaved={load}
+      />
       <HrZonesSection hrZones={data.hrZones} onSaved={load} />
       <AiCoachSection aiCoach={data.aiCoach} onSaved={load} />
       <PerformanceSection vdot={data.vdot} onSaved={load} />
@@ -189,6 +197,124 @@ function GarminSection({
       <Button onClick={save} disabled={busy} className="mt-4">
         {busy ? "Speichere…" : "Credentials speichern"}
       </Button>
+    </Card>
+  );
+}
+
+// ============================================
+// Garmin Workout Push (Sprint v0.9)
+// ============================================
+function GarminWorkoutPushSection({
+  enabled,
+  onSaved,
+}: {
+  enabled: boolean;
+  onSaved: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function toggle(next: boolean) {
+    setBusy(true);
+    setMsg(null);
+    setErr(null);
+    try {
+      const r = await fetch("/api/settings/garmin-push", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: next }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setMsg(next ? "Push aktiviert." : "Push deaktiviert.");
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function syncNow() {
+    setBusy(true);
+    setMsg(null);
+    setErr(null);
+    try {
+      const r = await fetch("/api/garmin/sync-week", { method: "POST" });
+      const data = (await r.json().catch(() => ({}))) as {
+        synced?: number;
+        failed?: number;
+        skipped?: number;
+        errors?: Array<{ workoutId: string; type: string; error: string }>;
+        error?: string;
+      };
+      if (!r.ok) {
+        throw new Error(data.error ?? `HTTP ${r.status}`);
+      }
+      const parts: string[] = [];
+      if (typeof data.synced === "number") parts.push(`${data.synced} synced`);
+      if (typeof data.skipped === "number" && data.skipped > 0)
+        parts.push(`${data.skipped} skipped`);
+      if (typeof data.failed === "number" && data.failed > 0)
+        parts.push(`${data.failed} failed`);
+      setMsg(parts.join(" · ") || "Keine geplanten Sessions.");
+      if (data.errors && data.errors.length > 0) {
+        setErr(
+          data.errors
+            .map((e) => `${e.type}: ${e.error.slice(0, 80)}`)
+            .join(" | "),
+        );
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold mb-1">Garmin Workout Push</h2>
+      <p className="text-xs text-muted-foreground mb-3">
+        Sendet geplante Run-Workouts (Easy / Threshold / Tempo / Long / VO2max
+        / Calibration) automatisch an deine Garmin-Uhr. Strength-Sessions,
+        Rest-Days und Time-Trials werden nicht gepusht. Cron läuft 21:00
+        Berlin (Vorabend) für den nächsten Tag.
+      </p>
+
+      <label className="flex items-center justify-between py-2">
+        <div className="min-w-0 flex-1 pr-3">
+          <div className="text-sm font-medium">Auto-Push aktivieren</div>
+          <div className="text-xs text-muted-foreground">
+            Workouts erscheinen am Vorabend in Garmin Connect Mobile.
+            Bluetooth-Sync zum FR165 dauert 15-60 Min mit iPhone in der Nähe.
+          </div>
+        </div>
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => toggle(e.target.checked)}
+          disabled={busy}
+          className="h-5 w-5"
+        />
+      </label>
+
+      {enabled && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={syncNow}
+          disabled={busy}
+          className="mt-3"
+        >
+          {busy ? "Syncing…" : "Diese Woche jetzt syncen"}
+        </Button>
+      )}
+
+      {msg && <p className="mt-3 text-sm text-muted-foreground">{msg}</p>}
+      {err && (
+        <p className="mt-2 text-sm text-destructive break-words">{err}</p>
+      )}
     </Card>
   );
 }

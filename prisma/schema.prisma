@@ -193,6 +193,14 @@ model Workout {
   // Linkage to Garmin data
   garminActivityId String?
 
+  // Garmin Workout Push (Sprint v0.9) — tracks pushed-to-watch state.
+  // Set by /api/cron/garmin-workout-push (vorabend) or manual sync.
+  garminWorkoutId          String?
+  garminScheduledWorkoutId String?
+  garminScheduledAt        DateTime?
+  garminPushStatus         String? // "synced" | "failed" | "removed"
+  garminPushError          String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -354,6 +362,10 @@ model UserSettings {
   hrRest                  Int?
   hrZonesUpdatedAt        DateTime?
   hrZonesSource           String?   // "manual" | "garmin_lthr" | "field_test"
+
+  // Garmin Workout Push (Sprint v0.9) — opt-in toggle. When true, daily cron
+  // pushes tomorrow's run-workouts to Garmin Connect, surfaced on FR165.
+  garminWorkoutPushEnabled Boolean   @default(false)
 
   // Notifications (per-type toggle)
   notificationPrefs       Json?

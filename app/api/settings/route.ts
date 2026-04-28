@@ -29,6 +29,7 @@ export async function GET() {
       hasOverride: !!settings.garminUsernameOverride,
       usernameDisplay: settings.garminUsernameOverride ?? null,
       // password never echoed back
+      workoutPushEnabled: settings.garminWorkoutPushEnabled,
     },
     aiCoach: {
       enabled: settings.aiCoachEnabled,

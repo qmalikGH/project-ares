@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Project Ares PWA icon (Sprint v0.9).
+       Deep-black background to match v0.8 design tokens. Stylised "A" mark
+       with subtle cyan glow. Used as source for all PNG export sizes. -->
+  <defs>
+    <radialGradient id="bg-glow" cx="50%" cy="20%" r="60%">
+      <stop offset="0%" stop-color="#7DD3FC" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#7DD3FC" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="a-stroke" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FAFAF9"/>
+      <stop offset="100%" stop-color="#A5E0FB"/>
+    </linearGradient>
+    <filter id="cyan-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feFlood flood-color="#7DD3FC" flood-opacity="0.45"/>
+      <feComposite in2="blur" operator="in"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" fill="#0A0A0B" rx="96"/>
+  <rect width="512" height="512" fill="url(#bg-glow)" rx="96"/>
+  <!-- Stylised A: two angled strokes with crossbar -->
+  <g filter="url(#cyan-shadow)" stroke-linecap="round" stroke-linejoin="round" fill="none"
+     stroke="url(#a-stroke)" stroke-width="36">
+    <path d="M 130 410 L 256 130 L 382 410"/>
+    <path d="M 180 320 L 332 320"/>
+  </g>
+</svg>
