@@ -17,13 +17,16 @@ import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { dayKey } from "@/lib/db/queries/sensors";
-import { vdotToPaces } from "@/lib/coach-engine/run-coach";
+import {
+  getHrTargetForSession,
+  vdotToPaces,
+} from "@/lib/coach-engine/run-coach";
 import {
   getEffectiveVdot,
   getOrCreateUserSettings,
 } from "@/lib/db/queries/settings";
 import { pushWorkoutToGarmin } from "@/lib/garmin/workout-sync";
-import type { SessionPlan } from "@/lib/coach-engine/types";
+import type { SessionPlan, SessionType } from "@/lib/coach-engine/types";
 
 const Schema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -62,10 +65,12 @@ export async function POST(req: Request) {
   const targetDate = dayKey(new Date(parsed.data.date));
   const targetType = parsed.data.type;
 
-  // 1. Find the planned session in the right WeeklyPlan + verify it matches.
+  // 1. Find the planned session in the user's ACTIVE macrocycle's WeeklyPlan.
+  // Filtering on macrocycle.status guards against duplicates from abandoned
+  // older plans (re-onboarding aftermath).
   const weeklyPlans = await db.weeklyPlan.findMany({
     where: {
-      phase: { macrocycle: { userId } },
+      phase: { macrocycle: { userId, status: "active" } },
       AND: [
         { startDate: { lte: targetDate } },
         { endDate: { gt: targetDate } },
@@ -97,6 +102,28 @@ export async function POST(req: Request) {
       },
       { status: 404 },
     );
+  }
+
+  // 1b. HR-Target fallback for pre-v0.7 plans without hrTarget in the JSON.
+  // Derive from UserSettings.hrMax/hrRest via Karvonen so the watch still
+  // gets a HR-zone targeted workout instead of being skipped silently.
+  if (
+    !matchedSession.hrTarget &&
+    typeof settings.hrMax === "number" &&
+    typeof settings.hrRest === "number"
+  ) {
+    const derived = getHrTargetForSession({
+      sessionType: matchedSession.type as SessionType,
+      hrMax: settings.hrMax,
+      hrRest: settings.hrRest,
+    });
+    if (derived) {
+      matchedSession = {
+        ...matchedSession,
+        hrTarget: derived,
+        controlMethod: "hr_first",
+      };
+    }
   }
 
   // 2. Find existing Workout row OR create one (so the Garmin IDs have a home).

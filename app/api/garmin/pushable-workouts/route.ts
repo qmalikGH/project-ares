@@ -14,6 +14,9 @@ import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { dayKey } from "@/lib/db/queries/sensors";
 import { isPushableSessionType } from "@/lib/garmin/workout-builder";
+import { getHrTargetForSession } from "@/lib/coach-engine/run-coach";
+import { getOrCreateUserSettings } from "@/lib/db/queries/settings";
+import type { SessionType } from "@/lib/coach-engine/types";
 
 interface PlannedSessionRaw {
   date?: string | Date;
@@ -27,11 +30,13 @@ export async function GET() {
   const today0 = dayKey(new Date());
   const sevenDaysOut = new Date(today0.getTime() + 7 * 86400000);
 
-  // 1. Find every weekly plan that overlaps the [today, today+7) window.
+  // 1. Find every weekly plan in the [today, today+7) window — but ONLY for
+  // the user's currently ACTIVE macrocycle. Re-onboarding sets prior macros
+  // to "abandoned"; if we don't filter, sessions from both macros surface
+  // and the user sees duplicate rows for every day.
   const weeklyPlans = await db.weeklyPlan.findMany({
     where: {
-      phase: { macrocycle: { userId } },
-      // overlap: plan.endDate > today AND plan.startDate < sevenDaysOut
+      phase: { macrocycle: { userId, status: "active" } },
       AND: [
         { endDate: { gt: today0 } },
         { startDate: { lt: sevenDaysOut } },
@@ -40,6 +45,14 @@ export async function GET() {
     orderBy: { startDate: "asc" },
     select: { id: true, plannedSessions: true },
   });
+
+  // HR fallback: when an old plannedSession was generated before Sprint v0.7
+  // (no hrTarget in the JSON) but the user has hrMax/hrRest in UserSettings,
+  // we can derive the HR-zone on the fly via Karvonen. UI then treats those
+  // sessions as pushable too.
+  const settings = await getOrCreateUserSettings(userId);
+  const canDeriveHr =
+    typeof settings.hrMax === "number" && typeof settings.hrRest === "number";
 
   // 2. Flatten + filter every session into the 7-day window.
   interface FlatSession {
@@ -94,10 +107,22 @@ export async function GET() {
     .map((s) => {
       const isoDate = s.date.toISOString().slice(0, 10);
       const existing = rowByKey.get(rowKey(s.date, s.type));
-      const pushable = isPushableSessionType(s.type) && !!s.hrTarget;
-      const reasonNotPushable = !isPushableSessionType(s.type)
+      const typeOk = isPushableSessionType(s.type);
+      // HR-Target may come from the planned JSON OR be derivable on-the-fly
+      // from UserSettings. Either path makes the session pushable.
+      let derivedHr: { from: number; to: number } | null = null;
+      if (!s.hrTarget && typeOk && canDeriveHr) {
+        derivedHr = getHrTargetForSession({
+          sessionType: s.type as SessionType,
+          hrMax: settings.hrMax!,
+          hrRest: settings.hrRest!,
+        });
+      }
+      const hasHr = !!s.hrTarget || !!derivedHr;
+      const pushable = typeOk && hasHr;
+      const reasonNotPushable = !typeOk
         ? ("non_pushable_session" as const)
-        : !s.hrTarget
+        : !hasHr
           ? ("missing_hr_target" as const)
           : null;
       return {
