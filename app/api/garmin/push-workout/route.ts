@@ -1,20 +1,39 @@
 // POST /api/garmin/push-workout
-// Body: { workoutId: string }
+// Body: { date: "YYYY-MM-DD", type: string }
 //
-// Pushes a single Workout DB row to Garmin Connect. Idempotent
-// (workout-sync.ts replaces a prior push). Used by the UI to drive a
-// per-item progress UI ("1/7 Easy Run pushed ✓").
+// Pushes ONE planned session to Garmin Connect. Idempotent — relies on
+// workout-sync.pushWorkoutToGarmin which deletes any prior push first.
+//
+// Materialises the Workout row on demand: planned sessions live as JSON in
+// WeeklyPlan.plannedSessions, and a Workout row only exists once a session
+// has been started/completed. To push, we need a row to attach the Garmin
+// IDs to — so we upsert from the plannedSessions JSON.
+//
+// Used by the Settings UI to drive the per-workout progress UI ("1/N · Easy
+// Run pushed ✓").
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
+import { dayKey } from "@/lib/db/queries/sensors";
 import { vdotToPaces } from "@/lib/coach-engine/run-coach";
-import { getEffectiveVdot, getOrCreateUserSettings } from "@/lib/db/queries/settings";
+import {
+  getEffectiveVdot,
+  getOrCreateUserSettings,
+} from "@/lib/db/queries/settings";
 import { pushWorkoutToGarmin } from "@/lib/garmin/workout-sync";
 import type { SessionPlan } from "@/lib/coach-engine/types";
 
-const Schema = z.object({ workoutId: z.string().min(1) });
+const Schema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  type: z.string().min(1).max(50),
+});
+
+interface PlannedSessionRaw {
+  date?: string | Date;
+  type?: string;
+}
 
 export async function POST(req: Request) {
   let body: unknown;
@@ -40,16 +59,70 @@ export async function POST(req: Request) {
     );
   }
 
-  const w = await db.workout.findFirst({
-    where: { id: parsed.data.workoutId, userId },
+  const targetDate = dayKey(new Date(parsed.data.date));
+  const targetType = parsed.data.type;
+
+  // 1. Find the planned session in the right WeeklyPlan + verify it matches.
+  const weeklyPlans = await db.weeklyPlan.findMany({
+    where: {
+      phase: { macrocycle: { userId } },
+      AND: [
+        { startDate: { lte: targetDate } },
+        { endDate: { gt: targetDate } },
+      ],
+    },
+    select: { plannedSessions: true },
   });
-  if (!w) {
+
+  let matchedSession: SessionPlan | null = null;
+  for (const wp of weeklyPlans) {
+    if (!Array.isArray(wp.plannedSessions)) continue;
+    for (const raw of wp.plannedSessions as unknown as PlannedSessionRaw[]) {
+      if (!raw || typeof raw !== "object" || raw.type !== targetType) continue;
+      const sDate = raw.date instanceof Date ? raw.date : raw.date ? new Date(raw.date) : null;
+      if (!sDate) continue;
+      if (dayKey(sDate).getTime() === targetDate.getTime()) {
+        matchedSession = { ...(raw as unknown as SessionPlan), date: sDate };
+        break;
+      }
+    }
+    if (matchedSession) break;
+  }
+
+  if (!matchedSession) {
     return NextResponse.json(
-      { status: "NOT_FOUND", error: "Workout not found" },
+      {
+        status: "NOT_FOUND",
+        error: `No planned session matches ${targetType} on ${parsed.data.date}`,
+      },
       { status: 404 },
     );
   }
 
+  // 2. Find existing Workout row OR create one (so the Garmin IDs have a home).
+  let workout = await db.workout.findFirst({
+    where: { userId, date: targetDate, type: targetType },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!workout) {
+    workout = await db.workout.create({
+      data: {
+        userId,
+        date: targetDate,
+        type: targetType,
+        plannedSession: matchedSession as unknown as object,
+        status: "planned",
+      },
+    });
+  } else if (workout.status === "planned") {
+    // Refresh plannedSession in case it changed since the row was created.
+    workout = await db.workout.update({
+      where: { id: workout.id },
+      data: { plannedSession: matchedSession as unknown as object },
+    });
+  }
+
+  // 3. Effective VDOT → paces → push.
   const effectiveVdot = await getEffectiveVdot(userId);
   let paces;
   try {
@@ -64,14 +137,18 @@ export async function POST(req: Request) {
     );
   }
 
-  const session = w.plannedSession as unknown as SessionPlan;
-  const result = await pushWorkoutToGarmin(w.id, session, paces, w.date);
+  const result = await pushWorkoutToGarmin(
+    workout.id,
+    matchedSession,
+    paces,
+    targetDate,
+  );
 
   return NextResponse.json({
     status: "ok",
-    workoutId: w.id,
-    type: w.type,
-    date: w.date.toISOString().slice(0, 10),
+    workoutId: workout.id,
+    type: targetType,
+    date: parsed.data.date,
     ...result,
   });
 }

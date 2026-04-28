@@ -206,12 +206,12 @@ function GarminSection({
 // ============================================
 
 interface PushableItem {
-  id: string;
-  type: string;
   date: string;
+  type: string;
   durationMin: number | null;
   pushable: boolean;
   reasonNotPushable: "non_pushable_session" | "missing_hr_target" | null;
+  existingWorkoutId: string | null;
   currentStatus: string | null;
 }
 
@@ -312,7 +312,7 @@ function GarminWorkoutPushSection({
         setItems((prev) =>
           prev
             ? prev.map((p) =>
-                p.id === w.id ? { ...p, state: "syncing" } : p,
+                p.date === w.date && p.type === w.type ? { ...p, state: "syncing" } : p,
               )
             : prev,
         );
@@ -321,7 +321,7 @@ function GarminWorkoutPushSection({
           const pushRes = await fetch("/api/garmin/push-workout", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ workoutId: w.id }),
+            body: JSON.stringify({ date: w.date, type: w.type }),
           });
           const pushData = (await pushRes.json().catch(() => ({}))) as {
             pushed?: boolean;
@@ -333,7 +333,7 @@ function GarminWorkoutPushSection({
             setItems((prev) =>
               prev
                 ? prev.map((p) =>
-                    p.id === w.id
+                    p.date === w.date && p.type === w.type
                       ? {
                           ...p,
                           state: "failed",
@@ -350,7 +350,7 @@ function GarminWorkoutPushSection({
             setItems((prev) =>
               prev
                 ? prev.map((p) =>
-                    p.id === w.id ? { ...p, state: "synced" } : p,
+                    p.date === w.date && p.type === w.type ? { ...p, state: "synced" } : p,
                   )
                 : prev,
             );
@@ -359,7 +359,7 @@ function GarminWorkoutPushSection({
             setItems((prev) =>
               prev
                 ? prev.map((p) =>
-                    p.id === w.id ? { ...p, state: "skipped" } : p,
+                    p.date === w.date && p.type === w.type ? { ...p, state: "skipped" } : p,
                   )
                 : prev,
             );
@@ -369,7 +369,7 @@ function GarminWorkoutPushSection({
           setItems((prev) =>
             prev
               ? prev.map((p) =>
-                  p.id === w.id
+                  p.date === w.date && p.type === w.type
                     ? {
                         ...p,
                         state: "failed",
@@ -466,7 +466,7 @@ function GarminWorkoutPushSection({
         <ul className="mt-3 divide-y divide-[var(--border-subtle)] rounded-md border">
           {items.map((w) => (
             <li
-              key={w.id}
+              key={`${w.date}-${w.type}`}
               className="flex items-center justify-between gap-3 px-3 py-2 text-xs"
             >
               <div className="min-w-0 flex-1">
