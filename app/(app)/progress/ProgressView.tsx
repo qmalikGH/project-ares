@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import { Card } from "@/components/training/shared";
+import { StatsSubNav } from "@/components/layout/StatsSubNav";
 
 type GoalProgress = {
   primaryType: string;
@@ -130,7 +131,8 @@ export default function ProgressView() {
   }
   if (data.status === "NO_ACTIVE_GOAL") {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-8">
+      <div className="mx-auto max-w-3xl px-6 py-8 space-y-4">
+        <StatsSubNav />
         <h1 className="text-2xl font-bold">Progress</h1>
         <p className="mt-2 text-muted-foreground">
           Kein aktives Goal. Bitte Onboarding abschließen.
@@ -141,6 +143,7 @@ export default function ProgressView() {
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-8">
+      <StatsSubNav />
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Progress</h1>
         <p className="text-sm text-muted-foreground">

@@ -9,6 +9,7 @@ import {
   type ExerciseShape,
   type SessionShape,
 } from "@/components/training/shared";
+import { StatsSubNav } from "@/components/layout/StatsSubNav";
 
 type WorkoutItem = {
   id: string;
@@ -77,6 +78,7 @@ export default function HistoryView() {
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-8">
+      <StatsSubNav />
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">History</h1>
         <p className="text-sm text-muted-foreground">
