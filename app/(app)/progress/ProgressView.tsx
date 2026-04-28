@@ -344,23 +344,22 @@ function VdotChart({ points }: { points: VdotPoint[] }) {
             <Line
               type="monotone"
               dataKey="vdotMeasured"
-              stroke="hsl(220 70% 50%)"
-              strokeWidth={2}
-              dot={{ r: 4 }}
-              activeDot={{ r: 6 }}
+              stroke="#7DD3FC"
+              strokeWidth={1.5}
+              dot={{ r: 3, fill: "#7DD3FC", stroke: "none" }}
+              activeDot={{ r: 5, fill: "#7DD3FC", stroke: "none" }}
               connectNulls
               name="Gemessen"
             />
             <Line
               type="monotone"
               dataKey="vdotPlanned"
-              stroke="hsl(220 70% 50%)"
-              strokeWidth={1.5}
-              strokeDasharray="6 4"
-              dot={{ r: 3 }}
+              stroke="rgba(255,255,255,0.4)"
+              strokeWidth={1}
+              strokeDasharray="4 4"
+              dot={{ r: 2, fill: "rgba(255,255,255,0.4)", stroke: "none" }}
               connectNulls
               name="Plan"
-              opacity={0.6}
             />
           </LineChart>
         </ResponsiveContainer>

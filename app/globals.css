@@ -4,127 +4,340 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ============================================================================
+   v0.8 Design Tokens — Dark-Mode-Only "Glass" Look
+   ============================================================================
+   Inspiration: Framer-Domain-Page (deep black + glass), 21st.dev Mobile UI.
+   Single accent: subtle cyan (sky-300 #7DD3FC). Status colors only sparingly.
+   Engine logic untouched — this is the visual layer for Sprint v0.8.
+   ============================================================================ */
+
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
+  /* === Backgrounds === */
+  --color-background: var(--bg-base);
+  --color-elevated: var(--bg-elevated);
+  --color-elevated-hover: var(--bg-elevated-hover);
+
+  /* === Borders === */
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+
+  /* === Text === */
+  --color-foreground: var(--text-primary);
+  --color-foreground-secondary: var(--text-secondary);
+  --color-foreground-tertiary: var(--text-tertiary);
+  --color-foreground-quaternary: var(--text-quaternary);
+
+  /* === Cyan accent (v0.8 single brand color) === */
+  --color-cyan: var(--accent);
+  --color-cyan-muted: var(--accent-muted);
+  --color-cyan-ring: var(--accent-ring);
+
+  /* === Status (used sparingly per brief) === */
+  --color-success: var(--success);
+  --color-warning: var(--warning);
   --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
+
+  /* === Shadcn token re-mapping ============================================
+     Existing shadcn components reference these by name. We re-bind them to
+     dark-glass values so legacy `bg-card`, `border`, `text-muted-foreground`
+     calls automatically pick up the v0.8 look without ground-up rewrites.
+     ====================================================================== */
+  --color-card: var(--bg-elevated);
+  --color-card-foreground: var(--text-primary);
+  --color-popover: rgba(20, 20, 22, 0.95);
+  --color-popover-foreground: var(--text-primary);
+  /* Primary = cyan: shadcn's <Button> with default variant becomes our v0.8 CTA */
+  --color-primary: var(--accent);
+  --color-primary-foreground: #0a0a0b;
+  /* Secondary = white-tint pill (still neutral, NOT cyan) */
+  --color-secondary: rgba(255, 255, 255, 0.06);
+  --color-secondary-foreground: var(--text-primary);
+  /* Muted = subtle bg + secondary text */
+  --color-muted: rgba(255, 255, 255, 0.04);
+  --color-muted-foreground: var(--text-secondary);
+  /* Accent = neutral hover surface (NOT cyan — cyan goes through --color-primary) */
+  --color-accent: rgba(255, 255, 255, 0.08);
+  --color-accent-foreground: var(--text-primary);
+  --color-input: rgba(255, 255, 255, 0.08);
+  --color-ring: var(--accent-ring);
+  --color-border: var(--border-subtle);
+
+  /* === Charts === */
+  --color-chart-1: rgba(255, 255, 255, 0.6);
+  --color-chart-2: var(--accent);
+  --color-chart-3: rgba(252, 211, 77, 0.6);
+  --color-chart-4: rgba(252, 165, 165, 0.6);
+  --color-chart-5: rgba(134, 239, 172, 0.6);
+
+  /* === Typography === */
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-heading: var(--font-inter), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /* === Radii === */
+  --radius: 1rem;
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.75);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --radius-xl: calc(var(--radius) * 1.5);
+  --radius-2xl: calc(var(--radius) * 2);
+  --radius-3xl: calc(var(--radius) * 2.5);
+  --radius-4xl: calc(var(--radius) * 3);
 }
 
+/* ============================================================================
+   Raw tokens (single source of truth for both new + remapped vars above)
+   ============================================================================ */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* Backgrounds */
+  --bg-base: #0a0a0b;
+  --bg-elevated: rgba(255, 255, 255, 0.04);
+  --bg-elevated-hover: rgba(255, 255, 255, 0.06);
+  --bg-elevated-active: rgba(255, 255, 255, 0.08);
+
+  /* Borders */
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  /* Text */
+  --text-primary: #fafaf9;
+  --text-secondary: rgba(250, 250, 249, 0.6);
+  --text-tertiary: rgba(250, 250, 249, 0.4);
+  --text-quaternary: rgba(250, 250, 249, 0.25);
+
+  /* Accent — single cyan (sky-300) */
+  --accent: #7dd3fc;
+  --accent-muted: rgba(125, 211, 252, 0.12);
+  --accent-ring: rgba(125, 211, 252, 0.3);
+
+  /* Status — used sparingly */
+  --success: #86efac;
+  --warning: #fcd34d;
+  --destructive: #fca5a5;
+
+  /* Charts (raw refs for non-Tailwind uses, e.g. inline Recharts props) */
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-axis: rgba(255, 255, 255, 0.2);
+  --chart-line-default: rgba(255, 255, 255, 0.4);
+  --chart-line-active: var(--accent);
+  --chart-area-fill: rgba(125, 211, 252, 0.08);
+
+  color-scheme: dark;
 }
 
+/* Re-map shadcn `.dark` legacy class to the same tokens — covers any
+   component that hard-codes `dark:` modifier */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: var(--bg-base);
+  --foreground: var(--text-primary);
+  --card: var(--bg-elevated);
+  --card-foreground: var(--text-primary);
+  --popover: rgba(20, 20, 22, 0.95);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--accent);
+  --primary-foreground: #0a0a0b;
+  --secondary: rgba(255, 255, 255, 0.06);
+  --secondary-foreground: var(--text-primary);
+  --muted: rgba(255, 255, 255, 0.04);
+  --muted-foreground: var(--text-secondary);
+  --accent: rgba(255, 255, 255, 0.08);
+  --accent-foreground: var(--text-primary);
+  --destructive: var(--destructive);
+  --border: var(--border-subtle);
+  --input: rgba(255, 255, 255, 0.08);
+  --ring: var(--accent-ring);
 }
 
+/* ============================================================================
+   Base
+   ============================================================================ */
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    border-color: var(--border-subtle);
+    outline-color: var(--accent-ring);
   }
-  body {
-    @apply bg-background text-foreground;
-  }
+
   html {
-    @apply font-sans;
+    background: var(--bg-base);
+    color-scheme: dark;
   }
+
+  body {
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-inter), system-ui, sans-serif;
+    font-feature-settings:
+      "tnum" 1,
+      "ss01" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+}
+
+/* ============================================================================
+   Atmospheric Background Layer (static — no JS, no animation)
+   - radial-gradients for ambient color (faint cyan top, faint white bottom-right)
+   - SVG noise overlay for tactile depth
+   - Both fixed, behind all content (z-index < 0)
+   ============================================================================ */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(
+      ellipse 80% 60% at 50% 0%,
+      rgba(125, 211, 252, 0.04),
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse 60% 80% at 80% 100%,
+      rgba(255, 255, 255, 0.02),
+      transparent 50%
+    ),
+    var(--bg-base);
+  pointer-events: none;
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' /%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0' /%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.04' /%3E%3C/svg%3E");
+  background-repeat: repeat;
+  opacity: 0.5;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+/* ============================================================================
+   Glass Cards — drop-in utility for any container in the app.
+   Existing `<Card>` (components/training/shared.tsx) is overridden via
+   the shadcn-token re-map; new code can use these classes directly.
+   ============================================================================ */
+.glass-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 1rem;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+  transition:
+    background 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card:hover {
+  background: var(--bg-elevated-hover);
+  border-color: var(--border-strong);
+}
+
+.glass-card-hero {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 1.5rem;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-card-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 60% 80% at 50% 0%,
+    rgba(125, 211, 252, 0.04),
+    transparent 70%
+  );
+  pointer-events: none;
+}
+
+/* Browsers without backdrop-filter fall back to a slightly opaque solid */
+@supports not (backdrop-filter: blur(1px)) {
+  .glass-card,
+  .glass-card-hero {
+    background: rgba(20, 20, 22, 0.9);
+  }
+}
+
+/* ============================================================================
+   Display sizes for big numbers (HR, VDOT, pace).
+   Hand-crafted because Tailwind v4 @theme text-size syntax doesn't carry
+   line-height / letter-spacing / weight cleanly inside @theme inline.
+   ============================================================================ */
+.text-display-2xl {
+  font-size: 3rem; /* 48px */
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  font-feature-settings:
+    "tnum" 1,
+    "ss01" 1;
+}
+
+.text-display-xl {
+  font-size: 2.25rem; /* 36px */
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  font-feature-settings:
+    "tnum" 1,
+    "ss01" 1;
+}
+
+.text-display-lg {
+  font-size: 1.875rem; /* 30px */
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  font-feature-settings:
+    "tnum" 1,
+    "ss01" 1;
+}
+
+.text-display {
+  font-feature-settings:
+    "tnum" 1,
+    "ss01" 1;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================================
+   Focus rings (a11y)
+   ============================================================================ */
+:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ============================================================================
+   Subtle scrollbars
+   ============================================================================ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
 }

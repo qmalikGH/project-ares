@@ -1,0 +1,103 @@
+"use client";
+
+// FloatingNav (Sprint v0.8) — replaces AppShell sidebar + bottom-nav with a
+// single floating pill. Bottom-positioned on mobile, top-centered on desktop.
+// Active item shows cyan icon + label inside a cyan-muted bg pill.
+import { usePathname, useRouter } from "next/navigation";
+import {
+  CalendarDays,
+  Home,
+  MessageCircle,
+  Settings,
+  TrendingUp,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+
+interface NavItem {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { href: "/today", label: "Heute", icon: Home },
+  { href: "/week", label: "Plan", icon: CalendarDays },
+  { href: "/progress", label: "Fortschritt", icon: TrendingUp },
+  { href: "/coach", label: "Coach", icon: MessageCircle },
+  { href: "/settings", label: "Settings", icon: Settings },
+];
+
+export function FloatingNav() {
+  const pathname = usePathname();
+  const router = useRouter();
+
+  const activeIndex = NAV_ITEMS.findIndex(
+    (item) =>
+      pathname === item.href || pathname.startsWith(`${item.href}/`),
+  );
+
+  return (
+    <nav
+      role="navigation"
+      aria-label="Hauptnavigation"
+      className={cn(
+        // Position: bottom on mobile, top-center on desktop
+        "fixed left-1/2 z-50 -translate-x-1/2",
+        "bottom-6 sm:top-6 sm:bottom-auto",
+        // Sizing
+        "px-2 py-2",
+        // Glass pill
+        "rounded-full border",
+        "bg-[rgba(10,10,11,0.7)] backdrop-blur-[20px]",
+        "shadow-[0_8px_32px_-4px_rgba(0,0,0,0.6)]",
+      )}
+      style={{ borderColor: "var(--border-subtle)" }}
+    >
+      <ul className="flex items-center gap-1">
+        {NAV_ITEMS.map((item, index) => {
+          const isActive = index === activeIndex;
+          const Icon = item.icon;
+          return (
+            <li key={item.href}>
+              <button
+                type="button"
+                onClick={() => router.push(item.href)}
+                aria-current={isActive ? "page" : undefined}
+                aria-label={item.label}
+                className={cn(
+                  "group relative flex items-center gap-2 rounded-full",
+                  "px-3 py-2 transition-all duration-200",
+                  isActive
+                    ? "bg-[var(--accent-muted)]"
+                    : "hover:bg-[var(--bg-elevated-hover)]",
+                )}
+                style={{
+                  transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+                }}
+              >
+                <Icon
+                  className={cn(
+                    "h-5 w-5 transition-colors duration-200",
+                    isActive
+                      ? "text-[var(--accent)]"
+                      : "text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)]",
+                  )}
+                />
+                <span
+                  className={cn(
+                    "text-xs font-medium tabular-nums transition-all duration-200",
+                    isActive
+                      ? "max-w-[80px] text-[var(--accent)] opacity-100"
+                      : "max-w-0 overflow-hidden opacity-0 sm:max-w-[80px] sm:opacity-100",
+                  )}
+                >
+                  {item.label}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
