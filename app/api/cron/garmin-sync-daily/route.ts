@@ -4,7 +4,7 @@
 import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db/client";
-import { dayKey } from "@/lib/db/queries/sensors";
+import { userToday } from "@/lib/date";
 import { syncGarminForDate, classifyError } from "@/lib/garmin/sync";
 
 function authorized(req: Request): boolean {
@@ -24,9 +24,8 @@ export async function GET(req: Request) {
     select: { id: true },
   });
 
-  const today = dayKey(new Date());
-  const yesterday = new Date(today);
-  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const today = userToday();
+  const yesterday = new Date(today.getTime() - 86400000);
 
   const results: Array<{ userId: string; status: string; errors: number }> = [];
 

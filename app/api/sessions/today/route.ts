@@ -31,10 +31,12 @@ import {
   getSensorDataOnDate,
   dayKey,
 } from "@/lib/db/queries/sensors";
+import { userToday } from "@/lib/date";
 
 export async function GET() {
   const userId = await getCurrentUserId();
-  const today = new Date();
+  // Use Berlin calendar date, not UTC — see lib/date.ts for rationale.
+  const today = userToday();
 
   // 1. Locate current phase + this week's plan
   const phaseRow = await getCurrentPhaseRow(userId, today);

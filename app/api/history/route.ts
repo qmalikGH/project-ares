@@ -5,6 +5,7 @@ import type { Prisma } from "@prisma/client";
 
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
+import { userToday } from "@/lib/date";
 import {
   RUN_SESSION_TYPES,
   STRENGTH_SESSION_TYPES,
@@ -51,8 +52,7 @@ export async function GET(req: Request) {
   ]);
 
   // Quick-stats for the current ISO week (Mon → Sun).
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
+  const today = userToday();
   const dow = today.getUTCDay() || 7; // Sun = 7
   const weekStart = new Date(today.getTime() - (dow - 1) * 86400000);
 

@@ -4,7 +4,7 @@
 import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db/client";
-import { dayKey } from "@/lib/db/queries/sensors";
+import { userToday } from "@/lib/date";
 import { createNotificationIfNew } from "@/lib/notifications/create";
 
 function authorized(req: Request): boolean {
@@ -17,7 +17,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const today0 = dayKey(new Date());
+  const today0 = userToday();
   const phases = await db.phase.findMany({
     where: {
       blockReviewId: null,

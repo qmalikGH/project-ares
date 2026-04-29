@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { dayKey } from "@/lib/db/queries/sensors";
+import { userToday } from "@/lib/date";
 import { isPushableSessionType } from "@/lib/garmin/workout-builder";
 import { getHrTargetForSession } from "@/lib/coach-engine/run-coach";
 import { getOrCreateUserSettings } from "@/lib/db/queries/settings";
@@ -27,7 +28,7 @@ interface PlannedSessionRaw {
 
 export async function GET() {
   const userId = await getCurrentUserId();
-  const today0 = dayKey(new Date());
+  const today0 = userToday();
   const sevenDaysOut = new Date(today0.getTime() + 7 * 86400000);
 
   // 1. Find every weekly plan in the [today, today+7) window — but ONLY for

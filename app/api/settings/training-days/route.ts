@@ -14,7 +14,7 @@ import { z } from "zod";
 
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
-import { dayKey } from "@/lib/db/queries/sensors";
+import { userToday } from "@/lib/date";
 import { generateWeekRunPlan } from "@/lib/coach-engine/run-coach";
 import { generateWeekStrengthPlan } from "@/lib/coach-engine/strength-coach";
 import {
@@ -73,7 +73,7 @@ export async function POST(req: Request) {
 
   // 2. Regenerate every future WeeklyPlan in the active macrocycle with the
   // new constraints + the v0.10 periodization engine.
-  const today0 = dayKey(new Date());
+  const today0 = userToday();
   const futurePlans = await db.weeklyPlan.findMany({
     where: {
       phase: { macrocycle: { userId, status: "active" } },

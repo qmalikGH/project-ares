@@ -4,15 +4,14 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
-import { dayKey } from "@/lib/db/queries/sensors";
+import { userToday } from "@/lib/date";
 
 export async function GET(req: Request) {
   const userId = await getCurrentUserId();
   const url = new URL(req.url);
   const days = Math.min(Math.max(Number.parseInt(url.searchParams.get("days") ?? "7", 10), 1), 90);
 
-  const cutoff = dayKey(new Date());
-  cutoff.setUTCDate(cutoff.getUTCDate() - days);
+  const cutoff = new Date(userToday().getTime() - days * 86400000);
 
   const workouts = await db.workout.findMany({
     where: { userId, date: { gte: cutoff } },

@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db/client";
 import { dayKey } from "@/lib/db/queries/sensors";
+import { userTomorrow } from "@/lib/date";
 import { vdotToPaces } from "@/lib/coach-engine/run-coach";
 import { pushWorkoutToGarmin } from "@/lib/garmin/workout-sync";
 import type { SessionPlan } from "@/lib/coach-engine/types";
@@ -28,9 +29,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowKey = dayKey(tomorrow);
+  // Berlin-aware tomorrow — replaces fragile .setDate()/.getDate() which use
+  // the server's local timezone instead of the user's.
+  const tomorrowKey = userTomorrow();
   const dayAfter = new Date(tomorrowKey.getTime() + 86400000);
 
   const usersWithPush = await db.userSettings.findMany({

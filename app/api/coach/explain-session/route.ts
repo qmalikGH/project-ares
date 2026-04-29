@@ -39,6 +39,7 @@ import {
   getSensorDataOnDate,
   dayKey,
 } from "@/lib/db/queries/sensors";
+import { userToday } from "@/lib/date";
 import type {
   DailySensorInputs,
   SessionPlan,
@@ -64,8 +65,8 @@ export async function POST(req: Request) {
   if (!(await isAiCoachEnabled(userId))) {
     return NextResponse.json({ status: "AI_COACH_DISABLED" }, { status: 200 });
   }
-  const today = new Date();
-  const todayDay = dayKey(today);
+  const today = userToday();
+  const todayDay = today;
 
   // Cache: re-use today's explanation unless `force` is set
   if (!parsed.data.force) {

@@ -4,6 +4,7 @@
 //
 // All public methods are async (network I/O). Pure matching logic lives in
 // `match.ts`.
+import { toUserDateString } from "@/lib/date";
 import { getGarminClient } from "./client";
 
 export type ActivityCategory = "run" | "strength" | "other";
@@ -117,7 +118,9 @@ export async function listActivitiesForDate(date: Date): Promise<ActivitySummary
   const client = (await getGarminClient()) as unknown as GarminAPI;
   const raw = (await client.getActivities(0, 20)) as RawActivity[];
 
-  const targetKey = date.toISOString().slice(0, 10);
+  // Garmin's startTimeLocal is already in the user's local timezone.
+  // Compare with Berlin date, not UTC — fixes UTC vs local mismatch.
+  const targetKey = toUserDateString(date);
   const filtered = raw.filter((a) => {
     const sk = (a.startTimeLocal ?? "").slice(0, 10);
     return sk === targetKey;

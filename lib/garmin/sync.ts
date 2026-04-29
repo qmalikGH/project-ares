@@ -1,6 +1,7 @@
 // Garmin daily sensor sync.
 // Each datatype is fetched independently with its own try/catch so partial
 // breakage produces a PARTIAL log entry instead of zero data.
+import { toUserDateString } from "@/lib/date";
 import { getGarminClient } from "./client";
 
 const GC_API = "https://connectapi.garmin.com";
@@ -31,10 +32,7 @@ export interface SyncResult {
 }
 
 function dateKey(date: Date): string {
-  // Garmin endpoints want YYYY-MM-DD in local time of the device. UTC is fine
-  // for our purposes — Q is in Berlin where the offset is at most 2h, well
-  // within the daily window.
-  return date.toISOString().slice(0, 10);
+  return toUserDateString(date);
 }
 
 interface ApiClient {

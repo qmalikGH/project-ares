@@ -807,7 +807,9 @@ export default function TodayDashboard() {
     fetch("/api/workouts?days=1")
       .then((r) => r.json())
       .then((data) => {
-        const todayKey = new Date().toISOString().slice(0, 10);
+        // Use local date, not UTC — toISOString() gives UTC which is wrong
+        // for Berlin after 22:00 UTC (00:00+ Berlin).
+        const todayKey = new Date().toLocaleDateString("en-CA");
         const w = (data.workouts as { id: string; date: string; status: string }[] | undefined)
           ?.find((x) => x.date.slice(0, 10) === todayKey);
         if (w) setWorkoutState({ id: w.id, status: w.status });

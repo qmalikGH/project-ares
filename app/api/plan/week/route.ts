@@ -5,14 +5,13 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { db } from "@/lib/db/client";
-import { dayKey } from "@/lib/db/queries/sensors";
+import { userToday } from "@/lib/date";
 
 export async function GET(req: Request) {
   const userId = await getCurrentUserId();
   const url = new URL(req.url);
   const weeksAhead = Number.parseInt(url.searchParams.get("weeksAhead") ?? "0", 10);
-  const refDate = dayKey(new Date());
-  refDate.setUTCDate(refDate.getUTCDate() + weeksAhead * 7);
+  const refDate = new Date(userToday().getTime() + weeksAhead * 7 * 86400000);
 
   const macrocycle = await db.macrocycle.findFirst({
     where: { userId, status: "active" },

@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUserId } from "@/lib/auth/current-user";
+import { userToday } from "@/lib/date";
 import {
   getAdherenceStats,
   getBlockStatus,
@@ -17,7 +18,7 @@ import { getEffectiveVdot } from "@/lib/db/queries/settings";
 
 export async function GET() {
   const userId = await getCurrentUserId();
-  const today = new Date();
+  const today = userToday();
 
   const [
     goal,

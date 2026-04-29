@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
-import { dayKey } from "@/lib/db/queries/sensors";
+import { userToday } from "@/lib/date";
 import { vdotToPaces } from "@/lib/coach-engine/run-coach";
 import { pushWorkoutToGarmin } from "@/lib/garmin/workout-sync";
 import {
@@ -29,7 +29,7 @@ export async function POST() {
     );
   }
 
-  const today0 = dayKey(new Date());
+  const today0 = userToday();
   const sevenDaysOut = new Date(today0.getTime() + 7 * 86400000);
 
   const plannedWorkouts = await db.workout.findMany({

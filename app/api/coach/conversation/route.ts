@@ -26,7 +26,8 @@ import {
   type RecoveryTrendEntry,
 } from "@/lib/ai-coach/prompts/free-chat";
 import { getActiveGoal, getActiveMacrocycle } from "@/lib/db/queries/plans";
-import { dayKey, getRecentSensorData } from "@/lib/db/queries/sensors";
+import { getRecentSensorData } from "@/lib/db/queries/sensors";
+import { userToday } from "@/lib/date";
 import { loadWorkoutContext } from "@/lib/db/queries/workout-context";
 import { formatWorkoutContext } from "@/lib/ai-coach/prompts/workout-context";
 import { isAiCoachEnabled } from "@/lib/db/queries/settings";
@@ -67,7 +68,7 @@ export async function POST(req: Request) {
   // Build profile summary (always-on context)
   const goal = await getActiveGoal(userId);
   const macro = await getActiveMacrocycle(userId);
-  const today = dayKey(new Date());
+  const today = userToday();
   const currentPhase = macro?.phases.find(
     (p) => today >= p.startDate && today < p.plannedEndDate,
   );

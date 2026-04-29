@@ -21,6 +21,7 @@ import {
 import { decidePhaseTransition } from "@/lib/coach-engine/periodization";
 import { buildBlockReviewInput } from "@/lib/block-review/compute";
 import { dayKey } from "@/lib/db/queries/sensors";
+import { userToday } from "@/lib/date";
 import { loadBlockContext } from "@/lib/db/queries/workout-context";
 import { isAiCoachEnabled } from "@/lib/db/queries/settings";
 import type { PhaseName } from "@/lib/coach-engine/types";
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
     : null;
 
   if (!phase) {
-    const today0 = dayKey(new Date());
+    const today0 = userToday();
     phase = await db.phase.findFirst({
       where: { macrocycle: { userId }, plannedEndDate: { lte: today0 } },
       include: { macrocycle: true },

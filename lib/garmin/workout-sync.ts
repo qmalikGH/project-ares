@@ -10,6 +10,7 @@
 // Idempotent: pushing the same workoutDbId twice deletes the previous
 // Garmin workout + reschedule before creating a new one.
 import { db } from "@/lib/db/client";
+import { toUserDateString } from "@/lib/date";
 import { getGarminClient } from "./client";
 import {
   buildGarminWorkout,
@@ -60,8 +61,9 @@ export interface PushResult {
 
 function dayKeyForGarmin(date: Date): string {
   // Garmin's schedule endpoint accepts YYYY-MM-DD in user's local TZ.
-  // We use the UTC slice — close enough for vorabend pushes (cron at 21:00 Berlin).
-  return date.toISOString().slice(0, 10);
+  // Must use Berlin date, not UTC — at 22:00+ UTC the UTC date is one day
+  // behind Berlin, which would schedule the workout for the wrong day.
+  return toUserDateString(date);
 }
 
 /**

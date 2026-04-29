@@ -7,6 +7,7 @@ import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { getCurrentPhaseRow, findWeekPlanForDate, findTodaySessionInPlan } from "@/lib/db/queries/plans";
 import { dayKey } from "@/lib/db/queries/sensors";
+import { userToday } from "@/lib/date";
 import { computeReadiness, computeBaselines } from "@/lib/coach-engine/readiness";
 import { buildLoadOutput, computeDailyLoad } from "@/lib/coach-engine/load-monitoring";
 import { computeKneeStatus } from "@/lib/coach-engine/limitations";
@@ -22,7 +23,7 @@ import type { DailySensorInputs, SessionPlan, TherapyPhase, UserMorningInputs } 
 
 export async function POST() {
   const userId = await getCurrentUserId();
-  const today = new Date();
+  const today = userToday();
   const todayDay = dayKey(today);
 
   const phaseRow = await getCurrentPhaseRow(userId, today);

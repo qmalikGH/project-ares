@@ -13,6 +13,7 @@ import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { dayKey } from "@/lib/db/queries/sensors";
+import { userToday } from "@/lib/date";
 import { getActivityDetail, getActivityHrZones } from "@/lib/garmin/activities";
 import { mapGarminZonesToPolarizedTID } from "@/lib/coach-engine/hr-zones";
 import {
@@ -57,7 +58,7 @@ export async function POST(req: Request) {
   }
 
   const userId = await getCurrentUserId();
-  const today = dayKey(new Date());
+  const today = userToday();
   const { rpe, notes, trainingScore } = parsed.data;
   let durationActualMin = parsed.data.durationActualMin ?? null;
   let garminActivityIdStr: string | null = null;
