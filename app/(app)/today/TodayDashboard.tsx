@@ -167,14 +167,22 @@ function RecoveryMetric({
   value,
   sub,
   toneColor,
+  bgTint,
 }: {
   label: string;
   value: string;
   sub?: string;
   toneColor?: string;
+  bgTint?: string;
 }) {
   return (
-    <div className="flex flex-col gap-0.5">
+    <div
+      className="flex flex-1 min-w-[100px] flex-col gap-1 rounded-md px-3.5 py-3 border-l-2"
+      style={{
+        backgroundColor: bgTint ?? "rgba(255,255,255,0.03)",
+        borderLeftColor: toneColor ?? "var(--color-border)",
+      }}
+    >
       <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--color-foreground-muted)]">
         {label}
       </span>
@@ -211,6 +219,28 @@ function bandToToneColor(band: string): string | undefined {
   }
 }
 
+/** Sprint v0.11+1: subtle 8% bg-tint matching the band's tone color, used as
+ * a tile-fill so YELLOW Readiness etc. is visible at a glance instead of
+ * relying on the small sub-label. Returns undefined for neutral bands so the
+ * tile falls back to the default 3%-white fill. */
+function bandToBgTint(band: string): string | undefined {
+  switch (band) {
+    case "RED":
+    case "DANGER":
+      return "rgba(194, 91, 91, 0.10)";
+    case "ORANGE":
+    case "HIGH":
+      return "rgba(212, 168, 83, 0.10)";
+    case "YELLOW":
+      return "rgba(212, 168, 83, 0.08)";
+    case "GREEN":
+    case "OPTIMAL":
+      return "rgba(107, 191, 123, 0.08)";
+    default:
+      return undefined;
+  }
+}
+
 function RecoveryStrip({
   outputs,
   sessionType,
@@ -229,12 +259,13 @@ function RecoveryStrip({
     : "GREEN";
 
   return (
-    <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
+    <div className="flex flex-wrap gap-2">
       <RecoveryMetric
         label="Readiness"
         value={String(outputs.readiness.score)}
         sub={outputs.readiness.band}
         toneColor={bandToToneColor(outputs.readiness.band)}
+        bgTint={bandToBgTint(outputs.readiness.band)}
       />
       <RecoveryMetric
         label="ACWR"
@@ -245,6 +276,7 @@ function RecoveryStrip({
             : acwr.band
         }
         toneColor={bandToToneColor(acwr.band)}
+        bgTint={bandToBgTint(acwr.band)}
       />
       {showKnee && (
         <RecoveryMetric
@@ -252,6 +284,7 @@ function RecoveryStrip({
           value={String(outputs.limitations.kneeScoreToday)}
           sub={outputs.limitations.therapyPhase}
           toneColor={bandToToneColor(kneeKey)}
+          bgTint={bandToBgTint(kneeKey)}
         />
       )}
     </div>
@@ -288,13 +321,20 @@ function SessionHeroCard({
   const isRest = final.type === "rest" || final.type === "active_recovery";
   const status = workoutState?.status;
 
+  // Rest day uses Sage as the visible color (charcoal would vanish on black bg)
+  const stripeColor = isRest ? "var(--color-session-easy)" : color.color;
+  const titleColor = isRest ? "var(--color-session-easy)" : color.color;
+
   return (
-    <div className="flex flex-col gap-4">
+    <div
+      className="flex flex-col gap-4 pl-4 border-l-[3px]"
+      style={{ borderLeftColor: stripeColor }}
+    >
       {/* Title row: session label · status · modulated badge */}
       <div className="flex items-start justify-between gap-4">
         <h2
           className="text-xs uppercase tracking-[0.2em] font-semibold"
-          style={{ color: color.color }}
+          style={{ color: titleColor }}
         >
           {SESSION_LABEL[final.type] ?? final.type}
         </h2>
@@ -316,6 +356,24 @@ function SessionHeroCard({
           )}
         </div>
       </div>
+
+      {/* Rest day hero: prominent label + body text (no charcoal-on-black ghost) */}
+      {isRest && (
+        <>
+          <span
+            className="num-md uppercase tracking-[0.04em]"
+            style={{ color: titleColor }}
+          >
+            Ruhetag
+          </span>
+          <p className="text-sm text-[var(--color-foreground-secondary)] leading-relaxed">
+            Recovery ist Training. Heute kein geplanter Workout.
+            {final.notes
+              ? ` ${final.notes}`
+              : " Optional: 15–20 min Mobility, Knee-Score am Abend kurz prüfen."}
+          </p>
+        </>
+      )}
 
       {/* Hero number: HR for hr_first, pace for pace_first/strength fallback */}
       {!isPaceFirst && final.hrTarget ? (
@@ -551,7 +609,10 @@ function CoachBlock({ finalSession }: { finalSession: FinalSessionShape }) {
   const text = aiText ?? (!loading && !err ? finalSession.explanation : null);
 
   return (
-    <section className="flex flex-col gap-3">
+    <section
+      className="flex flex-col gap-3 pl-4 border-l-[3px]"
+      style={{ borderLeftColor: "var(--color-session-strength)" }}
+    >
       <div className="flex items-center justify-between">
         <h3 className="text-xs uppercase tracking-[0.2em] font-semibold text-[var(--color-foreground-tertiary)]">
           Coach
