@@ -26,7 +26,11 @@ export async function getCurrentPhaseRow(userId: string, today: Date) {
   const today0 = dayKey(today);
   return db.phase.findFirst({
     where: {
-      macrocycle: { userId },
+      // Must filter by active macrocycle — re-onboarding leaves abandoned
+      // macrocycles in DB with phases still matching today's date range. Without
+      // this filter, findFirst returns whichever phase the DB picks, which can
+      // surface stale (legacy v0.9) plannedSessions on /today.
+      macrocycle: { userId, status: "active" },
       startDate: { lte: today0 },
       plannedEndDate: { gt: today0 },
     },
