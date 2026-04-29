@@ -57,7 +57,18 @@ export async function GET() {
     constraints,
   );
 
+  // Now WRITE merged to DB and read back to verify update sticks.
+  await db.weeklyPlan.update({
+    where: { id: plan.id },
+    data: { plannedSessions: merged as unknown as object },
+  });
+  const reread = await db.weeklyPlan.findUnique({ where: { id: plan.id } });
+  const stored = Array.isArray(reread?.plannedSessions)
+    ? (reread!.plannedSessions as unknown as Array<{ type: string; date: string }>)
+    : [];
+
   return NextResponse.json({
+    planId: plan.id,
     weekStartDate: plan.startDate.toISOString(),
     settings: {
       forcedRestDaysRaw: userSettings?.forcedRestDays ?? null,
@@ -67,17 +78,13 @@ export async function GET() {
       forcedRestDays: Array.from(constraints.forcedRestDays).sort(),
       preferredLongRunDay: constraints.preferredLongRunDay,
     },
-    rawRunSessions: runPlan.sessions.map((s) => ({
-      type: s.type,
-      date: s.date instanceof Date ? s.date.toISOString().slice(0, 10) : String(s.date),
-    })),
-    rawStrengthSessions: strengthPlan.sessions.map((s) => ({
-      type: s.type,
-      date: s.date instanceof Date ? s.date.toISOString().slice(0, 10) : String(s.date),
-    })),
     afterPlanWeekSchedule: merged.map((s) => ({
       type: s.type,
       date: s.date instanceof Date ? s.date.toISOString().slice(0, 10) : String(s.date),
+    })),
+    storedAfterUpdate: stored.map((s) => ({
+      type: s.type,
+      date: typeof s.date === "string" ? s.date.slice(0, 10) : String(s.date),
     })),
   });
 }
