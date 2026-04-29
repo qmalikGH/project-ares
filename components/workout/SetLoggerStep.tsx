@@ -28,18 +28,24 @@ interface ExerciseLog {
 
 /**
  * Pre-fill set rows from planned exercise.
- * `45sec`-style isometrics → durationSec set, reps=1.
- * Numeric reps → reps pre-filled.
- * Strings like "10/leg" → reps left empty for the user to clarify.
+ *
+ * - `45sec`-style isometrics → durationSec set, reps=1.
+ * - Numeric reps → reps pre-filled.
+ * - Strings like "10/leg" → reps left empty for the user to clarify.
+ * - Sprint v0.11: when the engine pre-computed an absolute load (`loadAbs`)
+ *   from the user's 1RM × loadPct, seed loadKg with it so Q only edits when
+ *   reality diverges. Without `loadAbs` (no 1RM yet) loadKg stays null.
  */
 function buildPrefilledSets(ex: Exercise): SetData[] {
   const isIso = typeof ex.reps === "string" && /sec/i.test(ex.reps);
   const numeric = typeof ex.reps === "number" ? ex.reps : 0;
   const isoDur = isIso ? Number.parseInt(String(ex.reps), 10) || 45 : null;
+  const seededLoad =
+    typeof ex.loadAbs === "number" && ex.loadAbs > 0 ? ex.loadAbs : null;
 
   return Array.from({ length: ex.sets }, () => ({
     reps: isIso ? 1 : numeric,
-    loadKg: null,
+    loadKg: seededLoad,
     rpe: null,
     durationSec: isoDur,
   }));

@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
-import { Inter, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-// Sprint v0.8: Inter is the new primary face. Stylistic-set ss01 + tabular-nums
-// are wired in via globals.css `font-feature-settings` so big numeric displays
-// (HR, VDOT, pace) sit on a stable grid.
-const inter = Inter({
-  variable: "--font-inter",
+// Sprint v0.11 (Direction C): Geist Sans + Geist Mono — Geist for body/UI text,
+// Geist Mono for ALL numeric data (HR, pace, weight, sets×reps, percentages).
+// Mono numbers ride a tabular grid so columns of stats line up perfectly.
+const geistSans = Geist({
+  variable: "--font-geist",
   subsets: ["latin"],
   display: "swap",
 });
@@ -14,6 +14,7 @@ const inter = Inter({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  display: "swap",
 });
 
 // Sprint v0.9 — PWA + Apple Web App metadata.
@@ -52,11 +53,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    // v0.8: dark mode is the only mode. `dark` class is hard-coded; light-mode
-    // re-introduction would happen here in a hypothetical v0.9+.
     <html
       lang="de"
-      className={`${inter.variable} ${geistMono.variable} dark h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">{children}</body>

@@ -15,6 +15,7 @@ import type {
 } from "@/components/training/shared";
 import type { Exercise } from "@/lib/coach-engine/types";
 import { cn } from "@/lib/utils";
+import { getSessionColor } from "@/lib/ui/session-colors";
 
 // ─────────────────────────────────────────────────────
 // Domain types
@@ -64,27 +65,6 @@ type WorkoutState = { id: string; status: string } | null;
 // ─────────────────────────────────────────────────────
 // Band styling helpers
 // ─────────────────────────────────────────────────────
-
-const BAND: Record<string, { bg: string; text: string; border: string }> = {
-  GREEN:            { bg: "bg-emerald-500/15", text: "text-emerald-400",  border: "border-emerald-500/30" },
-  YELLOW:           { bg: "bg-yellow-500/15",  text: "text-yellow-300",   border: "border-yellow-500/30" },
-  ORANGE:           { bg: "bg-orange-500/15",  text: "text-orange-300",   border: "border-orange-500/30" },
-  RED:              { bg: "bg-red-500/15",      text: "text-red-400",      border: "border-red-500/30" },
-  OPTIMAL:          { bg: "bg-emerald-500/15", text: "text-emerald-400",  border: "border-emerald-500/30" },
-  LOW:              { bg: "bg-blue-500/15",    text: "text-blue-400",     border: "border-blue-500/30" },
-  HIGH:             { bg: "bg-orange-500/15",  text: "text-orange-300",   border: "border-orange-500/30" },
-  DANGER:           { bg: "bg-red-500/15",      text: "text-red-400",      border: "border-red-500/30" },
-  BASELINE_BUILDING:{ bg: "bg-slate-500/10",  text: "text-slate-400",    border: "border-slate-500/30" },
-};
-const BAND_DEFAULT = {
-  bg: "bg-white/[0.04]",
-  text: "text-[var(--text-secondary)]",
-  border: "border-[var(--border-subtle)]",
-};
-
-function band(key: string) {
-  return BAND[key] ?? BAND_DEFAULT;
-}
 
 // ─────────────────────────────────────────────────────
 // Severity helpers (for NumberSelector coloring)
@@ -164,61 +144,72 @@ function DashboardSkeleton() {
 
 function EmptyCard({ title, message }: { title: string; message: string }) {
   return (
-    <section className="glass-card p-6">
-      <p className="text-sm font-semibold text-[var(--text-secondary)]">{title}</p>
-      <p className="mt-1 text-sm text-[var(--text-tertiary)]">{message}</p>
-    </section>
-  );
-}
-
-// ─────────────────────────────────────────────────────
-// Status pill (compact sensor card)
-// ─────────────────────────────────────────────────────
-
-function StatusPill({
-  title,
-  primary,
-  sub,
-  bandKey,
-  meta,
-  tooltip,
-}: {
-  title: string;
-  primary: string;
-  sub: string;
-  bandKey: string;
-  meta?: string;
-  tooltip?: string;
-}) {
-  const s = band(bandKey);
-  return (
-    <div
-      className={cn("rounded-xl border px-3 py-3", s.bg, s.border)}
-      title={tooltip}
-    >
-      <p className={cn("text-[10px] font-medium uppercase tracking-widest opacity-60", s.text)}>
+    <div className="flex flex-col gap-2">
+      <h2 className="text-xs uppercase tracking-[0.2em] font-semibold text-[var(--color-foreground-tertiary)]">
         {title}
-      </p>
-      <div className="mt-1 flex items-baseline gap-1.5">
-        <span className={cn("font-bold tabular-nums text-lg leading-none", s.text)}>
-          {primary}
-        </span>
-        <span className={cn("text-[10px] font-semibold uppercase tracking-wider", s.text)}>
-          {sub}
-        </span>
-      </div>
-      {meta && (
-        <p className={cn("mt-1 text-[10px] leading-tight opacity-70", s.text)}>
-          {meta}
-        </p>
-      )}
+      </h2>
+      <p className="text-[var(--color-foreground-secondary)]">{message}</p>
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────
-// Recovery strip
+// Recovery strip (Direction C, Sprint v0.11)
+// Inline strip — no cards. Each metric: small uppercase label + mono value.
 // ─────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────
+// Recovery strip — Direction C: inline row, no cards
+// ─────────────────────────────────────────────────────
+
+function RecoveryMetric({
+  label,
+  value,
+  sub,
+  toneColor,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  toneColor?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--color-foreground-muted)]">
+        {label}
+      </span>
+      <span
+        className="num-md leading-none"
+        style={toneColor ? { color: toneColor } : undefined}
+      >
+        {value}
+      </span>
+      {sub && (
+        <span className="text-[10px] uppercase tracking-wider text-[var(--color-foreground-tertiary)]">
+          {sub}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function bandToToneColor(band: string): string | undefined {
+  switch (band) {
+    case "RED":
+    case "DANGER":
+      return "var(--color-destructive)";
+    case "ORANGE":
+    case "HIGH":
+      return "var(--color-warning)";
+    case "YELLOW":
+      return "var(--color-warning)";
+    case "GREEN":
+    case "OPTIMAL":
+      return "var(--color-success)";
+    default:
+      return undefined;
+  }
+}
 
 function RecoveryStrip({
   outputs,
@@ -238,46 +229,35 @@ function RecoveryStrip({
     : "GREEN";
 
   return (
-    <div className={cn("grid gap-3", showKnee ? "grid-cols-3" : "grid-cols-2")}>
-      <StatusPill
-        title="Readiness"
-        primary={String(outputs.readiness.score)}
+    <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
+      <RecoveryMetric
+        label="Readiness"
+        value={String(outputs.readiness.score)}
         sub={outputs.readiness.band}
-        bandKey={outputs.readiness.band}
-        meta={`7d: ${outputs.readiness.trend7d}`}
+        toneColor={bandToToneColor(outputs.readiness.band)}
       />
-      <StatusPill
-        title="ACWR"
-        primary={isColdStart ? "—" : acwr.acwrRolling.toFixed(2)}
-        sub={isColdStart ? "BASELINE" : acwr.band}
-        bandKey={acwr.band}
-        meta={
+      <RecoveryMetric
+        label="ACWR"
+        value={isColdStart ? "—" : acwr.acwrRolling.toFixed(2)}
+        sub={
           isColdStart
-            ? `Tag ${acwr.daysOfData}/14`
-            : `${Math.round(acwr.acute7d)} / ${Math.round(acwr.chronic28d)}`
+            ? `Baseline · D${acwr.daysOfData}/14`
+            : acwr.band
         }
-        tooltip={
-          isColdStart
-            ? "ACWR braucht 14+ Tage für eine valide Auswertung."
-            : `Rolling=${acwr.acwrRolling.toFixed(2)}`
-        }
+        toneColor={bandToToneColor(acwr.band)}
       />
       {showKnee && (
-        <StatusPill
-          title="Knee"
-          primary={String(outputs.limitations.kneeScoreToday)}
+        <RecoveryMetric
+          label="Knee"
+          value={String(outputs.limitations.kneeScoreToday)}
           sub={outputs.limitations.therapyPhase}
-          bandKey={kneeKey}
-          meta={
-            outputs.limitations.constraints.length > 0
-              ? `${outputs.limitations.constraints.length} constraint${outputs.limitations.constraints.length > 1 ? "s" : ""}`
-              : "keine Constraints"
-          }
+          toneColor={bandToToneColor(kneeKey)}
         />
       )}
     </div>
   );
 }
+
 
 // ─────────────────────────────────────────────────────
 // Session hero card
@@ -298,160 +278,207 @@ function SessionHeroCard({
   final: FinalSessionShape;
   workoutState: WorkoutState;
 }) {
+  const color = getSessionColor(final.type);
   const isPaceFirst = final.controlMethod === "pace_first";
   const pace = final.paceTarget;
   const paceDisplay = pace
     ? pace.from === pace.to ? pace.from : `${pace.from}–${pace.to}`
     : null;
-  const statusBadge = sessionStatusLabel(workoutState);
+  const isStrength = final.type.startsWith("strength");
+  const isRest = final.type === "rest" || final.type === "active_recovery";
+  const status = workoutState?.status;
 
   return (
-    <div className="glass-card-hero p-6 sm:p-8">
-      <div className="relative z-[1]">
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-              {SESSION_LABEL[final.type] ?? final.type}
-            </h2>
-            {final.durationMin && (
-              <p className="mt-0.5 tabular-nums text-sm text-[var(--text-secondary)]">
-                {final.durationMin} min
-              </p>
-            )}
-          </div>
-          <div className="flex shrink-0 flex-col items-end gap-2">
-            <span className={cn(
-              "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium",
-              statusBadge.className,
-            )}>
-              {statusBadge.label}
+    <div className="flex flex-col gap-4">
+      {/* Title row: session label · status · modulated badge */}
+      <div className="flex items-start justify-between gap-4">
+        <h2
+          className="text-xs uppercase tracking-[0.2em] font-semibold"
+          style={{ color: color.color }}
+        >
+          {SESSION_LABEL[final.type] ?? final.type}
+        </h2>
+        <div className="flex flex-col items-end gap-1">
+          {status === "in_progress" && (
+            <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-[var(--color-success)]">
+              · Live
             </span>
-            {final.wasModified && (
-              <span className="inline-flex items-center rounded-full border border-yellow-500/30 bg-yellow-500/15 px-2.5 py-0.5 text-xs font-semibold text-yellow-300">
-                ↻ angepasst
-              </span>
-            )}
-          </div>
+          )}
+          {status === "completed" && (
+            <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-[var(--color-success)]">
+              ✓ Abgeschlossen
+            </span>
+          )}
+          {final.wasModified && (
+            <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-[var(--color-warning)]">
+              ↻ angepasst
+            </span>
+          )}
         </div>
-
-        {/* Primary metric */}
-        {!isPaceFirst && final.hrTarget ? (
-          <div className="mt-6">
-            <p className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)]">
-              Herzfrequenz
-            </p>
-            <div className="mt-1 flex items-baseline gap-2">
-              <span className="text-display-2xl tabular-nums text-[var(--accent)]">
-                {final.hrTarget.from}–{final.hrTarget.to}
-              </span>
-              <span className="text-base text-[var(--text-secondary)]">bpm</span>
-            </div>
-          </div>
-        ) : paceDisplay ? (
-          <div className="mt-6">
-            <p className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)]">
-              Pace
-            </p>
-            <div className="mt-1 flex items-baseline gap-2">
-              <span className="text-display-2xl tabular-nums text-[var(--accent)]">
-                {paceDisplay}
-              </span>
-              <span className="text-base text-[var(--text-secondary)]">/km</span>
-            </div>
-          </div>
-        ) : null}
-
-        {/* Secondary metric — pace when HR is primary */}
-        {!isPaceFirst && final.hrTarget && paceDisplay && (
-          <div className="mt-4">
-            <p className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)]">
-              Pace{" "}
-              <span className="normal-case italic tracking-normal">
-                (orientierend)
-              </span>
-            </p>
-            <div className="mt-0.5 flex items-baseline gap-1.5">
-              <span className="tabular-nums text-lg text-[var(--text-secondary)]">
-                {paceDisplay}
-              </span>
-              <span className="text-sm text-[var(--text-tertiary)]">/km</span>
-            </div>
-          </div>
-        )}
-
-        {/* Zone + RPE */}
-        {(final.intensityZone || final.rpeTarget != null) && (
-          <div className="mt-5 flex flex-wrap gap-2">
-            {final.intensityZone && (
-              <span className="inline-flex items-center rounded-full border border-[var(--border-strong)] px-2.5 py-1 text-xs text-[var(--text-secondary)]">
-                Zone {final.intensityZone}
-              </span>
-            )}
-            {final.rpeTarget != null && (
-              <span className="inline-flex items-center rounded-full border border-[var(--border-strong)] px-2.5 py-1 text-xs text-[var(--text-secondary)]">
-                RPE {final.rpeTarget}
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Exercise list for strength sessions */}
-        {final.exercises && final.exercises.length > 0 && (
-          <ul className="mt-4 space-y-2 border-t border-[var(--border-subtle)] pt-4 text-sm">
-            {final.exercises.map((ex, i) => (
-              <li key={i}>
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="font-medium text-[var(--text-primary)]">{ex.name}</span>
-                  <span className="shrink-0 tabular-nums text-[var(--text-secondary)]">
-                    {ex.sets} × {ex.reps}
-                    {ex.loadPct ? ` @ ${ex.loadPct}%` : ""}
-                  </span>
-                </div>
-                {(ex.tempo || ex.restSec !== undefined || ex.rpeCap !== undefined) && (
-                  <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-[var(--text-tertiary)]">
-                    {ex.tempo && <span>Tempo {ex.tempo}</span>}
-                    {ex.restSec !== undefined && (
-                      <span>Pause {ex.restSec >= 60 ? `${Math.round(ex.restSec / 60)}min` : `${ex.restSec}s`}</span>
-                    )}
-                    {ex.rpeCap !== undefined && <span>RPE-Cap {ex.rpeCap}</span>}
-                  </div>
-                )}
-                {ex.notes && (
-                  <p className="mt-0.5 text-xs italic text-[var(--text-tertiary)]">{ex.notes}</p>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {/* Notes */}
-        {final.notes && (
-          <p className="mt-4 text-sm italic text-[var(--text-tertiary)]">{final.notes}</p>
-        )}
-
-        {/* Modification reasons */}
-        {final.modifications.length > 0 && (
-          <ul className="mt-4 space-y-1.5 border-t border-[var(--border-subtle)] pt-3">
-            {final.modifications.map((m, i) => (
-              <li key={i} className="flex items-start gap-2 text-xs text-[var(--text-tertiary)]">
-                <span className="mt-px shrink-0 opacity-50">→</span>
-                <span>{m}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {/* Low confidence warning */}
-        {final.confidence < 70 && (
-          <p
-            className="mt-3 text-xs text-[var(--text-tertiary)]"
-            title="Engine-Konfidenz basierend auf Datenqualität und Sensor-Vollständigkeit."
-          >
-            ⚠ Konfidenz {final.confidence}/100
-          </p>
-        )}
       </div>
+
+      {/* Hero number: HR for hr_first, pace for pace_first/strength fallback */}
+      {!isPaceFirst && final.hrTarget ? (
+        <div className="flex items-baseline gap-3">
+          <span className="num-hero" style={{ color: color.color }}>
+            {final.hrTarget.from}–{final.hrTarget.to}
+          </span>
+          <span className="text-base text-[var(--color-foreground-tertiary)]">
+            bpm
+          </span>
+        </div>
+      ) : paceDisplay && !isStrength ? (
+        <div className="flex items-baseline gap-3">
+          <span className="num-hero" style={{ color: color.color }}>
+            {paceDisplay}
+          </span>
+          <span className="text-base text-[var(--color-foreground-tertiary)]">
+            /km
+          </span>
+        </div>
+      ) : null}
+
+      {/* Secondary line: duration + pace (when HR is primary) */}
+      {!isRest && (
+        <p className="text-sm text-[var(--color-foreground-secondary)]">
+          {final.durationMin ? (
+            <>
+              <span className="num">{final.durationMin}</span> min
+            </>
+          ) : null}
+          {!isPaceFirst && final.hrTarget && paceDisplay && (
+            <>
+              {" · "}
+              <span className="num">{paceDisplay}</span> /km
+              <span className="text-[var(--color-foreground-muted)]"> (orient.)</span>
+            </>
+          )}
+        </p>
+      )}
+
+      {/* Chips: zoneLabel ∥ Z{n} + RPE */}
+      {!isStrength && (final.zoneLabel || final.intensityZone || final.rpeTarget != null) && (
+        <div className="flex flex-wrap gap-2">
+          {final.zoneLabel ? (
+            <span
+              className="chip"
+              style={{ backgroundColor: color.bg, color: color.color }}
+            >
+              {final.zoneLabel}
+            </span>
+          ) : final.intensityZone ? (
+            <span
+              className="chip"
+              style={{ backgroundColor: color.bg, color: color.color }}
+            >
+              Z{final.intensityZone}
+            </span>
+          ) : null}
+          {final.rpeTarget != null && (
+            <span className="chip bg-[var(--color-muted)] text-[var(--color-foreground-secondary)]">
+              RPE {final.rpeTarget}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Strength: duration line + exercise list (always expanded; collapsibility is Phase 5+ polish) */}
+      {isStrength && (
+        <>
+          {final.durationMin && (
+            <p className="text-sm text-[var(--color-foreground-secondary)]">
+              <span className="num">{final.durationMin}</span> min
+            </p>
+          )}
+          {final.exercises && final.exercises.length > 0 && (
+            <ul className="flex flex-col gap-3 mt-1">
+              {final.exercises.map((ex, i) => (
+                <li key={i} className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-foreground-secondary)]">
+                    {ex.name}
+                  </span>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="num-md text-[var(--color-foreground)]">
+                      {ex.sets} × {ex.reps}
+                      {ex.loadAbs !== undefined && ex.loadAbs > 0 ? (
+                        <>
+                          <span className="text-[var(--color-foreground-tertiary)]">
+                            {" @ "}
+                          </span>
+                          {ex.loadAbs} kg
+                        </>
+                      ) : ex.loadPct ? (
+                        <>
+                          <span className="text-[var(--color-foreground-tertiary)]">
+                            {" @ "}
+                          </span>
+                          {ex.loadPct}%
+                        </>
+                      ) : null}
+                    </span>
+                    {ex.loadAbs !== undefined && ex.loadAbs > 0 && ex.loadPct ? (
+                      <span className="num text-xs text-[var(--color-foreground-muted)]">
+                        {ex.loadPct}%
+                      </span>
+                    ) : null}
+                  </div>
+                  {(ex.tempo || ex.restSec !== undefined || ex.rpeCap !== undefined) && (
+                    <div className="text-xs text-[var(--color-foreground-tertiary)] flex flex-wrap gap-x-3">
+                      {ex.tempo && <span>Tempo {ex.tempo}</span>}
+                      {ex.restSec !== undefined && (
+                        <span>
+                          Pause{" "}
+                          {ex.restSec >= 60
+                            ? `${Math.round(ex.restSec / 60)}min`
+                            : `${ex.restSec}s`}
+                        </span>
+                      )}
+                      {ex.rpeCap !== undefined && <span>RPE ≤ {ex.rpeCap}</span>}
+                    </div>
+                  )}
+                  {ex.notes && (
+                    <p className="text-xs italic text-[var(--color-foreground-muted)]">
+                      {ex.notes}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+
+      {/* Inline notes */}
+      {final.notes && (
+        <p className="text-sm italic text-[var(--color-foreground-tertiary)]">
+          {final.notes}
+        </p>
+      )}
+
+      {/* Modulation reasons */}
+      {final.modifications.length > 0 && (
+        <ul className="flex flex-col gap-1.5 mt-1">
+          {final.modifications.map((m, i) => (
+            <li
+              key={i}
+              className="flex items-start gap-2 text-xs text-[var(--color-foreground-tertiary)]"
+            >
+              <span className="mt-px shrink-0 opacity-50">→</span>
+              <span>{m}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Low confidence warning */}
+      {final.confidence < 70 && (
+        <p
+          className="text-xs text-[var(--color-foreground-tertiary)]"
+          title="Engine-Konfidenz basierend auf Datenqualität und Sensor-Vollständigkeit."
+        >
+          ⚠ Konfidenz <span className="num">{final.confidence}</span>/100
+        </p>
+      )}
     </div>
   );
 }
@@ -471,13 +498,14 @@ function TwoADaySection({
   const sessions = meaningful.length > 0 ? meaningful : finalSessions;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col">
       {sessions.map((s, i) => {
         const slot = slotLabel(s.type);
         return (
-          <div key={i}>
+          <div key={i} className="flex flex-col gap-2">
+            {i > 0 && <hr className="rule my-6" />}
             {slot && (
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--color-foreground-muted)]">
                 {slot}
               </p>
             )}
@@ -523,23 +551,27 @@ function CoachBlock({ finalSession }: { finalSession: FinalSessionShape }) {
   const text = aiText ?? (!loading && !err ? finalSession.explanation : null);
 
   return (
-    <section className="glass-card p-5">
+    <section className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-[var(--text-primary)]">Coach</h3>
+        <h3 className="text-xs uppercase tracking-[0.2em] font-semibold text-[var(--color-foreground-tertiary)]">
+          Coach
+        </h3>
         <button
           onClick={() => fetchExplanation(true)}
           disabled={loading}
-          className="text-xs text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)] disabled:opacity-40"
+          className="text-[10px] uppercase tracking-wider text-[var(--color-foreground-tertiary)] transition-colors hover:text-[var(--color-foreground-secondary)] disabled:opacity-40"
         >
           {loading ? "…" : "neu"}
         </button>
       </div>
 
-      <div className="mt-3 text-sm leading-relaxed text-[var(--text-secondary)]">
+      <div className="text-sm leading-relaxed text-[var(--color-foreground-secondary)]">
         {loading && !aiText && (
-          <span className="italic text-[var(--text-tertiary)]">Coach denkt nach…</span>
+          <span className="italic text-[var(--color-foreground-tertiary)]">
+            Coach denkt nach…
+          </span>
         )}
-        {err && <span className="text-red-400">{err}</span>}
+        {err && <span className="text-[var(--color-destructive)]">{err}</span>}
         {text && <span>{text}</span>}
       </div>
     </section>
@@ -831,32 +863,41 @@ export default function TodayDashboard() {
 
   if (!today) return null;
 
-  const dateStr = new Date().toLocaleDateString("de-DE", {
-    weekday: "long",
+  // Direction-C header: "DIENSTAG" uppercase + "29. April" mono
+  const now = new Date();
+  const weekdayLong = now.toLocaleDateString("de-DE", { weekday: "long" });
+  const dayMonth = now.toLocaleDateString("de-DE", {
     day: "numeric",
     month: "long",
   });
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 py-8">
-      {/* Header */}
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-[var(--text-primary)]">
-          {dateStr}
+    <div className="mx-auto flex w-full max-w-3xl flex-col px-6 py-8 pb-24">
+      {/* Header — uppercase weekday · mono day-month */}
+      <header className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          <span className="uppercase">{weekdayLong}</span>
+          <span className="text-[var(--color-foreground-tertiary)]"> · </span>
+          <span className="num">{dayMonth}</span>
         </h1>
         {today.status === "READY" && (
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            <p className="text-sm text-[var(--text-secondary)]">
-              Block {today.week.blockNumber} · {prettyPhase(today.week.phaseName)} · Woche {today.week.weekNumber}
-            </p>
+          <p className="text-[var(--color-foreground-tertiary)] text-xs uppercase tracking-wider">
+            Block {today.week.blockNumber} · W{today.week.weekNumber}{" "}
+            {prettyPhase(today.week.phaseName)}
             {!shouldShowKneePill(today.sensorOutputs, today.finalSession.type) && (
-              <p className="text-xs text-[var(--text-tertiary)]">
-                Knie {today.sensorOutputs.limitations.kneeScoreToday}/10 · {today.sensorOutputs.limitations.therapyPhase}
-              </p>
+              <>
+                {" · Knie "}
+                <span className="num">
+                  {today.sensorOutputs.limitations.kneeScoreToday}
+                </span>
+                /10
+              </>
             )}
-          </div>
+          </p>
         )}
       </header>
+
+      <hr className="rule mt-4 mb-6" />
 
       {/* Empty states */}
       {today.status === "NO_ACTIVE_PLAN" && (
@@ -883,13 +924,14 @@ export default function TodayDashboard() {
         <MorningRitual onSubmitted={refresh} plannedSession={today.plannedSession} />
       )}
 
-      {/* Ready: full dashboard */}
+      {/* Ready: full dashboard, separated by rule lines */}
       {today.status === "READY" && (
         <>
           <RecoveryStrip
             outputs={today.sensorOutputs}
             sessionType={today.finalSession.type}
           />
+          <hr className="rule my-6" />
 
           {(today.finalSessions?.length ?? 0) > 1 ? (
             <TwoADaySection
@@ -903,7 +945,11 @@ export default function TodayDashboard() {
             />
           )}
 
+          <hr className="rule my-6" />
+
           <CoachBlock finalSession={today.finalSession} />
+
+          <hr className="rule my-6" />
 
           <ActionsZone
             onChanged={refresh}

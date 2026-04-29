@@ -3,6 +3,7 @@
 // Pure functions.
 
 import type {
+  BlockNumber,
   Exercise,
   PhaseConfig,
   SessionPlan,
@@ -16,6 +17,7 @@ import {
   getPeriodizationLabel,
   weekInBlockOf,
 } from "./periodization";
+import { loadPctToKg } from "./one-rm";
 
 // ============================================
 // Templates
@@ -37,34 +39,96 @@ export const WALL_SIT: Exercise = {
   notes: "Pre-workout (Sehnen-Therapie, Phase REACTIVE/DISREPAIR)",
 };
 
-const STRENGTH_A_BASE: Exercise[] = [
-  // HSR — slow tempo is the active ingredient for tendon remodeling
-  { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, tempo: "3-3-1", restSec: 180 },
-  { name: "Bench Press", sets: 3, reps: 8, loadPct: 75, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
-  { name: "Reverse Lunge", sets: 3, reps: "10/leg", loadPct: 60, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
-  { name: "Calf Raises", sets: 3, reps: 12, loadPct: 50, rpeCap: 7, tempo: "2-2-2", restSec: 60 },
-  { name: "Pallof Press", sets: 3, reps: "10/side", rpeCap: 6, tempo: "1-2-1", restSec: 60 },
-];
+// ============================================
+// BLOCK_TEMPLATES (Sprint v0.11)
+// ============================================
+//
+// Block-specific exercise templates — replaces v0.10's `STRENGTH_*_BASE` flat
+// constants. Engine looks up `BLOCK_TEMPLATES[phaseConfig.blockNumber]` and
+// falls back to Block-1 if a block has no template defined yet.
+//
+// Variation strategy:
+//   - HSR-Lifts (Hex Bar Deadlift, Romanian Deadlift) stay IDENTICAL across
+//     blocks — Kongsgaard 2009 (HSR for patellar tendinopathy) shows
+//     consistent slow-heavy stimulus is the active ingredient. Don't break
+//     the tendon-remodeling protocol mid-macrocycle.
+//   - Accessories vary systematically (Kassiano 2022, biomechanically
+//     motivated): different angles, unilateral vs bilateral, anti-extension
+//     vs anti-rotation, vertical vs horizontal pull, etc.
+//
+// Block 3-5 are intentionally undefined — they will be derived from the
+// actual training data accumulated during Block 1+2 (rolling 1RM, RPE
+// trends, knee-pain NRS) at the W4 deload of Block 2.
+type StrengthSlot = "strength_a" | "strength_b" | "strength_c";
+type BlockTemplateMap = Partial<Record<BlockNumber, Record<StrengthSlot, Exercise[]>>>;
 
-const STRENGTH_B_BASE: Exercise[] = [
-  { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "3-3-1", restSec: 180 }, // HSR
-  { name: "Pull-ups", sets: 4, reps: 8, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
-  { name: "Hip Thrust", sets: 3, reps: 10, loadPct: 70, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
-  { name: "Pallof Press", sets: 3, reps: "10/side", rpeCap: 6, tempo: "1-2-1", restSec: 60 },
-];
+const BLOCK_TEMPLATES: BlockTemplateMap = {
+  // Block 1: foundation. HSR is introduced, accessories are "classic" (bilateral,
+  // bilateral-pull, basic plyo).
+  1: {
+    strength_a: [
+      // HSR — slow tempo is the active ingredient for tendon remodeling
+      { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, tempo: "3-3-1", restSec: 180 },
+      { name: "Bench Press", sets: 3, reps: 8, loadPct: 75, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
+      { name: "Reverse Lunge", sets: 3, reps: "10/leg", loadPct: 60, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
+      { name: "Calf Raises", sets: 3, reps: 12, loadPct: 50, rpeCap: 7, tempo: "2-2-2", restSec: 60 },
+      { name: "Pallof Press", sets: 3, reps: "10/side", rpeCap: 6, tempo: "1-2-1", restSec: 60 },
+    ],
+    strength_b: [
+      { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "3-3-1", restSec: 180 }, // HSR
+      { name: "Pull-ups", sets: 4, reps: 8, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
+      { name: "Hip Thrust", sets: 3, reps: 10, loadPct: 70, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
+      { name: "Pallof Press", sets: 3, reps: "10/side", rpeCap: 6, tempo: "1-2-1", restSec: 60 },
+    ],
+    strength_c: [
+      { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 }, // HSR
+      { name: "DB Bench Press", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
+      { name: "Broad Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 120, notes: "Plyo (knee-friendly alternative to box jumps)" },
+      { name: "Farmer's Carry", sets: 3, reps: "30m", loadPct: 60, rpeCap: 6, restSec: 90 },
+    ],
+  },
+  // Block 2: Build / Threshold-Intro (weeks 5-8). HSR-Lifts (Hex Bar, RDL)
+  // identical to Block 1 — Kongsgaard 2009 tendon-protocol consistency.
+  // Accessories vary systematically (Kassiano 2022): different angle, unilateral
+  // vs bilateral, anti-extension instead of anti-rotation, soleus instead of
+  // gastrocnemius. Volume / RPE caps the same; only the movement pool changes.
+  2: {
+    strength_a: [
+      { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, tempo: "3-3-1", restSec: 180 },                  // HSR — KONSTANT
+      { name: "Incline DB Press", sets: 3, reps: 8, loadPct: 70, rpeCap: 8, tempo: "2-1-1", restSec: 120 },                  // var: anderer Winkel als Bench
+      { name: "Bulgarian Split Squat", sets: 3, reps: "8/leg", loadPct: 55, rpeCap: 7, tempo: "2-1-1", restSec: 90 },        // var: lauf-spezifischer als Reverse Lunge
+      { name: "Seated Calf Raises", sets: 3, reps: 15, loadPct: 45, rpeCap: 7, tempo: "2-2-2", restSec: 60 },                // var: Soleus statt Gastrocnemius
+      { name: "Dead Bug", sets: 3, reps: "10/side", rpeCap: 6, tempo: "2-2-2", restSec: 60 },                                 // var: Anti-Extension statt Anti-Rotation
+    ],
+    strength_b: [
+      { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "3-3-1", restSec: 180 },                 // HSR — KONSTANT
+      { name: "Barbell Row", sets: 4, reps: 8, loadPct: 65, rpeCap: 8, tempo: "2-1-1", restSec: 120 },                       // var: horizontal Pull statt vertikal (Pull-ups)
+      { name: "Single-Leg Hip Thrust", sets: 3, reps: "10/leg", loadPct: 50, rpeCap: 7, tempo: "2-1-1", restSec: 90 },       // var: unilateral
+      { name: "Pallof Press", sets: 3, reps: "10/side", rpeCap: 6, tempo: "1-2-1", restSec: 60 },                            // gleich: bewährt
+    ],
+    strength_c: [
+      { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 },                  // HSR — KONSTANT
+      { name: "Push-ups", sets: 3, reps: 12, rpeCap: 7, tempo: "2-1-1", restSec: 90, notes: "Weighted vest if BW too easy" },// var: höhere Reps, BW-progression
+      { name: "Box Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 120, notes: "Low box ~30cm, reactive plyo" },// var: reaktiver als Broad Jumps
+      { name: "Suitcase Carry", sets: 3, reps: "30m/side", loadPct: 50, rpeCap: 6, restSec: 90 },                            // var: unilateral statt bilateral
+    ],
+  },
+  // Block 3-5: intentionally undefined — derived during Block 2 W4 deload
+  // from the user's actual training data (rolling 1RM, RPE trends, knee NRS).
+};
 
-const STRENGTH_C_BASE: Exercise[] = [
-  { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 }, // HSR
-  { name: "DB Bench Press", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
-  { name: "Broad Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 120, notes: "Plyo (knee-friendly alternative to box jumps)" },
-  { name: "Farmer's Carry", sets: 3, reps: "30m", loadPct: 60, rpeCap: 6, restSec: 90 },
-];
-
-const STRENGTH_TEMPLATES = {
-  strength_a: STRENGTH_A_BASE,
-  strength_b: STRENGTH_B_BASE,
-  strength_c: STRENGTH_C_BASE,
-} as const;
+/**
+ * Look up the strength template for a (block, slot) pair. Falls back to
+ * Block 1 when the block has no template defined yet — keeps the engine
+ * working through Block 3-5 even before they're authored.
+ */
+function getStrengthTemplate(
+  blockNumber: BlockNumber,
+  type: StrengthSlot,
+): Exercise[] {
+  const block = BLOCK_TEMPLATES[blockNumber] ?? BLOCK_TEMPLATES[1]!;
+  return block[type];
+}
 
 // ============================================
 // RPE-based load adjustment
@@ -205,6 +269,30 @@ function applyMode(
 }
 
 // ============================================
+// Absolute load fill (Sprint v0.11)
+// ============================================
+/**
+ * Fill `loadAbs` (kg) on every exercise with a `loadPct` AND a known 1RM.
+ * Snaps to 2.5 kg plate increments via `loadPctToKg`.
+ *
+ * Pure: returns a new array, never mutates inputs. Exercises without a
+ * matching 1RM entry pass through unchanged — the UI falls back to the
+ * percentage-only display.
+ */
+export function fillAbsoluteLoads(
+  exercises: Exercise[],
+  maxEstimates: Record<string, number> | null | undefined,
+): Exercise[] {
+  if (!maxEstimates) return exercises;
+  return exercises.map((ex) => {
+    if (ex.loadPct === undefined) return ex;
+    const oneRM = maxEstimates[ex.name];
+    if (typeof oneRM !== "number" || oneRM <= 0) return ex;
+    return { ...ex, loadAbs: loadPctToKg(oneRM, ex.loadPct) };
+  });
+}
+
+// ============================================
 // Week strength plan
 // ============================================
 /**
@@ -212,6 +300,11 @@ function applyMode(
  * `weekStartDate` = Monday of the week (Date with 0:00 time).
  * `therapyPhase` controls whether Wall Sit is prepended to each strength
  * session as the active tendon-therapy stimulus (REACTIVE / DISREPAIR).
+ *
+ * `userMaxEstimates` (Sprint v0.11) — JSON map { exerciseName: kg } from
+ * UserSettings.exerciseMaxEstimates. When provided, every exercise with
+ * a `loadPct` gets `loadAbs` filled (snapped to 2.5kg plates). When null,
+ * the UI keeps showing percent-only — backwards compatible.
  *
  * Note: SessionModulator also prepends Wall Sit defensively at modulation
  * time, so adding it here is idempotent — `hasWallSit` checks dedupe.
@@ -222,6 +315,7 @@ export function generateWeekStrengthPlan(
   weekStartDate: Date,
   prevWeekData: WeekStrengthData | null = null,
   therapyPhase: TherapyPhase | null = null,
+  userMaxEstimates: Record<string, number> | null = null,
 ): WeekStrengthPlan {
   const dateAt = (offsetDays: number): Date =>
     new Date(weekStartDate.getTime() + offsetDays * 86400000);
@@ -237,7 +331,7 @@ export function generateWeekStrengthPlan(
     type: "strength_a" | "strength_b" | "strength_c",
     offsetDays: number,
   ): SessionPlan => {
-    let exercises = STRENGTH_TEMPLATES[type].map((e) => ({ ...e }));
+    let exercises = getStrengthTemplate(phaseConfig.blockNumber, type).map((e) => ({ ...e }));
     exercises = applyMode(exercises, phaseConfig.strengthMode, phaseConfig.strengthRpeCap);
 
     // Sprint v0.10: replace the legacy RPE-only adjustment with the full
@@ -258,6 +352,11 @@ export function generateWeekStrengthPlan(
     // Runs AFTER periodization so the periodization-adjusted loads/sets are
     // what get paired up.
     exercises = applySupersetPairing(exercises, phaseConfig.blockNumber, type);
+
+    // Sprint v0.11: fill absolute kg loads from user's 1RM estimates AFTER
+    // all percentage-based adjustments. snapped to 2.5kg plates. Pass-through
+    // when no 1RM data is available (UI falls back to percent-only).
+    exercises = fillAbsoluteLoads(exercises, userMaxEstimates);
 
     // Prepend Wall Sit when active tendon therapy — visible in plannedSessions JSON,
     // so the WeekView can show it without re-running the modulator.
@@ -295,5 +394,12 @@ export function generateWeekStrengthPlan(
   };
 }
 
-// Re-export for SessionModulator
-export const STRENGTH_TEMPLATES_PUBLIC = STRENGTH_TEMPLATES;
+// Re-export for SessionModulator + tests. Block 1 is exposed as the legacy
+// `strength_a/b/c` shape so existing imports keep working — Block 2+ should
+// use `getStrengthTemplate(blockNumber, slot)` instead.
+export const STRENGTH_TEMPLATES_PUBLIC = {
+  strength_a: BLOCK_TEMPLATES[1]!.strength_a,
+  strength_b: BLOCK_TEMPLATES[1]!.strength_b,
+  strength_c: BLOCK_TEMPLATES[1]!.strength_c,
+} as const;
+export { BLOCK_TEMPLATES, getStrengthTemplate };

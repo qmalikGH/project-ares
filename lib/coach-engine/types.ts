@@ -182,6 +182,15 @@ export interface SessionPlan {
    */
   controlMethod?: "hr_first" | "pace_first";
 
+  /**
+   * Sprint v0.11: human-readable label for the 3-zone polarized model
+   * (Casado 2022, Seiler 2010). Shown as a UI chip with the session-type
+   * color. Examples: "Z1 · Easy (sub-LT1)", "Z2 · Threshold (LT1-LT2)",
+   * "Z3 · VO2max (supra-LT2)". `intensityZone` (1|2|3) is the engine-internal
+   * number; `zoneLabel` is the user-facing string.
+   */
+  zoneLabel?: string;
+
   // ============================================
   // Periodization Engine 2.0 (Sprint v0.10)
   // ============================================

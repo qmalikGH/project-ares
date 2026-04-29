@@ -89,6 +89,8 @@ export async function POST(req: Request) {
     userSettings?.hrMax && userSettings?.hrRest
       ? { hrMax: userSettings.hrMax, hrRest: userSettings.hrRest }
       : undefined;
+  const userMaxEstimates =
+    (userSettings?.exerciseMaxEstimates as Record<string, number> | null) ?? null;
 
   const constraints = constraintsFromUserSettings({
     forcedRestDaysIso: forcedRestDays,
@@ -115,6 +117,7 @@ export async function POST(req: Request) {
       plan.startDate,
       prevWeekData,
       null, // therapyPhase: not threaded here; LimitationsLogic re-evaluates daily
+      userMaxEstimates,
     );
 
     const mergedSessions: SessionPlan[] = planWeekSchedule(

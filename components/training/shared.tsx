@@ -13,6 +13,9 @@ export type ExerciseShape = {
   sets: number;
   reps: number | string;
   loadPct?: number;
+  /** Sprint v0.11: absolute kg, derived from `loadPct × user's 1RM`, snapped to
+   * 2.5 kg plates. Filled by `fillAbsoluteLoads` when a 1RM estimate exists. */
+  loadAbs?: number;
   rpeCap?: number;
   tempo?: string;
   restSec?: number;
@@ -31,6 +34,8 @@ export type SessionShape = {
   // Sprint v0.7: HR-First control
   hrTarget?: { from: number; to: number };
   controlMethod?: "hr_first" | "pace_first";
+  // Sprint v0.11: human-readable polarized zone label
+  zoneLabel?: string;
 };
 
 export type FinalSessionShape = SessionShape & {
@@ -157,22 +162,50 @@ export function Pill({
 }
 
 // ============================================
-// Exercise list (rendered for both Today + WeekView expand)
+// Exercise list (Direction C, Sprint v0.11)
+//
+// Layout:
+//   HEX BAR DEADLIFT                                       (uppercase sans)
+//   4 × 5 @ 98 kg                                  82%     (mono, %right)
+//   Tempo 3-3-1 · Pause 3min · RPE ≤ 8                     (xs tertiary)
+//
+// When `loadAbs` is missing (no 1RM set), falls back to "4 × 5 @ 82%".
 // ============================================
 export function ExerciseList({ exercises }: { exercises: ExerciseShape[] }) {
   return (
-    <ul className="mt-3 space-y-2 text-sm border-t pt-3">
+    <ul className="mt-2 flex flex-col gap-3">
       {exercises.map((ex, i) => (
-        <li key={i} className="flex flex-col gap-0.5">
-          <div className="flex justify-between gap-2">
-            <span className="font-medium">{ex.name}</span>
-            <span className="text-muted-foreground tabular-nums whitespace-nowrap">
+        <li key={i} className="flex flex-col gap-1">
+          <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-foreground-secondary)]">
+            {ex.name}
+          </span>
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="num-md text-[var(--color-foreground)]">
               {ex.sets} × {ex.reps}
-              {ex.loadPct ? ` @ ${ex.loadPct}%` : ""}
+              {ex.loadAbs !== undefined && ex.loadAbs > 0 ? (
+                <>
+                  <span className="text-[var(--color-foreground-tertiary)]">
+                    {" @ "}
+                  </span>
+                  {ex.loadAbs} kg
+                </>
+              ) : ex.loadPct ? (
+                <>
+                  <span className="text-[var(--color-foreground-tertiary)]">
+                    {" @ "}
+                  </span>
+                  {ex.loadPct}%
+                </>
+              ) : null}
             </span>
+            {ex.loadAbs !== undefined && ex.loadAbs > 0 && ex.loadPct ? (
+              <span className="num text-xs text-[var(--color-foreground-muted)]">
+                {ex.loadPct}%
+              </span>
+            ) : null}
           </div>
           {(ex.tempo || ex.restSec || ex.rpeCap) && (
-            <div className="text-xs text-muted-foreground/80 flex flex-wrap gap-x-3">
+            <div className="text-xs text-[var(--color-foreground-tertiary)] flex flex-wrap gap-x-3">
               {ex.tempo && <span>Tempo {ex.tempo}</span>}
               {ex.restSec !== undefined && (
                 <span>
@@ -182,11 +215,13 @@ export function ExerciseList({ exercises }: { exercises: ExerciseShape[] }) {
                     : `${ex.restSec}s`}
                 </span>
               )}
-              {ex.rpeCap !== undefined && <span>RPE-Cap {ex.rpeCap}</span>}
+              {ex.rpeCap !== undefined && <span>RPE ≤ {ex.rpeCap}</span>}
             </div>
           )}
           {ex.notes && (
-            <div className="text-xs italic text-muted-foreground">{ex.notes}</div>
+            <div className="text-xs italic text-[var(--color-foreground-muted)]">
+              {ex.notes}
+            </div>
           )}
         </li>
       ))}

@@ -97,6 +97,7 @@ export default function SettingsView() {
       />
       <HrZonesSection hrZones={data.hrZones} onSaved={load} />
       <TrainingDaysSection schedule={data.schedule} onSaved={load} />
+      <ExerciseMaxSection />
       <AiCoachSection aiCoach={data.aiCoach} onSaved={load} />
       <PerformanceSection vdot={data.vdot} onSaved={load} />
       <NotificationsSection notifications={data.notifications} onSaved={load} />
@@ -1385,6 +1386,184 @@ function DangerZone() {
           </ul>
         </div>
       </div>
+    </Card>
+  );
+}
+
+// ============================================
+// Meine Gewichte (Sprint v0.11) — 1RM input per relevant exercise
+// ============================================
+//
+// Lists every exercise with a `loadPct` from the current + next strength
+// block and lets Q enter a 1RM kg value. The engine snaps `loadPct × 1RM`
+// to 2.5kg plates and writes it to `Exercise.loadAbs` for every future
+// strength session, so /today shows e.g. "4 × 5 @ 98 kg (82%)" instead of
+// just "82%".
+//
+// Side-by-side: the engine's rolling-median estimate from the last 28 days
+// of training data (Epley + RIR-corrected) so Q can spot drift without
+// re-doing a 5RM test.
+
+type ExerciseMaxRow = {
+  name: string;
+  loadPctSample: number;
+  blocks: number[];
+  currentRM: number | null;
+  engineRM: number | null;
+  engineDataPoints: number;
+};
+
+type ExerciseMaxResponse = {
+  status: "ok";
+  currentBlock: number;
+  source: string | null;
+  updatedAt: string | null;
+  exercises: ExerciseMaxRow[];
+};
+
+function ExerciseMaxSection() {
+  const [data, setData] = useState<ExerciseMaxResponse | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch("/api/settings/exercise-max");
+      if (!r.ok) {
+        setErr(`HTTP ${r.status}`);
+        return;
+      }
+      const json = (await r.json()) as ExerciseMaxResponse;
+      setData(json);
+      // Seed draft inputs from stored values (empty string when null).
+      const seed: Record<string, string> = {};
+      for (const ex of json.exercises) {
+        seed[ex.name] = ex.currentRM != null ? String(ex.currentRM) : "";
+      }
+      setDraft(seed);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed");
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function save() {
+    if (!data) return;
+    setBusy(true);
+    setMsg(null);
+    setErr(null);
+    try {
+      // Build payload: only include exercises with a numeric value.
+      const payload: Record<string, number> = {};
+      for (const ex of data.exercises) {
+        const raw = draft[ex.name]?.trim();
+        if (!raw) continue;
+        const n = Number(raw);
+        if (Number.isFinite(n) && n > 0) payload[ex.name] = n;
+      }
+      const res = await fetch("/api/settings/exercise-max", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ exerciseMaxEstimates: payload }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        throw new Error(j?.error ?? `HTTP ${res.status}`);
+      }
+      const j = (await res.json()) as { regenerated: number };
+      setMsg(
+        `Gespeichert. ${j.regenerated} zukünftige Wochenpläne mit neuen Gewichten regeneriert.`,
+      );
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Speichern fehlgeschlagen");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold mb-1">Meine Gewichte (1RM Schätzung)</h2>
+      <p className="text-xs text-muted-foreground mb-4">
+        Gib dein geschätztes 1RM ein oder das Gewicht mit dem du maximal 5
+        Wiederholungen schaffst. Die App rechnet Prozent-Vorgaben automatisch
+        in Kilogramm um (auf 2.5 kg gerundet) und korrigiert die Schätzung
+        nach 2-3 Wochen Training basierend auf deinen tatsächlichen Daten.
+      </p>
+
+      {err && (
+        <p className="mb-3 text-sm text-[var(--color-destructive)]">{err}</p>
+      )}
+      {msg && <p className="mb-3 text-sm text-muted-foreground">{msg}</p>}
+
+      {!data ? (
+        <p className="text-sm text-muted-foreground">Lade…</p>
+      ) : data.exercises.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Keine Übungen mit prozent-basierten Gewichten in Block {data.currentBlock}.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {data.exercises.map((ex) => (
+            <li
+              key={ex.name}
+              className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1"
+            >
+              <div className="min-w-[12ch] flex-1">
+                <p className="text-sm font-medium">{ex.name}</p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {ex.blocks.map((b) => `Block ${b}`).join(" · ")}
+                </p>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="2.5"
+                  min={0}
+                  max={500}
+                  value={draft[ex.name] ?? ""}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, [ex.name]: e.target.value }))
+                  }
+                  className="num w-24 rounded-md bg-input px-2 py-1 text-right text-sm"
+                  placeholder="—"
+                />
+                <span className="text-sm text-muted-foreground">kg</span>
+              </div>
+              <p className="basis-full text-right text-[11px] text-muted-foreground tabular-nums">
+                {ex.engineRM != null
+                  ? `Engine: ~${Math.round(ex.engineRM)} kg (${ex.engineDataPoints} Sets)`
+                  : "Engine: — (noch keine Daten)"}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <Button
+        onClick={save}
+        disabled={busy || !data}
+        className="mt-4"
+      >
+        {busy ? "Speichere…" : "Speichern + Pläne neu generieren"}
+      </Button>
+
+      {data?.updatedAt && (
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Zuletzt aktualisiert:{" "}
+          {new Date(data.updatedAt).toLocaleString("de-DE")} ·{" "}
+          Quelle: {data.source ?? "—"}
+        </p>
+      )}
     </Card>
   );
 }

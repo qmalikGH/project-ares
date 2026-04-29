@@ -10,6 +10,7 @@ import {
   type ExerciseShape,
   type SessionShape,
 } from "@/components/training/shared";
+import { getSessionColor } from "@/lib/ui/session-colors";
 
 type Position = "past" | "today" | "future";
 
@@ -136,60 +137,61 @@ export default function DayDetailView({ date }: { date: string }) {
   }
 
   const dateObj = new Date(`${date}T00:00:00Z`);
-  const dateLabel = dateObj.toLocaleDateString("de-DE", {
+  const weekdayLong = dateObj.toLocaleDateString("de-DE", {
     weekday: "long",
+    timeZone: "UTC",
+  });
+  const dayMonth = dateObj.toLocaleDateString("de-DE", {
     day: "numeric",
     month: "long",
-    year: "numeric",
+    timeZone: "UTC",
   });
-
-  const positionBadge: Record<Position, { label: string; cls: string }> = {
-    past: {
-      label: "Vergangen",
-      cls: "bg-slate-500/10 text-slate-700 dark:text-slate-400",
-    },
-    today: {
-      label: "Heute",
-      cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-    },
-    future: {
-      label: "Geplant",
-      cls: "bg-blue-500/10 text-blue-700 dark:text-blue-400",
-    },
+  const positionLabel: Record<Position, string> = {
+    past: "Vergangen",
+    today: "Heute",
+    future: "Geplant",
   };
-  const badge = positionBadge[data.position];
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 py-8">
-      <header className="flex items-baseline justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{dateLabel}</h1>
-          {data.blockPosition && (
-            <p className="text-sm text-muted-foreground">
-              Block {data.blockPosition.blockNumber} ·{" "}
-              {prettyPhase(data.blockPosition.phaseName)}
-            </p>
-          )}
-        </div>
-        <span className={`rounded-md px-2 py-1 text-xs font-semibold ${badge.cls}`}>
-          {badge.label}
-        </span>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-0 px-6 py-8 pb-24">
+      {/* Direction C header: uppercase weekday · day month, block info below */}
+      <header className="flex flex-col gap-1">
+        <h1 className="text-xs font-semibold tracking-[0.2em] uppercase text-[var(--color-foreground-tertiary)]">
+          {positionLabel[data.position]}
+        </h1>
+        <p className="text-2xl font-semibold tracking-tight">
+          <span className="uppercase">{weekdayLong}</span>
+          <span className="text-[var(--color-foreground-tertiary)]"> · </span>
+          <span className="num">{dayMonth}</span>
+        </p>
+        {data.blockPosition && (
+          <p className="text-[var(--color-foreground-tertiary)] text-xs uppercase tracking-wider mt-1">
+            Block {data.blockPosition.blockNumber} ·{" "}
+            {prettyPhase(data.blockPosition.phaseName)}
+          </p>
+        )}
       </header>
 
+      <hr className="rule mt-4 mb-6" />
+
       {data.position === "today" && (
-        <Card>
+        <>
           <Link
             href="/today"
-            className="text-sm text-primary hover:underline"
+            className="text-xs uppercase tracking-wide text-[var(--color-foreground-secondary)] hover:text-[var(--color-foreground)] transition-colors"
           >
-            → Zurück zu /today für volle Live-Ansicht
+            → Zur Live-Ansicht /today
           </Link>
-        </Card>
+          <hr className="rule mt-6 mb-6" />
+        </>
       )}
 
       {/* Sensor snapshot for past/today */}
       {(data.position === "past" || data.position === "today") && data.sensor && (
-        <SensorSnapshotCard sensor={data.sensor} />
+        <>
+          <SensorSnapshotCard sensor={data.sensor} />
+          <hr className="rule my-6" />
+        </>
       )}
 
       {/* Workouts (past/today) or planned (future) */}
@@ -573,40 +575,128 @@ function Stat({
 function FuturePlanCard({ sessions }: { sessions: SessionShape[] }) {
   const meaningful = sessions.filter((s) => s.type !== "rest");
 
+  if (meaningful.length === 0) {
+    return (
+      <div className="flex flex-col gap-2">
+        <h2 className="text-xs uppercase tracking-[0.2em] font-semibold text-[var(--color-foreground-tertiary)]">
+          Ruhetag
+        </h2>
+        <p className="text-[var(--color-foreground-secondary)]">
+          Heute keine Session geplant. Erholung ist Training.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <Card>
-      <h2 className="text-lg font-semibold mb-3">Geplant</h2>
-      {meaningful.length === 0 ? (
-        <p className="text-muted-foreground">Rest-Tag — keine Session geplant.</p>
-      ) : (
-        <div className="space-y-4">
-          {meaningful.map((s, i) => {
-            const exercises = (s.exercises as ExerciseShape[] | undefined) ?? [];
-            return (
-              <div key={i} className={i > 0 ? "border-t pt-4" : ""}>
-                <h3 className="font-semibold text-sm">
-                  {SESSION_LABEL[s.type] ?? s.type}
-                  {s.durationMin && ` · ${s.durationMin}min`}
-                </h3>
-                {s.paceTarget && (
-                  <p className="text-sm text-muted-foreground mt-0.5">
-                    Pace: {s.paceTarget.from}
-                    {s.paceTarget.from !== s.paceTarget.to
-                      ? `–${s.paceTarget.to}`
-                      : ""}
-                    /km{s.intensityZone && ` · Z${s.intensityZone}`}
-                  </p>
-                )}
-                {exercises.length > 0 && <ExerciseList exercises={exercises} />}
-              </div>
-            );
-          })}
+    <div className="flex flex-col gap-0">
+      {meaningful.map((s, i) => (
+        <div key={i}>
+          {i > 0 && <hr className="rule my-6" />}
+          <FuturePlanSession session={s} />
         </div>
-      )}
-      <p className="mt-4 text-xs text-muted-foreground italic">
+      ))}
+      <hr className="rule mt-6 mb-4" />
+      <p className="text-xs text-[var(--color-foreground-muted)] italic">
         Diese Sessions werden am Tag basierend auf deiner Recovery (HRV, Sleep,
         Knee) automatisch angepasst.
       </p>
-    </Card>
+    </div>
+  );
+}
+
+function FuturePlanSession({ session }: { session: SessionShape }) {
+  const color = getSessionColor(session.type);
+  const exercises = (session.exercises as ExerciseShape[] | undefined) ?? [];
+  const isRun = !exercises.length;
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Title — session-type-colored uppercase label */}
+      <h2
+        className="text-xs uppercase tracking-[0.2em] font-semibold"
+        style={{ color: color.color }}
+      >
+        {SESSION_LABEL[session.type] ?? session.type}
+      </h2>
+
+      {/* Run: HR-target large, pace below */}
+      {isRun && session.hrTarget && (
+        <p className="num-lg" style={{ color: color.color }}>
+          {session.hrTarget.from}–{session.hrTarget.to}
+          <span className="text-base text-[var(--color-foreground-tertiary)] ml-2">
+            bpm
+          </span>
+        </p>
+      )}
+
+      {isRun && (
+        <p className="text-sm text-[var(--color-foreground-secondary)]">
+          {session.durationMin ? (
+            <>
+              <span className="num">{session.durationMin}</span> min
+            </>
+          ) : null}
+          {session.paceTarget && (
+            <>
+              {" · "}
+              <span className="num">{session.paceTarget.from}</span>
+              {session.paceTarget.from !== session.paceTarget.to && (
+                <>
+                  –<span className="num">{session.paceTarget.to}</span>
+                </>
+              )}
+              {" /km"}
+            </>
+          )}
+        </p>
+      )}
+
+      {/* Chips: zoneLabel (v0.11) > intensityZone fallback, plus RPE */}
+      {isRun && (session.zoneLabel || session.intensityZone || session.rpeTarget) && (
+        <div className="flex flex-wrap gap-2">
+          {session.zoneLabel ? (
+            <span
+              className="chip"
+              style={{
+                backgroundColor: color.bg,
+                color: color.color,
+              }}
+            >
+              {session.zoneLabel}
+            </span>
+          ) : session.intensityZone ? (
+            <span
+              className="chip"
+              style={{
+                backgroundColor: color.bg,
+                color: color.color,
+              }}
+            >
+              Z{session.intensityZone}
+            </span>
+          ) : null}
+          {session.rpeTarget !== undefined && (
+            <span className="chip bg-[var(--color-muted)] text-[var(--color-foreground-secondary)]">
+              RPE {session.rpeTarget}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Strength: exercise list */}
+      {exercises.length > 0 && (
+        <>
+          <p className="text-sm text-[var(--color-foreground-secondary)]">
+            {session.durationMin ? (
+              <>
+                <span className="num">{session.durationMin}</span> min
+              </>
+            ) : null}
+          </p>
+          <ExerciseList exercises={exercises} />
+        </>
+      )}
+    </div>
   );
 }

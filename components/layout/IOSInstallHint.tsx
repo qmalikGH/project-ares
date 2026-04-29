@@ -47,7 +47,7 @@ export function IOSInstallHint() {
 
   return (
     <div
-      className="glass-card fixed bottom-24 left-4 right-4 z-50 p-4 sm:right-4 sm:bottom-32 sm:left-auto sm:max-w-sm"
+      className="fixed bottom-24 left-4 right-4 z-50 p-4 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] sm:right-4 sm:bottom-32 sm:left-auto sm:max-w-sm"
       role="dialog"
       aria-labelledby="ios-install-title"
     >
@@ -58,7 +58,7 @@ export function IOSInstallHint() {
           </h3>
           <p className="mt-1 text-xs text-foreground-secondary">
             Tippe auf{" "}
-            <span className="inline-block align-middle text-[var(--accent)]">⎋</span>{" "}
+            <span className="inline-block align-middle text-[var(--color-foreground)]">⎋</span>{" "}
             <em>Teilen</em> → <em>Zum Home-Bildschirm</em> für Vollbild ohne
             Safari-UI.
           </p>

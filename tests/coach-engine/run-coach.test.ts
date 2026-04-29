@@ -265,3 +265,47 @@ describe("getHrTargetForSession (Sprint v0.7)", () => {
     ).toBeNull();
   });
 });
+
+// ============================================
+// Sprint v0.11 — zone label fix
+// ============================================
+import { getZoneLabel } from "@/lib/coach-engine/run-coach";
+
+describe("getZoneLabel (Sprint v0.11 polarized 3-zone model)", () => {
+  it("Z1 · Easy (sub-LT1) for easy/long/recovery/calibration runs", () => {
+    expect(getZoneLabel("easy_run")).toBe("Z1 · Easy (sub-LT1)");
+    expect(getZoneLabel("long_run")).toBe("Z1 · Easy (sub-LT1)");
+    expect(getZoneLabel("active_recovery")).toBe("Z1 · Easy (sub-LT1)");
+    expect(getZoneLabel("calibration_run")).toBe("Z1 · Easy (sub-LT1)");
+  });
+
+  it("Z2 · Threshold (LT1-LT2) for threshold/tempo runs", () => {
+    expect(getZoneLabel("threshold_run")).toBe("Z2 · Threshold (LT1-LT2)");
+    expect(getZoneLabel("tempo_run")).toBe("Z2 · Threshold (LT1-LT2)");
+  });
+
+  it("Z3 · VO2max (supra-LT2) for VO2max + time-trial", () => {
+    expect(getZoneLabel("vo2max_intervals")).toBe("Z3 · VO2max (supra-LT2)");
+    expect(getZoneLabel("time_trial_5k")).toBe("Z3 · VO2max (supra-LT2)");
+  });
+
+  it("returns empty string for non-run types", () => {
+    expect(getZoneLabel("rest")).toBe("");
+    expect(getZoneLabel("strength_a")).toBe("");
+  });
+});
+
+describe("generateWeekRunPlan attaches zoneLabel to every run session", () => {
+  const monday = new Date("2026-04-27T00:00:00.000Z");
+  it("easy_run gets Z1 label", () => {
+    const plan = generateWeekRunPlan(block1Config, 2, 42, monday);
+    const easy = plan.sessions.find((s) => s.type === "easy_run");
+    expect(easy?.zoneLabel).toBe("Z1 · Easy (sub-LT1)");
+  });
+
+  it("threshold_run gets Z2 label", () => {
+    const plan = generateWeekRunPlan(block1Config, 2, 42, monday);
+    const threshold = plan.sessions.find((s) => s.type === "threshold_run");
+    expect(threshold?.zoneLabel).toBe("Z2 · Threshold (LT1-LT2)");
+  });
+});

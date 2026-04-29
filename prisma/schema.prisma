@@ -34,6 +34,7 @@ model User {
   conversations  AIConversation[]
   garminSyncLogs GarminSyncLog[]
   notifications  Notification[]
+  exerciseLogs   ExerciseLog[]
   settings       UserSettings?
 }
 
@@ -373,9 +374,36 @@ model UserSettings {
   forcedRestDays           Int[]     @default([3, 7])
   preferredLongRunDay      Int       @default(6)
 
+  // 1RM Estimates (Sprint v0.11) — user inputs initial values, engine
+  // auto-updates via Epley from training data. JSON: { "Hex Bar Deadlift": 120, ... }
+  exerciseMaxEstimates    Json?
+  exerciseMaxSource       String?   // "manual" | "epley_auto" | "5rm_test"
+  exerciseMaxUpdatedAt    DateTime?
+
   // Notifications (per-type toggle)
   notificationPrefs       Json?
 
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
+}
+
+// ExerciseLog (Sprint v0.11) — per-set training-data log. Feeds the rolling
+// median 1RM estimator (lib/coach-engine/strength-coach/one-rm.ts) and the
+// block-transition review (proposeOneRMUpdates).
+//
+// Written from /api/sessions/complete when the user logs actual weight + reps
+// for a strength exercise. Read during W4 deload to propose 1RM updates.
+model ExerciseLog {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exerciseName    String
+  weightKg        Float
+  repsCompleted   Int
+  rpe             Float?
+  estimatedOneRM  Float
+  date            DateTime
+  createdAt       DateTime @default(now())
+
+  @@index([userId, exerciseName, date(sort: Desc)])
 }

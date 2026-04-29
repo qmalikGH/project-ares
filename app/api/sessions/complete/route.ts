@@ -23,6 +23,7 @@ import {
   type W1CalibrationRunData,
 } from "@/lib/coach-engine/types";
 import { calibrateVDOTFromW1 } from "@/lib/coach-engine/run-coach";
+import { estimateOneRM } from "@/lib/coach-engine/strength-coach/one-rm";
 import {
   getEffectiveVdot,
   getOrCreateUserSettings,
@@ -160,6 +161,52 @@ export async function POST(req: Request) {
       updatedAt: new Date(),
     },
   });
+
+  // Sprint v0.11: ExerciseLog write-through for strength sessions. Each set
+  // with weight + reps becomes one log row with its Epley-estimated 1RM. The
+  // rolling-median + block-transition modules then read this table during
+  // W4 deload to propose 1RM updates. Best-effort — never fails the request.
+  if (parsed.data.strengthExecution) {
+    try {
+      const sessionStartLocal = parsed.data.strengthExecution.startTimeLocal;
+      const sessionDate = sessionStartLocal
+        ? new Date(sessionStartLocal)
+        : new Date();
+      const rows: Array<{
+        userId: string;
+        exerciseName: string;
+        weightKg: number;
+        repsCompleted: number;
+        rpe: number | null;
+        estimatedOneRM: number;
+        date: Date;
+      }> = [];
+      for (const ex of parsed.data.strengthExecution.exercises) {
+        if (ex.skipped) continue;
+        for (const set of ex.actualSets) {
+          // Skip isometrics (Wall Sit) and any set without a real load+rep pair.
+          if (!set.loadKg || set.loadKg <= 0) continue;
+          if (!set.reps || set.reps <= 0) continue;
+          const est = estimateOneRM(set.loadKg, set.reps, set.rpe ?? undefined);
+          if (est <= 0) continue;
+          rows.push({
+            userId,
+            exerciseName: ex.name,
+            weightKg: set.loadKg,
+            repsCompleted: set.reps,
+            rpe: set.rpe ?? null,
+            estimatedOneRM: est,
+            date: sessionDate,
+          });
+        }
+      }
+      if (rows.length > 0) {
+        await db.exerciseLog.createMany({ data: rows });
+      }
+    } catch (e) {
+      console.error("[complete] exerciseLog write failed:", e);
+    }
+  }
 
   // Persist post-session knee score to today's sensor row.
   if (trainingScore !== undefined) {

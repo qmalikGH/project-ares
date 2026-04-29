@@ -60,6 +60,8 @@ export async function POST() {
     userSettings?.hrMax && userSettings?.hrRest
       ? { hrMax: userSettings.hrMax, hrRest: userSettings.hrRest }
       : undefined;
+  const userMaxEstimates =
+    (userSettings?.exerciseMaxEstimates as Record<string, number> | null) ?? null;
 
   const constraints = constraintsFromUserSettings({
     forcedRestDaysIso: userSettings?.forcedRestDays ?? null,
@@ -94,6 +96,7 @@ export async function POST() {
       plan.startDate,
       prevWeekData,
       null,
+      userMaxEstimates,
     );
 
     const mergedSessions: SessionPlan[] = planWeekSchedule(

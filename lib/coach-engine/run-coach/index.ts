@@ -257,6 +257,36 @@ function withHrTarget(
   return { ...session, hrTarget: target, controlMethod: "hr_first" };
 }
 
+/**
+ * Sprint v0.11: human-readable polarized-zone label for UI display.
+ * Replaces the misleading bare "Zone 1/2/3" — the engine still uses
+ * `intensityZone` numerically (1|2|3), but the UI now shows what each
+ * zone *means* in the 3-zone polarized framework (Casado 2022, Seiler 2010):
+ *
+ *   Z1 (sub-LT1)        — Easy / Long Run / Recovery / Calibration
+ *   Z2 (LT1-LT2)        — Threshold / Tempo (lactate steady-state)
+ *   Z3 (supra-LT2)      — VO2max intervals / Time Trial
+ *
+ * Returns "" for non-run types (the UI then falls back to the strength label).
+ */
+export function getZoneLabel(type: SessionType): string {
+  switch (type) {
+    case "easy_run":
+    case "long_run":
+    case "active_recovery":
+    case "calibration_run":
+      return "Z1 · Easy (sub-LT1)";
+    case "threshold_run":
+    case "tempo_run":
+      return "Z2 · Threshold (LT1-LT2)";
+    case "vo2max_intervals":
+    case "time_trial_5k":
+      return "Z3 · VO2max (supra-LT2)";
+    default:
+      return "";
+  }
+}
+
 // ============================================
 // Session builders
 // ============================================
@@ -273,6 +303,7 @@ function easyRun(
       durationMin,
       paceTarget: paces.E,
       intensityZone: 1,
+      zoneLabel: getZoneLabel("easy_run"),
       rpeTarget: 4,
     },
     "easy_run",
@@ -293,6 +324,7 @@ function thresholdRun(
       durationMin,
       paceTarget: { from: paces.T, to: paces.T },
       intensityZone: 2,
+      zoneLabel: getZoneLabel("threshold_run"),
       rpeTarget: 7,
       structure: {
         warmupMin: 12,
@@ -317,6 +349,7 @@ function vo2maxIntervals(
       durationMin: 50,
       paceTarget: { from: paces.I, to: paces.I },
       intensityZone: 3,
+      zoneLabel: getZoneLabel("vo2max_intervals"),
       rpeTarget: 9,
       structure: {
         warmupMin: 15,
@@ -343,6 +376,10 @@ function longRun(
       durationMin,
       paceTarget: paces.E,
       intensityZone,
+      zoneLabel:
+        intensityZone === 2
+          ? getZoneLabel("threshold_run")
+          : getZoneLabel("long_run"),
       rpeTarget: intensityZone === 2 ? 6 : 4,
     },
     "long_run",
@@ -451,6 +488,7 @@ export function generateWeekRunPlan(
         durationMin: 30,
         paceTarget: paces.E,
         intensityZone: 1,
+        zoneLabel: getZoneLabel("calibration_run"),
         rpeTarget: 5,
         notes: "Calibration run — gentle 5km @ E-pace, log accurate RPE",
       },
@@ -491,6 +529,7 @@ export function generateWeekRunPlan(
       durationMin: 60,
       paceTarget: { from: paces.T, to: paces.T },
       intensityZone: 3,
+      zoneLabel: getZoneLabel("time_trial_5k"),
       rpeTarget: 10,
       controlMethod: "pace_first",
       notes: "5k Time Trial — race-day simulation",

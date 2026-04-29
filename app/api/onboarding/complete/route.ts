@@ -225,8 +225,12 @@ export async function POST(req: Request) {
       select: {
         forcedRestDays: true,
         preferredLongRunDay: true,
+        exerciseMaxEstimates: true,
       },
     });
+    const userMaxEstimates =
+      (scheduleSettings?.exerciseMaxEstimates as Record<string, number> | null) ??
+      null;
 
     const goal = await tx.goal.create({
       data: {
@@ -291,6 +295,7 @@ export async function POST(req: Request) {
           weekStart,
           null,
           initialTherapyPhase,
+          userMaxEstimates,
         );
 
         // Sprint v0.10: Schedule-Strategy places sessions per user-specific
