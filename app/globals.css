@@ -28,10 +28,12 @@
   --color-foreground-tertiary: var(--text-tertiary);
   --color-foreground-quaternary: var(--text-quaternary);
 
-  /* === Cyan accent (v0.8 single brand color) === */
-  --color-cyan: var(--accent);
-  --color-cyan-muted: var(--accent-muted);
-  --color-cyan-ring: var(--accent-ring);
+  /* === Cyan accent (v0.8 single brand color) ===
+     Hardcoded — `var(--accent)` would collide with shadcn's `.dark { --accent }`
+     legacy override (which is a translucent white-tint, NOT cyan). */
+  --color-cyan: #7dd3fc;
+  --color-cyan-muted: rgba(125, 211, 252, 0.12);
+  --color-cyan-ring: rgba(125, 211, 252, 0.3);
 
   /* === Status (used sparingly per brief) === */
   --color-success: var(--success);
@@ -47,9 +49,12 @@
   --color-card-foreground: var(--text-primary);
   --color-popover: rgba(20, 20, 22, 0.95);
   --color-popover-foreground: var(--text-primary);
-  /* Primary = cyan: shadcn's <Button> with default variant becomes our v0.8 CTA */
-  --color-primary: var(--accent);
+  /* Primary = white: high-contrast CTA on dark backgrounds. Cyan stays
+     available as a brand color via `bg-cyan` for accents, charts, badges. */
+  --color-primary: #fafaf9;
   --color-primary-foreground: #0a0a0b;
+  --color-primary-hover: #ffffff;
+  --color-primary-active: rgba(250, 250, 249, 0.85);
   /* Secondary = white-tint pill (still neutral, NOT cyan) */
   --color-secondary: rgba(255, 255, 255, 0.06);
   --color-secondary-foreground: var(--text-primary);
@@ -135,7 +140,7 @@
   --card-foreground: var(--text-primary);
   --popover: rgba(20, 20, 22, 0.95);
   --popover-foreground: var(--text-primary);
-  --primary: var(--accent);
+  --primary: #fafaf9;
   --primary-foreground: #0a0a0b;
   --secondary: rgba(255, 255, 255, 0.06);
   --secondary-foreground: var(--text-primary);
