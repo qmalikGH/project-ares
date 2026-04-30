@@ -69,22 +69,49 @@ function pickPrimarySession(sessions: SessionPlan[]): SessionPlan | null {
   )[0];
 }
 
+/** Compact 2–4 char abbreviation per session type — picked so the label
+ *  fits in a ~50px-wide iPhone 11 calendar cell at 9px font. Two-a-day
+ *  combinations also stay under ~10 chars when joined by '+'. */
+function shortAbbr(type: string): string {
+  if (type.startsWith("strength_")) return "STR";
+  switch (type) {
+    case "easy_run":
+      return "EASY";
+    case "threshold_run":
+      return "THR";
+    case "tempo_run":
+      return "TEM";
+    case "long_run":
+      return "LONG";
+    case "vo2max_intervals":
+      return "VO2";
+    case "calibration_run":
+      return "CAL";
+    case "time_trial_5k":
+      return "TT";
+    case "active_recovery":
+      return "REC";
+    case "rest":
+      return "REST";
+    default:
+      return type.slice(0, 4).toUpperCase();
+  }
+}
+
 function dayLabel(sessions: SessionPlan[]): string {
   if (sessions.length === 0) return "";
   if (sessions.every((s) => s.type === "rest")) return "REST";
-  // Show distinct labels, comma-joined; strength sessions collapse to "STR".
-  const labels = sessions
-    .filter((s) => s.type !== "rest")
-    .map((s) => {
-      if (s.type.startsWith("strength_")) return "STR";
-      return getSessionColor(s.type).label.toUpperCase();
-    });
-  // Dedupe consecutive strengths (e.g. "EASY · STR · STR" → "EASY · STR")
-  const dedup: string[] = [];
-  for (const l of labels) {
-    if (dedup[dedup.length - 1] !== l) dedup.push(l);
+  const seen: string[] = [];
+  for (const s of sessions) {
+    if (s.type === "rest") continue;
+    const abbr = shortAbbr(s.type);
+    if (seen[seen.length - 1] !== abbr && !seen.includes(abbr)) {
+      seen.push(abbr);
+    }
   }
-  return dedup.join(" · ");
+  // Use '+' on mobile (cheaper than ' · ' which adds two extra characters
+  // including a wide middot), keeps "EASY+STR" under 9 chars.
+  return seen.join("+");
 }
 
 export function PlanCalendar({
@@ -237,11 +264,12 @@ export function PlanCalendar({
                 {format(day, "d")}
               </span>
 
-              {/* Session label */}
+              {/* Session label — `truncate` is the safety net so any future
+                  long abbreviation can't visually bleed into the next cell. */}
               {label && (
                 <span
                   className={cn(
-                    "mt-auto text-[9px] font-semibold tracking-wide uppercase leading-tight",
+                    "mt-auto block w-full max-w-full truncate text-[9px] font-semibold uppercase leading-tight",
                   )}
                   style={
                     isRestDay
