@@ -401,8 +401,10 @@ function SessionHeroCard({
         </div>
       ) : null}
 
-      {/* Secondary line: duration + pace (when HR is primary) */}
-      {!isRest && (
+      {/* Secondary line: duration + pace (when HR is primary). Skipped for
+          strength because the strength block below renders its own duration
+          line — would double up otherwise. Skipped for rest. */}
+      {!isRest && !isStrength && (
         <p className="text-sm text-[var(--color-foreground-secondary)]">
           {final.durationMin ? (
             <>

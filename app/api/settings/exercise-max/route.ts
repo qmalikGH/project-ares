@@ -172,14 +172,18 @@ export async function POST(req: Request) {
     },
   });
 
-  // 2. Regenerate every future WeeklyPlan so `loadAbs` reflects the new 1RMs.
-  // Mirrors the training-days route's regeneration loop, minus Garmin resync
-  // (1RM updates don't change run workouts that get pushed).
+  // 2. Regenerate the current week + every future WeeklyPlan so `loadAbs`
+  // reflects the new 1RMs. The filter MUST be `endDate > today` (not
+  // `startDate >= today`) so the current week is included — otherwise Q
+  // saves a 1RM mid-week and the today's strength card keeps showing only
+  // percent values until next Monday.
+  // No Garmin re-sync — 1RM updates only affect strength display, not the
+  // run workouts pushed to the watch.
   const today0 = userToday();
-  const futurePlans = await db.weeklyPlan.findMany({
+  const plansToRegen = await db.weeklyPlan.findMany({
     where: {
       phase: { macrocycle: { userId, status: "active" } },
-      startDate: { gte: today0 },
+      endDate: { gt: today0 },
     },
     include: { phase: true },
     orderBy: { startDate: "asc" },
@@ -199,7 +203,7 @@ export async function POST(req: Request) {
 
   let regenerated = 0;
   let prevWeekData: WeekStrengthData | null = null;
-  for (const plan of futurePlans) {
+  for (const plan of plansToRegen) {
     const phaseConfig = plan.phase.config as unknown as PhaseConfig;
     if (!phaseConfig) continue;
 
