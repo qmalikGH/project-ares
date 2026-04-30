@@ -204,6 +204,11 @@ export async function POST(req: Request) {
       vdotOverride: initialVdot,
       vdotOverrideAt: new Date(),
       vdotOverrideRationale: vdotRationale,
+      // Sprint v0.12: persist derived therapy phase as the override so it
+      // becomes the single source of truth for plan generation. null when
+      // there's no patellar-tendinopathy constraint — engine then falls
+      // back to the daily DailySensorData.therapyPhase value.
+      therapyPhaseOverride: initialTherapyPhase,
     };
     if (garminProfile?.hrMax && garminProfile?.hrRest) {
       settingsUpdate.hrMax = garminProfile.hrMax;

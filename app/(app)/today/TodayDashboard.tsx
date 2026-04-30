@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { CompletionFlow } from "@/components/workout/CompletionFlow";
 import {
@@ -597,69 +598,11 @@ function TwoADaySection({
   );
 }
 
-// ─────────────────────────────────────────────────────
-// Coach block
-// ─────────────────────────────────────────────────────
-
-function CoachBlock({ finalSession }: { finalSession: FinalSessionShape }) {
-  const [aiText, setAiText] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const fetchExplanation = useCallback(async (force = false) => {
-    setLoading(true);
-    setErr(null);
-    try {
-      const res = await fetch("/api/coach/explain-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ force }),
-      });
-      const data = await res.json();
-      if (data.status === "AI_COACH_DISABLED") { setAiText(null); return; }
-      if (data.status !== "ok") { setErr(`AI: ${data.status}`); return; }
-      setAiText(data.explanation);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchExplanation(false); }, [fetchExplanation]);
-
-  const text = aiText ?? (!loading && !err ? finalSession.explanation : null);
-
-  return (
-    <section
-      className="flex flex-col gap-3 pl-4 border-l-[3px]"
-      style={{ borderLeftColor: "var(--color-session-strength)" }}
-    >
-      <div className="flex items-center justify-between">
-        <h3 className="text-xs uppercase tracking-[0.2em] font-semibold text-[var(--color-foreground-tertiary)]">
-          Coach
-        </h3>
-        <button
-          onClick={() => fetchExplanation(true)}
-          disabled={loading}
-          className="text-[10px] uppercase tracking-wider text-[var(--color-foreground-tertiary)] transition-colors hover:text-[var(--color-foreground-secondary)] disabled:opacity-40"
-        >
-          {loading ? "…" : "neu"}
-        </button>
-      </div>
-
-      <div className="text-sm leading-relaxed text-[var(--color-foreground-secondary)]">
-        {loading && !aiText && (
-          <span className="italic text-[var(--color-foreground-tertiary)]">
-            Coach denkt nach…
-          </span>
-        )}
-        {err && <span className="text-[var(--color-destructive)]">{err}</span>}
-        {text && <span>{text}</span>}
-      </div>
-    </section>
-  );
-}
+// Sprint v0.12: CoachBlock removed. The auto-generated daily coach text on
+// /today is replaced with a "Workout anpassen →" link to /coach. The coach
+// is now an action-oriented tool surface (substitute_exercise,
+// adjust_run_volume, set_therapy_phase, skip_session) — no more proactive
+// daily summaries that cost tokens for content the user rarely reads.
 
 // ─────────────────────────────────────────────────────
 // Number selector (replaces <input type="range">)
@@ -1076,7 +1019,17 @@ export default function TodayDashboard() {
 
           <hr className="rule my-6" />
 
-          <CoachBlock finalSession={today.finalSession} />
+          {/* Sprint v0.12: Coach is no longer a daily auto-generated text on
+              /today. It's an interactive tool surface — Q opens /coach when
+              he wants to substitute an exercise, adjust volume, change
+              therapy phase, or skip a session. The link below replaces the
+              old AI-generated paragraph (cost + noise reduction). */}
+          <Link
+            href="/coach"
+            className="block py-3 text-sm uppercase tracking-[0.2em] font-semibold text-[var(--color-foreground-tertiary)] hover:text-[var(--color-foreground-secondary)] transition-colors"
+          >
+            Workout anpassen →
+          </Link>
         </>
       )}
     </div>

@@ -71,7 +71,11 @@ const BLOCK_TEMPLATES: BlockTemplateMap = {
       { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, tempo: "3-3-1", restSec: 180 },
       { name: "Bench Press", sets: 3, reps: 8, loadPct: 75, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
       { name: "Reverse Lunge", sets: 3, reps: "10/leg", loadPct: 60, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
-      { name: "Calf Raises", sets: 3, reps: 12, loadPct: 50, rpeCap: 7, tempo: "2-2-2", restSec: 60 },
+      // Sprint v0.12: Calf Raises → Tibialis Anterior Raises. Marques 2025
+      // (MA, n=8197) shows neuromuscular training is the highest-evidence
+      // MTSS prevention; weak tibialis anterior is a primary risk factor.
+      { name: "Tibialis Anterior Raises", sets: 3, reps: 15, rpeCap: 6, tempo: "2-1-2", restSec: 60,
+        notes: "Shin-Splint-Prävention (Marques 2025). Ferse auf Stufe, Fußspitze heben." },
       { name: "Pallof Press", sets: 3, reps: "10/side", rpeCap: 6, tempo: "1-2-1", restSec: 60 },
     ],
     strength_b: [
@@ -79,11 +83,20 @@ const BLOCK_TEMPLATES: BlockTemplateMap = {
       { name: "Pull-ups", sets: 4, reps: 8, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
       { name: "Hip Thrust", sets: 3, reps: 10, loadPct: 70, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
       { name: "Pallof Press", sets: 3, reps: "10/side", rpeCap: 6, tempo: "1-2-1", restSec: 60 },
+      // Sprint v0.12: intrinsic foot muscle activation. Newsham 2023:
+      // 93% reduction in MTSS recurrence with foot-core training.
+      { name: "Short Foot Exercise", sets: 2, reps: "30sec hold", rpeCap: 5, restSec: 30,
+        notes: "Intrinsic foot muscles (Newsham 2023: 93% weniger Rezidive). Fußgewölbe aktiv anheben, barfuß." },
     ],
     strength_c: [
       { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 }, // HSR
       { name: "DB Bench Press", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
       { name: "Broad Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 120, notes: "Plyo (knee-friendly alternative to box jumps)" },
+      // Sprint v0.12: soleus-focused unilateral calf work — running-specific
+      // shock absorption (Pillai 2025: training volume is the dominant MTSS
+      // risk factor; calf strength buffers landing impact).
+      { name: "Single-Leg Calf Raises", sets: 3, reps: "12/leg", rpeCap: 7, tempo: "2-2-2", restSec: 60,
+        notes: "Auf Stufe, volle ROM. Soleus-fokussiert für Lauf-Stoßdämpfung." },
       { name: "Farmer's Carry", sets: 3, reps: "30m", loadPct: 60, rpeCap: 6, restSec: 90 },
     ],
   },
@@ -97,7 +110,10 @@ const BLOCK_TEMPLATES: BlockTemplateMap = {
       { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, tempo: "3-3-1", restSec: 180 },                  // HSR — KONSTANT
       { name: "Incline DB Press", sets: 3, reps: 8, loadPct: 70, rpeCap: 8, tempo: "2-1-1", restSec: 120 },                  // var: anderer Winkel als Bench
       { name: "Bulgarian Split Squat", sets: 3, reps: "8/leg", loadPct: 55, rpeCap: 7, tempo: "2-1-1", restSec: 90 },        // var: lauf-spezifischer als Reverse Lunge
-      { name: "Seated Calf Raises", sets: 3, reps: 15, loadPct: 45, rpeCap: 7, tempo: "2-2-2", restSec: 60 },                // var: Soleus statt Gastrocnemius
+      // Sprint v0.12: Seated Calf Raises → Tibialis Anterior Raises (same
+      // shin-splint-prevention rationale as Block 1 — Marques 2025).
+      { name: "Tibialis Anterior Raises", sets: 3, reps: 15, rpeCap: 6, tempo: "2-1-2", restSec: 60,
+        notes: "Shin-Splint-Prävention (Marques 2025)." },
       { name: "Dead Bug", sets: 3, reps: "10/side", rpeCap: 6, tempo: "2-2-2", restSec: 60 },                                 // var: Anti-Extension statt Anti-Rotation
     ],
     strength_b: [
@@ -105,11 +121,18 @@ const BLOCK_TEMPLATES: BlockTemplateMap = {
       { name: "Barbell Row", sets: 4, reps: 8, loadPct: 65, rpeCap: 8, tempo: "2-1-1", restSec: 120 },                       // var: horizontal Pull statt vertikal (Pull-ups)
       { name: "Single-Leg Hip Thrust", sets: 3, reps: "10/leg", loadPct: 50, rpeCap: 7, tempo: "2-1-1", restSec: 90 },       // var: unilateral
       { name: "Pallof Press", sets: 3, reps: "10/side", rpeCap: 6, tempo: "1-2-1", restSec: 60 },                            // gleich: bewährt
+      // Sprint v0.12: foot-core finisher (Newsham 2023).
+      { name: "Short Foot Exercise", sets: 2, reps: "30sec hold", rpeCap: 5, restSec: 30,
+        notes: "Intrinsic foot muscles (Newsham 2023)." },
     ],
     strength_c: [
       { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 },                  // HSR — KONSTANT
       { name: "Push-ups", sets: 3, reps: 12, rpeCap: 7, tempo: "2-1-1", restSec: 90, notes: "Weighted vest if BW too easy" },// var: höhere Reps, BW-progression
       { name: "Box Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 120, notes: "Low box ~30cm, reactive plyo" },// var: reaktiver als Broad Jumps
+      // Sprint v0.12: soleus-focused unilateral calf work, before the
+      // unilateral carry — same MTSS rationale as Block 1.
+      { name: "Single-Leg Calf Raises", sets: 3, reps: "12/leg", rpeCap: 7, tempo: "2-2-2", restSec: 60,
+        notes: "Soleus-fokussiert." },
       { name: "Suitcase Carry", sets: 3, reps: "30m/side", loadPct: 50, rpeCap: 6, restSec: 90 },                            // var: unilateral statt bilateral
     ],
   },

@@ -54,6 +54,12 @@ type SettingsResponse = {
     forcedRestDays: number[]; // ISO 1=Mon..7=Sun
     preferredLongRunDay: number;
   };
+  therapyPhaseOverride:
+    | "REACTIVE"
+    | "DISREPAIR"
+    | "REMODELING"
+    | "SPORT_SPECIFIC"
+    | null;
 };
 
 const AVAILABLE_MODELS = [
@@ -97,6 +103,10 @@ export default function SettingsView() {
       />
       <HrZonesSection hrZones={data.hrZones} onSaved={load} />
       <TrainingDaysSection schedule={data.schedule} onSaved={load} />
+      <KneeStatusSection
+        current={data.therapyPhaseOverride}
+        onSaved={load}
+      />
       <ExerciseMaxSection />
       <AiCoachSection aiCoach={data.aiCoach} onSaved={load} />
       <PerformanceSection vdot={data.vdot} onSaved={load} />
@@ -1564,6 +1574,161 @@ function ExerciseMaxSection() {
           Quelle: {data.source ?? "—"}
         </p>
       )}
+    </Card>
+  );
+}
+
+// ============================================
+// Knie-Status (Sprint v0.12) — therapy-phase manual override
+// ============================================
+//
+// Q's Patellatendinopathie ist abgeklungen — er will nicht jeden Strength-
+// Workout mit Wall Sit eröffnen. Vier Phasen:
+// - REACTIVE        Akute Schmerzen, Wall Sit + konservative Lasten
+// - DISREPAIR       Schmerzen nach Belastung, Wall Sit + moderate Lasten
+// - REMODELING      Selten Schmerzen (nur bei hoher Last), kein Wall Sit
+// - SPORT_SPECIFIC  Beschwerdefrei, kein Wall Sit, volle Lasten
+//
+// `null` = Auto: Engine leitet täglich aus DailySensorData.therapyPhase ab
+// (Knee-Score, VISA-P-Trend). Default für neue Konten.
+
+type TherapyPhase = "REACTIVE" | "DISREPAIR" | "REMODELING" | "SPORT_SPECIFIC";
+
+const PHASE_OPTIONS: Array<{
+  value: TherapyPhase | null;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: null,
+    label: "Auto",
+    description: "Engine entscheidet täglich anhand Knee-Score + VISA-P.",
+  },
+  {
+    value: "REACTIVE",
+    label: "REACTIVE",
+    description: "Akute Schmerzen. Wall Sit + konservative Lasten.",
+  },
+  {
+    value: "DISREPAIR",
+    label: "DISREPAIR",
+    description: "Schmerzen nach Belastung. Wall Sit + moderate Lasten.",
+  },
+  {
+    value: "REMODELING",
+    label: "REMODELING",
+    description:
+      "Selten Schmerzen (nur bei hoher Last). Kein Wall Sit.",
+  },
+  {
+    value: "SPORT_SPECIFIC",
+    label: "SPORT_SPECIFIC",
+    description: "Beschwerdefrei. Kein Wall Sit, volle Lasten.",
+  },
+];
+
+function KneeStatusSection({
+  current,
+  onSaved,
+}: {
+  current: TherapyPhase | null;
+  onSaved: () => void;
+}) {
+  const [draft, setDraft] = useState<TherapyPhase | null>(current);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Sync draft when parent reloads (e.g. after sibling section save).
+  useEffect(() => {
+    setDraft(current);
+  }, [current]);
+
+  async function save(phase: TherapyPhase | null) {
+    setBusy(true);
+    setMsg(null);
+    setErr(null);
+    try {
+      const res = await fetch("/api/settings/therapy-phase", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ therapyPhase: phase }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        throw new Error(j?.error ?? `HTTP ${res.status}`);
+      }
+      const j = (await res.json()) as {
+        regenerated: number;
+        garminResync?: { repushed: number; removed: number };
+      };
+      const garmin = j.garminResync
+        ? ` · Garmin: ${j.garminResync.repushed} re-pushed, ${j.garminResync.removed} removed`
+        : "";
+      setMsg(
+        `Gespeichert. ${j.regenerated} zukünftige Wochenpläne regeneriert.${garmin}`,
+      );
+      setDraft(phase);
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Speichern fehlgeschlagen");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold mb-1">Knie-Status</h2>
+      <p className="text-xs text-muted-foreground mb-4">
+        Steuert ob Wall Sit als HSR-Tendon-Stimulus in jede Strength-Session
+        eingefügt wird (REACTIVE / DISREPAIR) oder weggelassen wird
+        (REMODELING / SPORT_SPECIFIC). Aktuell:{" "}
+        <strong>{draft ?? "Auto (engine-derived)"}</strong>.
+      </p>
+
+      {err && (
+        <p className="mb-3 text-sm text-[var(--color-destructive)]">{err}</p>
+      )}
+      {msg && <p className="mb-3 text-sm text-muted-foreground">{msg}</p>}
+
+      <ul className="flex flex-col gap-2">
+        {PHASE_OPTIONS.map((opt) => {
+          const isActive = draft === opt.value;
+          return (
+            <li key={opt.label}>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => save(opt.value)}
+                aria-pressed={isActive}
+                className={`flex w-full items-start gap-3 rounded-md border px-3 py-2 text-left transition-colors disabled:opacity-50 ${
+                  isActive
+                    ? "border-[var(--color-foreground)] bg-[var(--color-surface)]"
+                    : "border-[var(--color-border)] hover:bg-[var(--color-surface)]"
+                }`}
+              >
+                <span
+                  className={`mt-1 h-3 w-3 shrink-0 rounded-full border ${
+                    isActive
+                      ? "border-[var(--color-foreground)] bg-[var(--color-foreground)]"
+                      : "border-[var(--color-border-strong)]"
+                  }`}
+                  aria-hidden
+                />
+                <div className="flex-1">
+                  <p className="text-sm font-medium">{opt.label}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {opt.description}
+                  </p>
+                </div>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </Card>
   );
 }

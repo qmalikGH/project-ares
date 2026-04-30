@@ -413,7 +413,46 @@ export interface RunVolumeProgression {
 
 export function computeRunVolumeProgression(
   weekInBlock: WeekInBlock,
+  blockNumber: number = 1,
 ): RunVolumeProgression {
+  // Sprint v0.12: Block 1 uses a more conservative ramp because the runner
+  // is still building MTSS-resilience (Pillai 2025: training-volume is the
+  // dominant shin-splint risk factor, RR 1.15 per 10% jump). Block 2+ is
+  // standard progression.
+  if (blockNumber === 1) {
+    switch (weekInBlock) {
+      case 1:
+        return {
+          longRunMultiplier: 1.0,
+          qualityRunMultiplier: 1.0,
+          easyRunMultiplier: 1.0,
+          rationale: "W1 Adaptation: baseline volume.",
+        };
+      case 2:
+        return {
+          longRunMultiplier: 1.05,
+          qualityRunMultiplier: 1.0,
+          easyRunMultiplier: 1.0,
+          rationale: "W2 Build 1 (Block 1 conservative): long +5%.",
+        };
+      case 3:
+        return {
+          longRunMultiplier: 1.1,
+          qualityRunMultiplier: 1.05,
+          easyRunMultiplier: 1.0,
+          rationale: "W3 Peak (Block 1 conservative): long +10%, quality +5%.",
+        };
+      case 4:
+        return {
+          longRunMultiplier: 0.8,
+          qualityRunMultiplier: 0.75,
+          easyRunMultiplier: 0.85,
+          rationale: "W4 Deload: long -20%, quality -25%, easy -15%.",
+        };
+    }
+  }
+
+  // Block 2+: standard progression.
   switch (weekInBlock) {
     case 1:
       return {
@@ -431,10 +470,10 @@ export function computeRunVolumeProgression(
       };
     case 3:
       return {
-        longRunMultiplier: 1.2,
+        longRunMultiplier: 1.15,
         qualityRunMultiplier: 1.1,
         easyRunMultiplier: 1.0,
-        rationale: "W3 Peak: long run +20%, quality +10%.",
+        rationale: "W3 Peak: long run +15%, quality +10%.",
       };
     case 4:
       return {
@@ -461,7 +500,7 @@ export function generateWeekRunPlan(
   // baselines from PhaseConfig (set in periodization/index.ts BLOCK_CONFIGS),
   // with sane fallbacks for any caller passing a partial config.
   const weekInBlock = weekInBlockOf(weekNumber, phaseConfig.durationWeeks);
-  const volumeProg = computeRunVolumeProgression(weekInBlock);
+  const volumeProg = computeRunVolumeProgression(weekInBlock, blockNumber);
   const longBaseline = phaseConfig.longRunBaselineMin ?? 60;
   const qualityBaseline = phaseConfig.qualityRunBaselineMin ?? 40;
   const easyBaseline = phaseConfig.easyRunBaselineMin ?? 35;

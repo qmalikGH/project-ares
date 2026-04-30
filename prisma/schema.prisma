@@ -380,6 +380,12 @@ model UserSettings {
   exerciseMaxSource       String?   // "manual" | "epley_auto" | "5rm_test"
   exerciseMaxUpdatedAt    DateTime?
 
+  // Therapy-Phase manual override (Sprint v0.12) — when set, wins over the
+  // daily-derived DailySensorData.therapyPhase at strength-plan generation.
+  // Drives wallSitNeeded (only REACTIVE/DISREPAIR insert Wall Sit).
+  // Values: REACTIVE | DISREPAIR | REMODELING | SPORT_SPECIFIC
+  therapyPhaseOverride    String?
+
   // Notifications (per-type toggle)
   notificationPrefs       Json?
 

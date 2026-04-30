@@ -82,6 +82,9 @@ export async function GET() {
       forcedRestDays: settings.forcedRestDays ?? [3, 7],
       preferredLongRunDay: settings.preferredLongRunDay ?? 6,
     },
+    // Sprint v0.12: manual therapy-phase override. null = auto (engine
+    // derives daily from DailySensorData.therapyPhase via limitations).
+    therapyPhaseOverride: settings.therapyPhaseOverride ?? null,
   });
 }
 

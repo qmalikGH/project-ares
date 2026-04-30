@@ -219,7 +219,13 @@ export async function POST(req: Request) {
       plan.weekNumber,
       plan.startDate,
       prevWeekData,
-      null,
+      // Sprint v0.12: respect manual therapy-phase override.
+      (userSettings?.therapyPhaseOverride as
+        | "REACTIVE"
+        | "DISREPAIR"
+        | "REMODELING"
+        | "SPORT_SPECIFIC"
+        | null) ?? null,
       parsed.data.exerciseMaxEstimates,
     );
 

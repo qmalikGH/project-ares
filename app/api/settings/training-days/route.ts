@@ -116,7 +116,14 @@ export async function POST(req: Request) {
       plan.weekNumber,
       plan.startDate,
       prevWeekData,
-      null, // therapyPhase: not threaded here; LimitationsLogic re-evaluates daily
+      // Sprint v0.12: respect manual therapy-phase override (UserSettings).
+      // Falls back to null = LimitationsLogic re-evaluates daily.
+      (userSettings?.therapyPhaseOverride as
+        | "REACTIVE"
+        | "DISREPAIR"
+        | "REMODELING"
+        | "SPORT_SPECIFIC"
+        | null) ?? null,
       userMaxEstimates,
     );
 

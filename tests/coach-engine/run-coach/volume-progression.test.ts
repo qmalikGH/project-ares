@@ -19,6 +19,12 @@ const BLOCK1_CONFIG: PhaseConfig = {
   easyRunBaselineMin: 35,
 };
 
+const BLOCK2_CONFIG: PhaseConfig = {
+  ...BLOCK1_CONFIG,
+  blockNumber: 2,
+  phaseName: "ACCUMULATION_THRESHOLD_INTRO",
+};
+
 const MONDAY = new Date("2026-04-27T00:00:00Z");
 
 function findLong(plan: ReturnType<typeof generateWeekRunPlan>): number {
@@ -28,56 +34,129 @@ function findEasy(plan: ReturnType<typeof generateWeekRunPlan>): number {
   return plan.sessions.find((s) => s.type === "easy_run")?.durationMin ?? 0;
 }
 
-describe("computeRunVolumeProgression — week pattern", () => {
-  it("W1 = 1.0 / 1.0 / 1.0", () => {
-    const p = computeRunVolumeProgression(1);
+// ─────────────────────────────────────────────────────
+// Block 1 — Sprint v0.12 conservative ramp (Pillai 2025: training-volume
+// is the dominant shin-splint risk factor; runners early in a macrocycle
+// need a slower build to grow MTSS-resilience).
+// ─────────────────────────────────────────────────────
+
+describe("computeRunVolumeProgression — Block 1 (conservative)", () => {
+  it("W1 = 1.0 / 1.0 / 1.0 (baseline)", () => {
+    const p = computeRunVolumeProgression(1, 1);
     expect(p.longRunMultiplier).toBe(1.0);
     expect(p.qualityRunMultiplier).toBe(1.0);
     expect(p.easyRunMultiplier).toBe(1.0);
   });
 
-  it("W2 = long +10%, quality +5%, easy unchanged", () => {
-    const p = computeRunVolumeProgression(2);
-    expect(p.longRunMultiplier).toBeCloseTo(1.1, 2);
-    expect(p.qualityRunMultiplier).toBeCloseTo(1.05, 2);
+  it("W2 = long +5% (was +10%), quality unchanged, easy unchanged", () => {
+    const p = computeRunVolumeProgression(2, 1);
+    expect(p.longRunMultiplier).toBeCloseTo(1.05, 2);
+    expect(p.qualityRunMultiplier).toBeCloseTo(1.0, 2);
     expect(p.easyRunMultiplier).toBe(1.0);
   });
 
-  it("W3 = long +20%, quality +10%, easy unchanged", () => {
-    const p = computeRunVolumeProgression(3);
-    expect(p.longRunMultiplier).toBeCloseTo(1.2, 2);
+  it("W3 = long +10% (was +20%), quality +5%, easy unchanged", () => {
+    const p = computeRunVolumeProgression(3, 1);
+    expect(p.longRunMultiplier).toBeCloseTo(1.1, 2);
+    expect(p.qualityRunMultiplier).toBeCloseTo(1.05, 2);
+  });
+
+  it("W4 = long -20%, quality -25%, easy -15% (Deload)", () => {
+    const p = computeRunVolumeProgression(4, 1);
+    expect(p.longRunMultiplier).toBeCloseTo(0.8, 2);
+    expect(p.qualityRunMultiplier).toBeCloseTo(0.75, 2);
+    expect(p.easyRunMultiplier).toBeCloseTo(0.85, 2);
+  });
+
+  it("rationale labels week + block-1 hint", () => {
+    expect(computeRunVolumeProgression(1, 1).rationale).toContain("Adaptation");
+    expect(computeRunVolumeProgression(2, 1).rationale).toContain("Block 1");
+    expect(computeRunVolumeProgression(3, 1).rationale).toContain("Peak");
+    expect(computeRunVolumeProgression(4, 1).rationale).toContain("Deload");
+  });
+});
+
+// ─────────────────────────────────────────────────────
+// Block 2+ — standard progression (slightly tamed W3 from +20% to +15%
+// per Sprint v0.12). Block 1's caution doesn't extend here: by Block 2
+// the runner has 4 weeks of MTSS-conditioning under their belt.
+// ─────────────────────────────────────────────────────
+
+describe("computeRunVolumeProgression — Block 2+ (standard)", () => {
+  it("W1 = baseline", () => {
+    const p = computeRunVolumeProgression(1, 2);
+    expect(p.longRunMultiplier).toBe(1.0);
+  });
+
+  it("W2 = long +10%, quality +5%", () => {
+    const p = computeRunVolumeProgression(2, 2);
+    expect(p.longRunMultiplier).toBeCloseTo(1.1, 2);
+    expect(p.qualityRunMultiplier).toBeCloseTo(1.05, 2);
+  });
+
+  it("W3 = long +15% (was +20%), quality +10%", () => {
+    const p = computeRunVolumeProgression(3, 2);
+    expect(p.longRunMultiplier).toBeCloseTo(1.15, 2);
     expect(p.qualityRunMultiplier).toBeCloseTo(1.1, 2);
   });
 
-  it("W4 = long -25%, quality -30%, easy -15%", () => {
-    const p = computeRunVolumeProgression(4);
+  it("W4 = long -25%, quality -30%, easy -15% (Deload)", () => {
+    const p = computeRunVolumeProgression(4, 2);
     expect(p.longRunMultiplier).toBeCloseTo(0.75, 2);
     expect(p.qualityRunMultiplier).toBeCloseTo(0.7, 2);
     expect(p.easyRunMultiplier).toBeCloseTo(0.85, 2);
   });
 
-  it("rationale includes week label", () => {
-    expect(computeRunVolumeProgression(1).rationale).toContain("Adaptation");
-    expect(computeRunVolumeProgression(3).rationale).toContain("Peak");
-    expect(computeRunVolumeProgression(4).rationale).toContain("Deload");
+  it("Block 3-5 use the same standard progression as Block 2", () => {
+    expect(computeRunVolumeProgression(2, 3).longRunMultiplier).toBeCloseTo(
+      1.1,
+      2,
+    );
+    expect(computeRunVolumeProgression(3, 5).longRunMultiplier).toBeCloseTo(
+      1.15,
+      2,
+    );
   });
 });
 
-describe("generateWeekRunPlan — applies block 1 volume progression", () => {
+describe("computeRunVolumeProgression — default-arg backwards compat", () => {
+  it("calling without blockNumber falls back to Block 1 (conservative)", () => {
+    expect(computeRunVolumeProgression(2).longRunMultiplier).toBeCloseTo(
+      1.05,
+      2,
+    );
+    expect(computeRunVolumeProgression(3).longRunMultiplier).toBeCloseTo(
+      1.1,
+      2,
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────
+// generateWeekRunPlan integration — verifies the call site passes
+// phaseConfig.blockNumber through to the progression computation.
+// ─────────────────────────────────────────────────────
+
+describe("generateWeekRunPlan — applies block-1 conservative progression", () => {
   it("W1 long run = baseline (50min)", () => {
     const plan = generateWeekRunPlan(BLOCK1_CONFIG, 1, 42, MONDAY);
-    // weekNumber=1 in block 1 → calibration run replaces threshold; long-run
-    // is generateLongRunProgression-controlled. Block 1 W1 long run is 0 or
-    // baseline depending on long-run-progression rules; we just assert
-    // it falls within a reasonable band when present.
     const long = findLong(plan);
     if (long > 0) {
       expect(long).toBe(50);
     }
   });
 
-  it("W2 long run = baseline × 1.10 = 55min", () => {
+  it("W2 long run = baseline × 1.05 ≈ 52-53min (Block 1 conservative)", () => {
     const plan = generateWeekRunPlan(BLOCK1_CONFIG, 2, 42, MONDAY);
+    const long = findLong(plan);
+    if (long > 0) {
+      expect(long).toBeGreaterThanOrEqual(52);
+      expect(long).toBeLessThanOrEqual(53);
+    }
+  });
+
+  it("W3 long run = baseline × 1.10 = 55min (Block 1 conservative)", () => {
+    const plan = generateWeekRunPlan(BLOCK1_CONFIG, 3, 42, MONDAY);
     const long = findLong(plan);
     if (long > 0) {
       expect(long).toBeGreaterThanOrEqual(54);
@@ -85,21 +164,12 @@ describe("generateWeekRunPlan — applies block 1 volume progression", () => {
     }
   });
 
-  it("W3 long run = baseline × 1.20 = 60min", () => {
-    const plan = generateWeekRunPlan(BLOCK1_CONFIG, 3, 42, MONDAY);
-    const long = findLong(plan);
-    if (long > 0) {
-      expect(long).toBeGreaterThanOrEqual(59);
-      expect(long).toBeLessThanOrEqual(61);
-    }
-  });
-
-  it("W4 long run = baseline × 0.75 = 37min (Deload)", () => {
+  it("W4 long run = baseline × 0.80 = 40min (Block 1 deload)", () => {
     const plan = generateWeekRunPlan(BLOCK1_CONFIG, 4, 42, MONDAY);
     const long = findLong(plan);
     if (long > 0) {
-      expect(long).toBeGreaterThanOrEqual(36);
-      expect(long).toBeLessThanOrEqual(38);
+      expect(long).toBeGreaterThanOrEqual(39);
+      expect(long).toBeLessThanOrEqual(41);
     }
   });
 
@@ -114,8 +184,19 @@ describe("generateWeekRunPlan — applies block 1 volume progression", () => {
     delete minimalConfig.longRunBaselineMin;
     delete minimalConfig.qualityRunBaselineMin;
     delete minimalConfig.easyRunBaselineMin;
-    // Should not throw; uses internal fallbacks (60/40/35).
     const plan = generateWeekRunPlan(minimalConfig, 1, 42, MONDAY);
     expect(plan.sessions.length).toBeGreaterThan(0);
+  });
+});
+
+describe("generateWeekRunPlan — Block 2 uses standard progression", () => {
+  it("Block 2 W3 long run = baseline × 1.15 (vs Block 1 W3 = 1.10)", () => {
+    const b1 = generateWeekRunPlan(BLOCK1_CONFIG, 3, 42, MONDAY);
+    const b2 = generateWeekRunPlan(BLOCK2_CONFIG, 7, 42, MONDAY); // weekInBlock=3 in 4-week block
+    const longB1 = findLong(b1);
+    const longB2 = findLong(b2);
+    if (longB1 > 0 && longB2 > 0) {
+      expect(longB2).toBeGreaterThan(longB1);
+    }
   });
 });
