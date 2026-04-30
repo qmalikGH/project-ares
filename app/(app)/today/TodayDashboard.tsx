@@ -62,6 +62,11 @@ type TodayResponse =
 
 type WorkoutState = { id: string; status: string } | null;
 
+/** Sprint v0.11+: per-session-type Workout state. Two-a-days have one entry
+ * per session ('easy_run' + 'strength_a' on Mondays). Empty record = no
+ * Workout rows yet today. */
+type WorkoutStateMap = Record<string, WorkoutState>;
+
 // ─────────────────────────────────────────────────────
 // Band styling helpers
 // ─────────────────────────────────────────────────────
@@ -547,10 +552,14 @@ function SessionHeroCard({
 
 function TwoADaySection({
   finalSessions,
-  workoutState,
+  workoutMap,
+  onChanged,
+  onWorkoutStateChange,
 }: {
   finalSessions: FinalSessionShape[];
-  workoutState: WorkoutState;
+  workoutMap: WorkoutStateMap;
+  onChanged: () => void;
+  onWorkoutStateChange: (sessionType: string, ws: WorkoutState) => void;
 }) {
   const meaningful = finalSessions.filter((s) => s.type !== "rest");
   const sessions = meaningful.length > 0 ? meaningful : finalSessions;
@@ -559,15 +568,26 @@ function TwoADaySection({
     <div className="flex flex-col">
       {sessions.map((s, i) => {
         const slot = slotLabel(s.type);
+        const sessionWorkout = workoutMap[s.type] ?? null;
         return (
-          <div key={i} className="flex flex-col gap-2">
+          <div key={i} className="flex flex-col gap-3">
             {i > 0 && <hr className="rule my-6" />}
             {slot && (
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--color-foreground-muted)]">
                 {slot}
               </p>
             )}
-            <SessionHeroCard final={s} workoutState={workoutState} />
+            <SessionHeroCard final={s} workoutState={sessionWorkout} />
+            {/* Each session gets its own start/complete affordance — Easy Run
+                imports from Garmin, Strength gets the manual set logger. */}
+            <ActionsZone
+              onChanged={onChanged}
+              sessionType={s.type}
+              plannedExercises={s.exercises ?? []}
+              plannedDurationMin={s.durationMin ?? 45}
+              workoutState={sessionWorkout}
+              onWorkoutStateChange={(ws) => onWorkoutStateChange(s.type, ws)}
+            />
           </div>
         );
       })}
@@ -820,7 +840,13 @@ function ActionsZone({
     setBusy(true);
     setErr(null);
     try {
-      const res = await fetch("/api/sessions/start", { method: "POST" });
+      const res = await fetch("/api/sessions/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Sending the type makes the API target the right Workout row on
+        // two-a-days (run vs strength stay independent).
+        body: JSON.stringify({ type: sessionType }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.status ?? `HTTP ${res.status}`);
       onWorkoutStateChange({ id: data.workoutId, status: "in_progress" });
@@ -834,16 +860,16 @@ function ActionsZone({
 
   if (workoutState?.status === "completed") {
     return (
-      <section className="glass-card border-emerald-500/20 bg-emerald-500/[0.04] p-5">
-        <p className="text-sm font-medium text-emerald-400">Session abgeschlossen</p>
-      </section>
+      <p className="text-xs uppercase tracking-[0.18em] font-semibold text-[var(--color-success)]">
+        ✓ Session abgeschlossen
+      </p>
     );
   }
 
   if (workoutState?.status === "in_progress") {
     return (
-      <section className="glass-card p-5">
-        <h3 className="mb-4 text-sm font-semibold text-[var(--text-primary)]">
+      <section className="flex flex-col gap-3">
+        <h3 className="text-xs uppercase tracking-[0.2em] font-semibold text-[var(--color-foreground-tertiary)]">
           Session abschließen
         </h3>
         <CompletionFlow
@@ -865,7 +891,9 @@ function ActionsZone({
       <Button onClick={start} disabled={busy} size="lg" className="w-full">
         {busy ? "Starte…" : "Session starten"}
       </Button>
-      {err && <p className="mt-2 text-sm text-red-400">{err}</p>}
+      {err && (
+        <p className="mt-2 text-sm text-[var(--color-destructive)]">{err}</p>
+      )}
     </div>
   );
 }
@@ -878,7 +906,7 @@ export default function TodayDashboard() {
   const [today, setToday] = useState<TodayResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [workoutState, setWorkoutState] = useState<WorkoutState>(null);
+  const [workoutMap, setWorkoutMap] = useState<WorkoutStateMap>({});
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -895,20 +923,32 @@ export default function TodayDashboard() {
     }
   }, []);
 
-  // Fetch today's workout state independently so hero badge stays in sync
-  useEffect(() => {
+  // Fetch today's workout state — one entry per session-type so two-a-days
+  // (easy_run + strength_a) keep separate hero badges.
+  const refreshWorkoutMap = useCallback(() => {
     fetch("/api/workouts?days=1")
       .then((r) => r.json())
       .then((data) => {
         // Use local date, not UTC — toISOString() gives UTC which is wrong
         // for Berlin after 22:00 UTC (00:00+ Berlin).
         const todayKey = new Date().toLocaleDateString("en-CA");
-        const w = (data.workouts as { id: string; date: string; status: string }[] | undefined)
-          ?.find((x) => x.date.slice(0, 10) === todayKey);
-        if (w) setWorkoutState({ id: w.id, status: w.status });
+        const list =
+          (data.workouts as
+            | { id: string; date: string; status: string; type: string }[]
+            | undefined) ?? [];
+        const map: WorkoutStateMap = {};
+        for (const w of list) {
+          if (w.date.slice(0, 10) !== todayKey) continue;
+          map[w.type] = { id: w.id, status: w.status };
+        }
+        setWorkoutMap(map);
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    refreshWorkoutMap();
+  }, [refreshWorkoutMap]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -997,29 +1037,44 @@ export default function TodayDashboard() {
           {(today.finalSessions?.length ?? 0) > 1 ? (
             <TwoADaySection
               finalSessions={today.finalSessions!}
-              workoutState={workoutState}
+              workoutMap={workoutMap}
+              onChanged={() => {
+                refresh();
+                refreshWorkoutMap();
+              }}
+              onWorkoutStateChange={(type, ws) =>
+                setWorkoutMap((prev) => ({ ...prev, [type]: ws }))
+              }
             />
           ) : (
-            <SessionHeroCard
-              final={today.finalSession}
-              workoutState={workoutState}
-            />
+            <>
+              <SessionHeroCard
+                final={today.finalSession}
+                workoutState={workoutMap[today.finalSession.type] ?? null}
+              />
+              <hr className="rule my-6" />
+              <ActionsZone
+                onChanged={() => {
+                  refresh();
+                  refreshWorkoutMap();
+                }}
+                sessionType={today.finalSession.type}
+                plannedExercises={today.finalSession.exercises ?? []}
+                plannedDurationMin={today.finalSession.durationMin ?? 45}
+                workoutState={workoutMap[today.finalSession.type] ?? null}
+                onWorkoutStateChange={(ws) =>
+                  setWorkoutMap((prev) => ({
+                    ...prev,
+                    [today.finalSession.type]: ws,
+                  }))
+                }
+              />
+            </>
           )}
 
           <hr className="rule my-6" />
 
           <CoachBlock finalSession={today.finalSession} />
-
-          <hr className="rule my-6" />
-
-          <ActionsZone
-            onChanged={refresh}
-            sessionType={today.finalSession.type}
-            plannedExercises={today.finalSession.exercises ?? []}
-            plannedDurationMin={today.finalSession.durationMin ?? 45}
-            workoutState={workoutState}
-            onWorkoutStateChange={setWorkoutState}
-          />
         </>
       )}
     </div>

@@ -41,6 +41,12 @@ const Schema = z.object({
 
   garminActivityId: z.number().int().nullable().optional(),
   strengthExecution: StrengthExecutedSessionSchema.optional(),
+
+  // Sprint v0.11+: which Workout to complete. Required on two-a-days so
+  // the Run row and the Strength row stay independent. Without it (legacy
+  // clients) we fall back to "most recent in_progress for today" → "any for
+  // today" so single-session days keep working.
+  workoutId: z.string().min(1).max(64).optional(),
 });
 
 export async function POST(req: Request) {
@@ -60,14 +66,23 @@ export async function POST(req: Request) {
 
   const userId = await getCurrentUserId();
   const today = userToday();
-  const { rpe, notes, trainingScore } = parsed.data;
+  const { rpe, notes, trainingScore, workoutId } = parsed.data;
   let durationActualMin = parsed.data.durationActualMin ?? null;
   let garminActivityIdStr: string | null = null;
 
-  const workout = await db.workout.findFirst({
-    where: { userId, date: today },
-    orderBy: { createdAt: "desc" },
-  });
+  // Resolution order: explicit workoutId → most-recent in_progress today →
+  // any workout today. The first wins on two-a-days, the others keep the
+  // single-session legacy path working.
+  const workout = workoutId
+    ? await db.workout.findFirst({ where: { id: workoutId, userId } })
+    : (await db.workout.findFirst({
+        where: { userId, date: today, status: "in_progress" },
+        orderBy: { createdAt: "desc" },
+      })) ??
+      (await db.workout.findFirst({
+        where: { userId, date: today },
+        orderBy: { createdAt: "desc" },
+      }));
   if (!workout) {
     return NextResponse.json({ status: "NO_WORKOUT_FOUND" }, { status: 404 });
   }

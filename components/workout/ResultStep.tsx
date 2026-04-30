@@ -14,12 +14,16 @@ export interface CompletePayload {
 }
 
 export function ResultStep({
+  workoutId,
   garminActivityId,
   strengthExecution,
   isStrength,
   defaultDurationMin,
   onSubmitted,
 }: {
+  /** Sprint v0.11+: which Workout to mark complete. Required so two-a-days
+   * (Easy Run + Strength A on the same day) finish independently. */
+  workoutId: string;
   garminActivityId: number | null;
   strengthExecution: Pick<StrengthExecutedSession, "exercises" | "durationActualMin"> | null;
   isStrength: boolean;
@@ -47,6 +51,7 @@ export function ResultStep({
         rpe,
         trainingScore,
         notes: notes || undefined,
+        workoutId, // pin completion to THIS Workout row (two-a-day fix)
       };
       if (garminActivityId) {
         payload.garminActivityId = garminActivityId;

@@ -65,6 +65,7 @@ export function CompletionFlow({
 
   return (
     <ResultStep
+      workoutId={workoutId}
       garminActivityId={garminActivityId}
       strengthExecution={strengthExecution}
       isStrength={isStrength}

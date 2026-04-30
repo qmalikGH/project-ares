@@ -1,11 +1,25 @@
 // POST /api/sessions/start
-// Mark today's planned session as in_progress. Creates the Workout row if missing.
-// Body: {} — uses today's session.
+//
+// Marks a planned session as in_progress and creates the matching Workout
+// row if it doesn't exist yet.
+//
+// Body: { type?: SessionType } — which of today's sessions to start.
+// Omitted → falls back to the first non-rest session (legacy behavior).
+//
+// Two-a-day support (Sprint v0.11+): on days with multiple sessions
+// (e.g. Easy Run AM + Strength A PM) the caller MUST pass `type` so the
+// right Workout row is created/updated. Without it the API would only ever
+// touch one row and the other session would never get its own status.
 import { NextResponse } from "next/server";
+import { z } from "zod";
 
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
-import { getCurrentPhaseRow, findWeekPlanForDate, findTodaySessionInPlan } from "@/lib/db/queries/plans";
+import {
+  getCurrentPhaseRow,
+  findWeekPlanForDate,
+  findAllTodaySessionsInPlan,
+} from "@/lib/db/queries/plans";
 import { dayKey } from "@/lib/db/queries/sensors";
 import { userToday } from "@/lib/date";
 import { computeReadiness, computeBaselines } from "@/lib/coach-engine/readiness";
@@ -19,9 +33,28 @@ import {
   getRecentDailyLoads,
   getSensorDataOnDate,
 } from "@/lib/db/queries/sensors";
-import type { DailySensorInputs, SessionPlan, TherapyPhase, UserMorningInputs } from "@/lib/coach-engine/types";
+import type {
+  DailySensorInputs,
+  SessionPlan,
+  TherapyPhase,
+  UserMorningInputs,
+} from "@/lib/coach-engine/types";
 
-export async function POST() {
+const Schema = z.object({
+  type: z.string().min(1).max(50).optional(),
+});
+
+export async function POST(req: Request) {
+  // Body is optional — old clients post empty body, new clients post {type}.
+  let body: unknown = {};
+  try {
+    body = await req.json();
+  } catch {
+    // ignore — empty body is allowed for the legacy single-session case
+  }
+  const parsed = Schema.safeParse(body);
+  const requestedType = parsed.success ? parsed.data.type : undefined;
+
   const userId = await getCurrentUserId();
   const today = userToday();
   const todayDay = dayKey(today);
@@ -30,8 +63,23 @@ export async function POST() {
   if (!phaseRow) return NextResponse.json({ status: "NO_ACTIVE_PLAN" }, { status: 400 });
   const weekPlan = findWeekPlanForDate(phaseRow.weeklyPlans, today);
   if (!weekPlan) return NextResponse.json({ status: "NO_WEEK_PLAN" }, { status: 400 });
-  const plannedSession = findTodaySessionInPlan(weekPlan.plannedSessions, today);
-  if (!plannedSession) return NextResponse.json({ status: "NO_SESSION_TODAY" }, { status: 400 });
+
+  // Pull every session for today; pick the one matching `type`, otherwise
+  // fall back to the first non-rest entry.
+  const todaySessions = findAllTodaySessionsInPlan(weekPlan.plannedSessions, today);
+  if (todaySessions.length === 0) {
+    return NextResponse.json({ status: "NO_SESSION_TODAY" }, { status: 400 });
+  }
+  const plannedSession =
+    (requestedType && todaySessions.find((s) => s.type === requestedType)) ||
+    todaySessions.find((s) => s.type !== "rest") ||
+    todaySessions[0];
+  if (requestedType && plannedSession.type !== requestedType) {
+    return NextResponse.json(
+      { status: "SESSION_TYPE_NOT_FOUND", requestedType },
+      { status: 404 },
+    );
+  }
 
   const todayRow = await getSensorDataOnDate(userId, today);
   if (!todayRow?.userMorning) {
@@ -57,9 +105,10 @@ export async function POST() {
   );
   const finalSession = modulateSession(plannedSession as SessionPlan, readiness, load, limitations);
 
-  // Upsert a workout row for today
+  // Find/create the Workout row keyed by (userId, date, type) — critical for
+  // two-a-days so the Easy Run row and the Strength row stay separate.
   const existing = await db.workout.findFirst({
-    where: { userId, date: todayDay },
+    where: { userId, date: todayDay, type: finalSession.type },
     orderBy: { createdAt: "desc" },
   });
   const workout = existing
@@ -87,5 +136,10 @@ export async function POST() {
         },
       });
 
-  return NextResponse.json({ status: "ok", workoutId: workout.id, finalSession });
+  return NextResponse.json({
+    status: "ok",
+    workoutId: workout.id,
+    type: finalSession.type,
+    finalSession,
+  });
 }
