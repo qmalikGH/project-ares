@@ -107,7 +107,7 @@ describe("generateWeekStrengthPlan", () => {
       ],
     };
     const plan = generateWeekStrengthPlan(block1Config, 2, monday, prevWeek);
-    const aDeadlift = plan.sessions[0].exercises?.find((e) => e.name === "Hex Bar Deadlift");
+    const aDeadlift = plan.sessions[0].exercises?.find((e) => e.name === "Hex Bar Deadlift" && !e.isWarmup);
     expect(aDeadlift?.loadPct).toBeGreaterThan(82); // bumped up from base 82
   });
 
@@ -176,7 +176,7 @@ describe("Exercise tempo + rest defaults", () => {
   it("HSR lifts (Hex Bar Deadlift, Romanian Deadlift) use 3-3-1 tempo + ≥120s rest", () => {
     const allExercises = plan.sessions.flatMap((s) => s.exercises ?? []);
     const hsrLifts = allExercises.filter((ex) =>
-      /Hex Bar Deadlift|Romanian Deadlift/i.test(ex.name),
+      /Hex Bar Deadlift|Romanian Deadlift/i.test(ex.name) && !ex.isWarmup,
     );
     expect(hsrLifts.length).toBeGreaterThan(0);
     hsrLifts.forEach((ex) => {

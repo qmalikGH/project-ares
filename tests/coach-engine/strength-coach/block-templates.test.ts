@@ -142,7 +142,7 @@ describe("generateWeekStrengthPlan integrates fillAbsoluteLoads", () => {
       "Hex Bar Deadlift": 120,
     });
     const strA = plan.sessions.find((s) => s.type === "strength_a");
-    const hex = strA!.exercises!.find((e) => e.name === "Hex Bar Deadlift");
+    const hex = strA!.exercises!.find((e) => e.name === "Hex Bar Deadlift" && !e.isWarmup);
     expect(hex?.loadAbs).toBe(97.5); // 120 × 0.82 = 98.4 → 97.5
   });
 });

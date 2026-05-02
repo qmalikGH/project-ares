@@ -137,39 +137,43 @@ describe("computeRunVolumeProgression — default-arg backwards compat", () => {
 // phaseConfig.blockNumber through to the progression computation.
 // ─────────────────────────────────────────────────────
 
+  // Sprint v0.13: long run now includes +5 min for pre-run activation (Leppänen 2024).
+  // All expected durations are base + ACTIVATION_DURATION_MIN (5).
+  const ACT = 5; // ACTIVATION_DURATION_MIN
+
 describe("generateWeekRunPlan — applies block-1 conservative progression", () => {
-  it("W1 long run = baseline (50min)", () => {
+  it("W1 long run = baseline (50min) + activation", () => {
     const plan = generateWeekRunPlan(BLOCK1_CONFIG, 1, 42, MONDAY);
     const long = findLong(plan);
     if (long > 0) {
-      expect(long).toBe(50);
+      expect(long).toBe(50 + ACT);
     }
   });
 
-  it("W2 long run = baseline × 1.05 ≈ 52-53min (Block 1 conservative)", () => {
+  it("W2 long run = baseline × 1.05 ≈ 52-53min + activation (Block 1 conservative)", () => {
     const plan = generateWeekRunPlan(BLOCK1_CONFIG, 2, 42, MONDAY);
     const long = findLong(plan);
     if (long > 0) {
-      expect(long).toBeGreaterThanOrEqual(52);
-      expect(long).toBeLessThanOrEqual(53);
+      expect(long).toBeGreaterThanOrEqual(52 + ACT);
+      expect(long).toBeLessThanOrEqual(53 + ACT);
     }
   });
 
-  it("W3 long run = baseline × 1.10 = 55min (Block 1 conservative)", () => {
+  it("W3 long run = baseline × 1.10 = 55min + activation (Block 1 conservative)", () => {
     const plan = generateWeekRunPlan(BLOCK1_CONFIG, 3, 42, MONDAY);
     const long = findLong(plan);
     if (long > 0) {
-      expect(long).toBeGreaterThanOrEqual(54);
-      expect(long).toBeLessThanOrEqual(56);
+      expect(long).toBeGreaterThanOrEqual(54 + ACT);
+      expect(long).toBeLessThanOrEqual(56 + ACT);
     }
   });
 
-  it("W4 long run = baseline × 0.80 = 40min (Block 1 deload)", () => {
+  it("W4 long run = baseline × 0.80 = 40min + activation (Block 1 deload)", () => {
     const plan = generateWeekRunPlan(BLOCK1_CONFIG, 4, 42, MONDAY);
     const long = findLong(plan);
     if (long > 0) {
-      expect(long).toBeGreaterThanOrEqual(39);
-      expect(long).toBeLessThanOrEqual(41);
+      expect(long).toBeGreaterThanOrEqual(39 + ACT);
+      expect(long).toBeLessThanOrEqual(41 + ACT);
     }
   });
 

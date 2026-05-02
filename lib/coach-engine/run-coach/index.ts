@@ -16,6 +16,7 @@ import {
   weekInBlockOf,
   type WeekInBlock,
 } from "../strength-coach/periodization";
+import { PRE_RUN_ACTIVATION, ACTIVATION_DURATION_MIN } from "./activation";
 
 // ============================================
 // VDOT → Pace lookup
@@ -541,6 +542,11 @@ export function generateWeekRunPlan(
   } else {
     qualityDay = vo2maxIntervals(dateAt(1), paces, hr);
   }
+  // Sprint v0.13: attach pre-run activation to quality day (Leppänen 2024).
+  // Tue is a run-only day — activation stays. S+E day stripping happens in
+  // schedule-strategy if the schedule ever changes.
+  qualityDay.preRunActivation = PRE_RUN_ACTIVATION;
+  qualityDay.durationMin = (qualityDay.durationMin ?? 0) + ACTIVATION_DURATION_MIN;
   sessions.push(qualityDay);
 
   // Wed: Easy AM (slightly shorter than Mon/Fri)
@@ -558,7 +564,11 @@ export function generateWeekRunPlan(
     // Use the volume-progressed long run minutes (W2 +10%, etc.). The legacy
     // `longSpec.durationMin` is preserved as a floor when block 5 returns 0
     // (signals time-trial week). intensityZone still comes from longSpec.
-    sessions.push(longRun(dateAt(5), longRunMin, longSpec.intensityZone, paces, hr));
+    const longRunSession = longRun(dateAt(5), longRunMin, longSpec.intensityZone, paces, hr);
+    // Sprint v0.13: attach pre-run activation to long run (Sat = run-only day).
+    longRunSession.preRunActivation = PRE_RUN_ACTIVATION;
+    longRunSession.durationMin = (longRunSession.durationMin ?? 0) + ACTIVATION_DURATION_MIN;
+    sessions.push(longRunSession);
   } else {
     // Block 5 time-trial week → time trial on Wed (mid-week), Sat is easy/rest.
     // Time-trial deliberately stays pace_first — the goal is hitting a pace.

@@ -18,6 +18,7 @@ import {
   weekInBlockOf,
 } from "./periodization";
 import { loadPctToKg } from "./one-rm";
+import { insertWarmupSets } from "./warmup";
 
 // ============================================
 // Templates
@@ -381,16 +382,27 @@ export function generateWeekStrengthPlan(
     // when no 1RM data is available (UI falls back to percent-only).
     exercises = fillAbsoluteLoads(exercises, userMaxEstimates);
 
+    // Sprint v0.13: insert warmup ramp-up sets for compound lifts (loadPct >= 60%).
+    // Runs AFTER periodization + superset-pairing + absolute-load-fill so that
+    // the warmup percentages are relative to the periodized working load.
+    // See science_doc Viveiros 2024, Ribeiro 2020, Morrison 2022, Kraemer 2024.
+    exercises = insertWarmupSets(exercises, userMaxEstimates);
+
     // Prepend Wall Sit when active tendon therapy — visible in plannedSessions JSON,
     // so the WeekView can show it without re-running the modulator.
     if (wallSitNeeded) {
       exercises = [{ ...WALL_SIT }, ...exercises];
     }
 
+    // Sprint v0.13: account for warmup time in session duration (~1.5 min per set).
+    const warmupCount = exercises.filter((e) => e.isWarmup).length;
+    const warmupTimeMin = Math.ceil(warmupCount * 1.5);
+    const baseDuration = phaseConfig.strengthMode === "minimal" ? 30 : 50;
+
     return {
       date: dateAt(offsetDays),
       type,
-      durationMin: phaseConfig.strengthMode === "minimal" ? 30 : 50,
+      durationMin: baseDuration + warmupTimeMin,
       exercises,
       rpeTarget: phaseConfig.strengthRpeCap - 1,
       periodizationLabel,

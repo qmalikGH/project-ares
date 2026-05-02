@@ -381,6 +381,27 @@ function SessionHeroCard({
         </>
       )}
 
+      {/* Sprint v0.13: Pre-Run Activation block for run-only days */}
+      {!isStrength && !isRest && final.preRunActivation && final.preRunActivation.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--color-foreground-muted)]">
+            Pre-Run Activation (5 min)
+          </span>
+          <ul className="flex flex-col gap-1">
+            {final.preRunActivation.map((ex, i) => (
+              <li key={i} className="flex items-baseline justify-between text-[var(--color-foreground-muted)]">
+                <span className="text-xs">{ex.name}</span>
+                <span className="num text-[10px]">
+                  {ex.sets}×{ex.reps}
+                  {ex.rpeCap !== undefined && <> RPE ≤{ex.rpeCap}</>}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <hr className="rule my-1" />
+        </div>
+      )}
+
       {/* Hero number: HR for hr_first, pace for pace_first/strength fallback */}
       {!isPaceFirst && final.hrTarget ? (
         <div className="flex items-baseline gap-3">
@@ -458,57 +479,89 @@ function SessionHeroCard({
           )}
           {final.exercises && final.exercises.length > 0 && (
             <ul className="flex flex-col gap-3 mt-1">
-              {final.exercises.map((ex, i) => (
-                <li key={i} className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-foreground-secondary)]">
-                    {ex.name}
-                  </span>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="num-md text-[var(--color-foreground)]">
-                      {ex.sets} × {ex.reps}
-                      {ex.loadAbs !== undefined && ex.loadAbs > 0 ? (
-                        <>
-                          <span className="text-[var(--color-foreground-tertiary)]">
-                            {" @ "}
-                          </span>
-                          {ex.loadAbs} kg
-                        </>
-                      ) : ex.loadPct ? (
-                        <>
-                          <span className="text-[var(--color-foreground-tertiary)]">
-                            {" @ "}
-                          </span>
-                          {ex.loadPct}%
-                        </>
-                      ) : null}
-                    </span>
-                    {ex.loadAbs !== undefined && ex.loadAbs > 0 && ex.loadPct ? (
-                      <span className="num text-xs text-[var(--color-foreground-muted)]">
-                        {ex.loadPct}%
-                      </span>
-                    ) : null}
-                  </div>
-                  {(ex.tempo || ex.restSec !== undefined || ex.rpeCap !== undefined) && (
-                    <div className="text-xs text-[var(--color-foreground-tertiary)] flex flex-wrap gap-x-3">
-                      {ex.tempo && <span>Tempo {ex.tempo}</span>}
-                      {ex.restSec !== undefined && (
-                        <span>
-                          Pause{" "}
-                          {ex.restSec >= 60
-                            ? `${Math.round(ex.restSec / 60)}min`
-                            : `${ex.restSec}s`}
+              {final.exercises.map((ex, i) => {
+                if (ex.isWarmup) {
+                  // Sprint v0.13: Warmup sets rendered compact and dimmed.
+                  // Show "WARMUP" header before the first warmup set of each exercise.
+                  const prevEx = final.exercises![i - 1];
+                  const isFirstWarmup = !prevEx || !prevEx.isWarmup || prevEx.name !== ex.name;
+                  return (
+                    <li key={i} className="flex flex-col gap-0.5">
+                      {isFirstWarmup && (
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--color-foreground-muted)]">
+                          Warmup · {ex.name}
                         </span>
                       )}
-                      {ex.rpeCap !== undefined && <span>RPE ≤ {ex.rpeCap}</span>}
+                      <div className="flex items-baseline gap-2 text-[var(--color-foreground-muted)]">
+                        <span className="num text-xs">
+                          {ex.sets}×{ex.reps}
+                          {ex.loadAbs !== undefined && ex.loadAbs > 0 ? (
+                            <> @ {ex.loadAbs} kg</>
+                          ) : ex.loadPct ? (
+                            <> @ {ex.loadPct}%</>
+                          ) : null}
+                        </span>
+                        {ex.rpeCap !== undefined && (
+                          <span className="text-[10px]">RPE ≤{ex.rpeCap}</span>
+                        )}
+                      </div>
+                    </li>
+                  );
+                }
+
+                // Working set — full rendering (unchanged).
+                return (
+                  <li key={i} className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-foreground-secondary)]">
+                      {ex.name}
+                    </span>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="num-md text-[var(--color-foreground)]">
+                        {ex.sets} × {ex.reps}
+                        {ex.loadAbs !== undefined && ex.loadAbs > 0 ? (
+                          <>
+                            <span className="text-[var(--color-foreground-tertiary)]">
+                              {" @ "}
+                            </span>
+                            {ex.loadAbs} kg
+                          </>
+                        ) : ex.loadPct ? (
+                          <>
+                            <span className="text-[var(--color-foreground-tertiary)]">
+                              {" @ "}
+                            </span>
+                            {ex.loadPct}%
+                          </>
+                        ) : null}
+                      </span>
+                      {ex.loadAbs !== undefined && ex.loadAbs > 0 && ex.loadPct ? (
+                        <span className="num text-xs text-[var(--color-foreground-muted)]">
+                          {ex.loadPct}%
+                        </span>
+                      ) : null}
                     </div>
-                  )}
-                  {ex.notes && (
-                    <p className="text-xs italic text-[var(--color-foreground-muted)]">
-                      {ex.notes}
-                    </p>
-                  )}
-                </li>
-              ))}
+                    {(ex.tempo || ex.restSec !== undefined || ex.rpeCap !== undefined) && (
+                      <div className="text-xs text-[var(--color-foreground-tertiary)] flex flex-wrap gap-x-3">
+                        {ex.tempo && <span>Tempo {ex.tempo}</span>}
+                        {ex.restSec !== undefined && (
+                          <span>
+                            Pause{" "}
+                            {ex.restSec >= 60
+                              ? `${Math.round(ex.restSec / 60)}min`
+                              : `${ex.restSec}s`}
+                          </span>
+                        )}
+                        {ex.rpeCap !== undefined && <span>RPE ≤ {ex.rpeCap}</span>}
+                      </div>
+                    )}
+                    {ex.notes && (
+                      <p className="text-xs italic text-[var(--color-foreground-muted)]">
+                        {ex.notes}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </>

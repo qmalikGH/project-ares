@@ -20,6 +20,8 @@ export type ExerciseShape = {
   tempo?: string;
   restSec?: number;
   notes?: string;
+  /** Sprint v0.13: true for warmup/ramp-up/activation sets. */
+  isWarmup?: boolean;
 };
 
 export type SessionShape = {
@@ -36,6 +38,8 @@ export type SessionShape = {
   controlMethod?: "hr_first" | "pace_first";
   // Sprint v0.11: human-readable polarized zone label
   zoneLabel?: string;
+  // Sprint v0.13: Pre-run activation block (run-only days)
+  preRunActivation?: ExerciseShape[];
 };
 
 export type FinalSessionShape = SessionShape & {

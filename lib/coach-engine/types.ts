@@ -148,6 +148,12 @@ export interface Exercise {
   supersetOrder?: number | null;
   /** Why this exercise is paired — surfaced in UI tooltip + coach-context. */
   supersetRationale?: string;
+
+  // ============================================
+  // Warmup / Activation marker (Sprint v0.13)
+  // ============================================
+  /** true for warm-up/ramp-up/activation sets. Undefined/false = working set. */
+  isWarmup?: boolean;
 }
 
 export interface SessionPlan {
@@ -198,6 +204,12 @@ export interface SessionPlan {
   periodizationLabel?: string;
   /** Long human-readable rationale for UI + coach-context (why these loads/sets). */
   periodizationRationale?: string;
+
+  // ============================================
+  // Pre-Run Activation (Sprint v0.13)
+  // ============================================
+  /** Pre-run activation block for run-only days (Leppänen 2024, Naderi 2025). */
+  preRunActivation?: Exercise[];
 }
 
 export interface FinalSession extends SessionPlan {
