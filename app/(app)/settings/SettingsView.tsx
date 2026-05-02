@@ -1429,6 +1429,7 @@ type ExerciseMaxResponse = {
   source: string | null;
   updatedAt: string | null;
   exercises: ExerciseMaxRow[];
+  currentWeightKg: number | null; // Sprint v0.15: for ×BW display
 };
 
 function ExerciseMaxSection() {
@@ -1553,6 +1554,12 @@ function ExerciseMaxSection() {
                 {ex.engineRM != null
                   ? `Engine: ~${Math.round(ex.engineRM)} kg (${ex.engineDataPoints} Sets)`
                   : "Engine: — (noch keine Daten)"}
+                {/* Sprint v0.15: ×BW display */}
+                {ex.currentRM != null && data?.currentWeightKg && data.currentWeightKg > 0 && (
+                  <span className="ml-2 text-[var(--color-session-calibration)]">
+                    ({(ex.currentRM / data.currentWeightKg).toFixed(2)}×)
+                  </span>
+                )}
               </p>
             </li>
           ))}

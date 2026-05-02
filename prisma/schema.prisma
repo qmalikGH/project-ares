@@ -292,6 +292,10 @@ model DailySensorData {
 
   loadMetrics Json? // {daily_load_au, acute_7d, chronic_28d, acwr_rolling, acwr_ewma, band}
 
+  // Sprint v0.15: Body weight tracking (manual input, scale-ready)
+  bodyWeightKg     Float?   // Körpergewicht in kg
+  bodyWeightSource String?  // "manual" | "scale" | "garmin"
+
   kneeScore    Int? // computed from morning_stiffness + stairs + last_training
   therapyPhase String? // "REACTIVE" | "DISREPAIR" | "REMODELING" | "SPORT_SPECIFIC"
 
@@ -447,6 +451,11 @@ model UserSettings {
   // Drives wallSitNeeded (only REACTIVE/DISREPAIR insert Wall Sit).
   // Values: REACTIVE | DISREPAIR | REMODELING | SPORT_SPECIFIC
   therapyPhaseOverride    String?
+
+  // Sprint v0.15: Body weight tracking — cached 7d average for ×BW display
+  currentWeightKg          Float?    // 7-Tage-Durchschnitt
+  currentWeightUpdatedAt   DateTime? // Wann zuletzt berechnet
+  targetWeightKg           Float?    // Zielgewicht (aus AnnualGoal/Vision)
 
   // Notifications (per-type toggle)
   notificationPrefs       Json?

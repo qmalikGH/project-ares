@@ -94,6 +94,26 @@ export async function GET() {
 
   // 4. Modulate every session for today (Run + Strength on two-a-day Mondays etc.)
   const finalSessions = plannedSessions.map((p) => modulateSession(p as SessionPlan, readiness, load, limitations));
+
+  // Sprint v0.15: Fetch currentWeightKg once — used for protein note + ×BW response.
+  const userSettingsForWeight = await import("@/lib/db/client").then(({ db: d }) =>
+    d.userSettings.findUnique({ where: { userId }, select: { currentWeightKg: true } }),
+  );
+  const currentWeightKg = userSettingsForWeight?.currentWeightKg ?? null;
+
+  // Sprint v0.15: Recomp protein note on first Strength session (1×/week reminder).
+  // Added in API glue layer — NOT in engine (CLAUDE.md Rule 1: engine = pure functions).
+  const focusMode = phaseRow.macrocycle.focusMode;
+  if (focusMode === "recomp") {
+    const strengthA = finalSessions.find((s) => s.type === "strength_a");
+    if (strengthA && currentWeightKg && currentWeightKg > 0) {
+      const proteinNote = `RECOMP: Protein-Ziel ${Math.round(currentWeightKg * 2.0)}–${Math.round(currentWeightKg * 2.5)} g/Tag (2.0–2.5 g/kg). Kaloriendefizit ≤500 kcal. (Garthe 2011, Chappell 2021)`;
+      strengthA.notes = strengthA.notes
+        ? `${strengthA.notes}\n${proteinNote}`
+        : proteinNote;
+    }
+  }
+
   // Primary session for legacy single-session UI: first non-rest after modulation
   const finalSession = finalSessions.find((s) => s.type !== "rest" && s.type !== "active_recovery") ?? finalSessions[0];
   const plannedSession = primarySession;
@@ -132,5 +152,7 @@ export async function GET() {
     // Sprint v0.14: macrocycle evaluation state for W20 banner
     macrocycleEvaluated: phaseRow.macrocycle.evaluatedAt !== null,
     totalWeeks: phaseRow.macrocycle.totalWeeks,
+    // Sprint v0.15: body weight for ×BW display
+    currentWeightKg,
   });
 }

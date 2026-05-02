@@ -6,7 +6,8 @@ export type NotificationType =
   | "GARMIN_SYNC_FAILURE"
   | "VDOT_CALIBRATED"
   | "BLOCK_REVIEW_DUE"
-  | "TIME_TRIAL_TODAY";
+  | "TIME_TRIAL_TODAY"
+  | "WEIGHT_LOSS_RATE";
 
 export type NotificationSeverity = "INFO" | "WARNING" | "CRITICAL";
 

@@ -6,6 +6,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -157,6 +158,8 @@ export default function ProgressView() {
         effectiveVdot={data.effectiveVdot}
       />
       <VdotChart points={data.vdotHistory} />
+      <WeightChart />
+      <RelativeStrengthSection />
       {data.blockStatus && <BlockProgress blockStatus={data.blockStatus} />}
       <AdherenceSection week={data.adherence.thisWeek} block={data.adherence.thisBlock} />
       {data.tid && (
@@ -366,6 +369,240 @@ function VdotChart({ points }: { points: VdotPoint[] }) {
             />
           </LineChart>
         </ResponsiveContainer>
+      </div>
+    </Card>
+  );
+}
+
+// ============================================
+// Weight Chart (Sprint v0.15)
+// ============================================
+
+type WeightEntry = { date: string; weightKg: number; avg7d: number };
+
+type WeightHistoryResponse = {
+  entries: WeightEntry[];
+  currentWeightKg: number | null;
+  targetWeightKg: number | null;
+  weeklyRateKg: number | null;
+  weeklyRatePct: number | null;
+};
+
+function WeightChart() {
+  const [data, setData] = useState<WeightHistoryResponse | null>(null);
+
+  useEffect(() => {
+    fetch("/api/sensors/weight-history?days=90")
+      .then((r) => r.json())
+      .then((d) => setData(d as WeightHistoryResponse))
+      .catch(() => {});
+  }, []);
+
+  if (!data || data.entries.length === 0) {
+    return (
+      <Card>
+        <h2 className="text-lg font-semibold">Gewicht</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Noch keine Gewichtsdaten. Gib dein Gewicht im Morning-Check-in ein.
+        </p>
+      </Card>
+    );
+  }
+
+  const weights = data.entries.map((e) => e.weightKg);
+  const minW = Math.floor(Math.min(...weights, data.targetWeightKg ?? Infinity) - 1);
+  const maxW = Math.ceil(Math.max(...weights) + 1);
+
+  // Rate status for badge
+  const rateOk =
+    data.weeklyRateKg !== null &&
+    data.weeklyRatePct !== null &&
+    data.weeklyRatePct >= 0.3 &&
+    data.weeklyRatePct <= 1.0;
+  const rateTooFast = data.weeklyRatePct !== null && data.weeklyRatePct > 1.0;
+
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold">Gewicht</h2>
+      <p className="text-xs text-muted-foreground mt-0.5">
+        Tageswerte (Punkte) · 7-Tage-Ø (Linie)
+        {data.targetWeightKg && ` · Ziel: ${data.targetWeightKg} kg`}
+      </p>
+
+      <div className="mt-4 h-56">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data.entries} margin={{ top: 10, right: 12, bottom: 24, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
+            <XAxis
+              dataKey="date"
+              tickFormatter={(d: string) => d.slice(5)}
+              tick={{ fontSize: 11 }}
+              stroke="currentColor"
+              opacity={0.5}
+            />
+            <YAxis
+              domain={[minW, maxW]}
+              tick={{ fontSize: 11 }}
+              stroke="currentColor"
+              opacity={0.5}
+              width={36}
+              tickFormatter={(v: number) => `${v}`}
+            />
+            <Tooltip
+              content={({ active, payload }) => {
+                if (!active || !payload?.length) return null;
+                const row = payload[0].payload as WeightEntry;
+                return (
+                  <div className="rounded-md border bg-card p-2 text-xs shadow-md">
+                    <div className="font-semibold">{row.date}</div>
+                    <div>
+                      Gewicht: <span className="num">{row.weightKg}</span> kg
+                    </div>
+                    <div className="text-muted-foreground">
+                      Ø 7d: <span className="num">{row.avg7d}</span> kg
+                    </div>
+                  </div>
+                );
+              }}
+            />
+            {data.targetWeightKg && (
+              <ReferenceLine
+                y={data.targetWeightKg}
+                stroke="rgba(255,255,255,0.3)"
+                strokeDasharray="6 3"
+                label={{
+                  value: `Ziel ${data.targetWeightKg}`,
+                  position: "right",
+                  fontSize: 10,
+                  fill: "rgba(255,255,255,0.4)",
+                }}
+              />
+            )}
+            {/* Daily values — dots only, muted */}
+            <Line
+              type="monotone"
+              dataKey="weightKg"
+              stroke="rgba(255,255,255,0.25)"
+              strokeWidth={0}
+              dot={{ r: 2.5, fill: "rgba(255,255,255,0.35)", stroke: "none" }}
+              activeDot={{ r: 4, fill: "rgba(255,255,255,0.5)", stroke: "none" }}
+              connectNulls
+              name="Tageswert"
+            />
+            {/* 7-day average — solid line, primary color */}
+            <Line
+              type="monotone"
+              dataKey="avg7d"
+              stroke="#7DD3FC"
+              strokeWidth={1.5}
+              dot={false}
+              activeDot={{ r: 4, fill: "#7DD3FC", stroke: "none" }}
+              connectNulls
+              name="Ø 7 Tage"
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Stats row */}
+      <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-xs">
+        {data.currentWeightKg && (
+          <div>
+            <span className="text-muted-foreground">Aktuell (Ø 7d):</span>{" "}
+            <span className="num font-semibold">{data.currentWeightKg} kg</span>
+          </div>
+        )}
+        {data.targetWeightKg && (
+          <div>
+            <span className="text-muted-foreground">Ziel:</span>{" "}
+            <span className="num font-semibold">{data.targetWeightKg} kg</span>
+          </div>
+        )}
+        {data.weeklyRateKg !== null && data.weeklyRateKg > 0 && (
+          <div>
+            <span className="text-muted-foreground">Rate:</span>{" "}
+            <span
+              className={`num font-semibold ${
+                rateTooFast
+                  ? "text-red-400"
+                  : rateOk
+                    ? "text-emerald-400"
+                    : "text-yellow-300"
+              }`}
+            >
+              -{data.weeklyRateKg} kg/Woche
+              {rateOk && " ✓"}
+              {rateTooFast && " ⚠"}
+            </span>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+// ============================================
+// Relative Strength (×BW) — Sprint v0.15
+// ============================================
+
+// Main compound lifts to show ×BW for
+const XBWLIFTS: { key: string; label: string }[] = [
+  { key: "Hex Bar Deadlift", label: "Hex Bar DL" },
+  { key: "Bench Press", label: "Bench" },
+  { key: "Conventional Deadlift", label: "Conv. DL" },
+  { key: "Back Squat", label: "Squat" },
+];
+
+function RelativeStrengthSection() {
+  const [exercises, setExercises] = useState<
+    { name: string; currentRM: number | null }[]
+  >([]);
+  const [weightKg, setWeightKg] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch("/api/settings/exercise-max")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.status === "ok") {
+          setExercises(d.exercises ?? []);
+          setWeightKg(d.currentWeightKg ?? null);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  if (!weightKg || weightKg <= 0) return null; // Only show when weight is known
+
+  // Filter to main compound lifts that have a 1RM
+  const rows = XBWLIFTS.map((lift) => {
+    const ex = exercises.find((e) => e.name === lift.key);
+    const rm = ex?.currentRM ?? null;
+    const ratio = rm && weightKg ? Math.round((rm / weightKg) * 100) / 100 : null;
+    return { ...lift, rm, ratio };
+  }).filter((r) => r.rm !== null);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold">Relative Kraft (×BW)</h2>
+      <p className="text-xs text-muted-foreground mt-0.5">
+        Gewichtsbasis: {weightKg} kg (Ø 7d)
+      </p>
+      <div className="mt-4 space-y-3">
+        {rows.map((r) => (
+          <div key={r.key} className="flex items-baseline justify-between">
+            <span className="text-sm font-medium">{r.label}</span>
+            <div className="flex items-baseline gap-3 tabular-nums">
+              <span className="text-sm text-muted-foreground">
+                {r.rm} kg
+              </span>
+              <span className="text-lg font-bold text-[#7DD3FC]">
+                {r.ratio!.toFixed(2)}×
+              </span>
+            </div>
+          </div>
+        ))}
       </div>
     </Card>
   );

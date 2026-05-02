@@ -129,6 +129,8 @@ export async function GET() {
     updatedAt:
       userSettings?.exerciseMaxUpdatedAt?.toISOString() ?? null,
     exercises: enriched,
+    // Sprint v0.15: pass through for ×BW display
+    currentWeightKg: userSettings?.currentWeightKg ?? null,
   });
 }
 

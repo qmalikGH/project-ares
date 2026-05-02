@@ -60,6 +60,7 @@ type TodayResponse =
       week: { weekNumber: number; blockNumber: number; phaseName: string };
       macrocycleEvaluated: boolean;
       totalWeeks: number;
+      currentWeightKg: number | null;
     }
   | { status: "NO_ACTIVE_PLAN" | "NO_WEEK_PLAN" | "NO_SESSION_TODAY" };
 
@@ -315,9 +316,11 @@ function sessionStatusLabel(ws: WorkoutState): { label: string; className: strin
 function SessionHeroCard({
   final,
   workoutState,
+  currentWeightKg,
 }: {
   final: FinalSessionShape;
   workoutState: WorkoutState;
+  currentWeightKg?: number | null;
 }) {
   const color = getSessionColor(final.type);
   const isPaceFirst = final.controlMethod === "pace_first";
@@ -539,6 +542,12 @@ function SessionHeroCard({
                       {ex.loadAbs !== undefined && ex.loadAbs > 0 && ex.loadPct ? (
                         <span className="num text-xs text-[var(--color-foreground-muted)]">
                           {ex.loadPct}%
+                          {/* Sprint v0.15: ×BW for working sets */}
+                          {currentWeightKg && currentWeightKg > 0 && (
+                            <span className="ml-1 text-[var(--color-session-calibration)]">
+                              · {(ex.loadAbs / currentWeightKg).toFixed(2)}×
+                            </span>
+                          )}
                         </span>
                       ) : null}
                     </div>
@@ -613,11 +622,13 @@ function TwoADaySection({
   workoutMap,
   onChanged,
   onWorkoutStateChange,
+  currentWeightKg,
 }: {
   finalSessions: FinalSessionShape[];
   workoutMap: WorkoutStateMap;
   onChanged: () => void;
   onWorkoutStateChange: (sessionType: string, ws: WorkoutState) => void;
+  currentWeightKg?: number | null;
 }) {
   const meaningful = finalSessions.filter((s) => s.type !== "rest");
   const sessions = meaningful.length > 0 ? meaningful : finalSessions;
@@ -635,7 +646,7 @@ function TwoADaySection({
                 {slot}
               </p>
             )}
-            <SessionHeroCard final={s} workoutState={sessionWorkout} />
+            <SessionHeroCard final={s} workoutState={sessionWorkout} currentWeightKg={currentWeightKg} />
             {/* Each session gets its own start/complete affordance — Easy Run
                 imports from Garmin, Strength gets the manual set logger. */}
             <ActionsZone
@@ -728,6 +739,8 @@ function MorningRitual({
   const [subjectiveRecovery, setSubj] = useState(7);
   const [morningStiffness, setStiff] = useState(3);
   const [stairsScore, setStairs] = useState(3);
+  // Sprint v0.15: optional body weight
+  const [weightInput, setWeightInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -735,10 +748,16 @@ function MorningRitual({
     setSubmitting(true);
     setErr(null);
     try {
+      const bodyWeightKg = weightInput.trim() ? Number(weightInput) : undefined;
+      if (bodyWeightKg !== undefined && (!Number.isFinite(bodyWeightKg) || bodyWeightKg < 40 || bodyWeightKg > 200)) {
+        setErr("Gewicht muss zwischen 40 und 200 kg liegen.");
+        setSubmitting(false);
+        return;
+      }
       const res = await fetch("/api/sensors/morning-input", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subjectiveRecovery, morningStiffness, stairsScore }),
+        body: JSON.stringify({ subjectiveRecovery, morningStiffness, stairsScore, bodyWeightKg }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       onSubmitted();
@@ -790,6 +809,35 @@ function MorningRitual({
           onChange={setStairs}
           highIsGood={false}
         />
+
+        {/* Sprint v0.15: optional body weight input */}
+        <div>
+          <div className="mb-2 flex items-baseline justify-between">
+            <label className="text-sm font-medium text-[var(--text-primary)]">
+              Körpergewicht
+            </label>
+            <span className="text-[10px] uppercase tracking-wider text-[var(--text-tertiary)]">
+              optional
+            </span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.1"
+              min={40}
+              max={200}
+              value={weightInput}
+              onChange={(e) => setWeightInput(e.target.value)}
+              placeholder="—"
+              className="num w-28 rounded-md border border-[var(--border-subtle)] bg-white/[0.04] px-3 py-2 text-right text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none"
+            />
+            <span className="text-sm text-[var(--text-tertiary)]">kg</span>
+          </div>
+          <p className="mt-1.5 text-[11px] text-[var(--text-tertiary)]">
+            Gym-Waage oder Schätzung. Muss nicht täglich sein.
+          </p>
+        </div>
       </div>
 
       {err && <p className="mt-4 text-sm text-red-400">{err}</p>}
@@ -1066,12 +1114,14 @@ export default function TodayDashboard() {
               onWorkoutStateChange={(type, ws) =>
                 setWorkoutMap((prev) => ({ ...prev, [type]: ws }))
               }
+              currentWeightKg={today.currentWeightKg}
             />
           ) : (
             <>
               <SessionHeroCard
                 final={today.finalSession}
                 workoutState={workoutMap[today.finalSession.type] ?? null}
+                currentWeightKg={today.currentWeightKg}
               />
               <hr className="rule my-6" />
               <ActionsZone

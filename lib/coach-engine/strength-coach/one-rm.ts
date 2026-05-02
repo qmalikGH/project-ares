@@ -69,6 +69,28 @@ export function rollingOneRMEstimate(
   return Math.round(median * 10) / 10;
 }
 
+// ── Sprint v0.15: relative strength (×BW) helpers ──
+
+/**
+ * Calculate load relative to body weight.
+ * Returns null if body weight is unknown.
+ */
+export function loadRelativeToBW(
+  loadKg: number,
+  bodyWeightKg: number | null | undefined,
+): number | null {
+  if (!bodyWeightKg || bodyWeightKg <= 0) return null;
+  return Math.round((loadKg / bodyWeightKg) * 100) / 100;
+}
+
+/**
+ * Format ×BW display string.
+ * Example: "1.52×" or "2.05×"
+ */
+export function formatRelativeBW(ratio: number): string {
+  return `${ratio.toFixed(2)}×`;
+}
+
 export interface OneRMDivergence {
   divergent: boolean;
   /** Signed: positive = engine estimate higher than user's manual value. */
