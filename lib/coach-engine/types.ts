@@ -487,3 +487,60 @@ export type StrengthExecutedExercise = z.infer<typeof StrengthExecutedExerciseSc
 export type RunExecutedSession = z.infer<typeof RunExecutedSessionSchema>;
 export type StrengthExecutedSession = z.infer<typeof StrengthExecutedSessionSchema>;
 export type ExecutedSession = z.infer<typeof ExecutedSessionSchema>;
+
+// ============================================
+// Goal Hierarchy (Sprint v0.14)
+// ============================================
+
+/** All measurable dimensions for a hybrid athlete. */
+export interface GoalDimensions {
+  // Lauf-Zeiten (Format: "mm:ss" oder "h:mm:ss")
+  "5k"?: string;
+  "10k"?: string;
+  hm?: string;
+  marathon?: string;
+  ironman?: string;
+
+  // Physiologisch
+  vo2max?: number; // ml/kg/min
+
+  // Kraft (absolute kg)
+  hexBarDl?: number;
+  convDl?: number;
+  bench?: number;
+  squat?: number;
+
+  // Körperkomposition
+  weight?: number; // kg
+  bodyFatPct?: number; // %
+}
+
+/** Focus mode for a macrocycle — determines periodization bias.
+ *  See science_doc.md for evidence: Petré 2021, Garthe 2011. */
+export type MacrocycleFocus =
+  | "balanced" // gleichmäßig Kraft + Ausdauer
+  | "strength_focus" // Kraft-Priorisierung, Ausdauer Maintenance
+  | "endurance_focus" // Ausdauer-Priorisierung, Kraft Maintenance
+  | "recomp"; // Body Recomposition (Garthe 2011: 0.7% BW/wk)
+
+/** Single dimension evaluation result. */
+export interface DimensionEvaluation {
+  name: keyof GoalDimensions;
+  label: string; // Human-readable: "5k-Zeit", "Hex Bar Deadlift"
+  unit: string; // "min:sec", "kg", "%", "ml/kg/min"
+  startValue: number | string | null;
+  endValue: number | string | null;
+  annualTarget: number | string | null;
+  gap: number | null; // % remaining to annual target (0 = achieved, 100 = no progress)
+  verdict: "achieved" | "on_track" | "behind" | "no_data";
+}
+
+/** Full macrocycle evaluation.
+ *  Pure output from evaluateMacrocycle() — no DB state, no side effects. */
+export interface MacrocycleEvaluation {
+  dimensions: DimensionEvaluation[];
+  overallVerdict: "all_on_track" | "mixed" | "behind";
+  suggestedFocus: MacrocycleFocus;
+  suggestedFocusRationale: string;
+  nextCycleTargets: GoalDimensions;
+}

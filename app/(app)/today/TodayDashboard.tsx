@@ -58,6 +58,8 @@ type TodayResponse =
       finalSessions?: FinalSessionShape[];
       sensorOutputs: SensorOutputs;
       week: { weekNumber: number; blockNumber: number; phaseName: string };
+      macrocycleEvaluated: boolean;
+      totalWeeks: number;
     }
   | { status: "NO_ACTIVE_PLAN" | "NO_WEEK_PLAN" | "NO_SESSION_TODAY" };
 
@@ -1026,6 +1028,27 @@ export default function TodayDashboard() {
       {/* Ready: full dashboard, separated by rule lines */}
       {today.status === "READY" && (
         <>
+          {/* Sprint v0.14: W20 evaluation banner — shown in last block (W17+) when
+              the macrocycle hasn't been evaluated yet. Violet left-border for distinction. */}
+          {today.week.weekNumber >= 17 && !today.macrocycleEvaluated && (
+            <div className="mb-6 flex items-center justify-between rounded-lg border-l-4 border-[var(--color-session-calibration)] bg-[var(--color-session-calibration)]/8 px-4 py-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--color-session-calibration)]">
+                  Makrozyklus abgeschlossen
+                </p>
+                <p className="mt-0.5 text-xs text-[var(--color-foreground-secondary)]">
+                  Evaluiere deinen Fortschritt und starte den nächsten Zyklus.
+                </p>
+              </div>
+              <Link
+                href="/goals/evaluate"
+                className="shrink-0 rounded-md bg-[var(--color-session-calibration)]/15 px-3 py-1.5 text-xs font-semibold text-[var(--color-session-calibration)] hover:bg-[var(--color-session-calibration)]/25 transition-colors"
+              >
+                Evaluieren →
+              </Link>
+            </div>
+          )}
+
           <RecoveryStrip
             outputs={today.sensorOutputs}
             sessionType={today.finalSession.type}

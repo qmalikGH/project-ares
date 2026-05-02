@@ -16,7 +16,7 @@ import type {
 // ============================================
 // Block configurations (Q's 5k 24:30 → 22:00 plan)
 // ============================================
-const BLOCK_CONFIGS: Record<BlockNumber, PhaseConfig> = {
+export const BLOCK_CONFIGS: Record<BlockNumber, PhaseConfig> = {
   1: {
     blockNumber: 1,
     phaseName: "ACCUMULATION_AEROBIC_BASE",

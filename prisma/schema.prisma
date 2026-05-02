@@ -27,6 +27,8 @@ model User {
   sessions Session[]
 
   // Domain
+  visions        Vision[]
+  annualGoals    AnnualGoal[]
   goals          Goal[]
   macrocycles    Macrocycle[]
   workouts       Workout[]
@@ -75,7 +77,55 @@ model VerificationToken {
 }
 
 // ============================================
-// Domain: Goal
+// Domain: Goal Hierarchy (Sprint v0.14)
+// ============================================
+model Vision {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  status      String   @default("active") // active | archived
+
+  // Ziel-Dimensionen als JSON — flexibel erweiterbar
+  // Schema: GoalDimensions from lib/coach-engine/types.ts
+  targets     Json
+  timeHorizon String   @default("3-5 years") // human-readable
+  notes       String?
+
+  annualGoals AnnualGoal[]
+
+  @@index([userId, status])
+}
+
+model AnnualGoal {
+  id          String   @id @default(cuid())
+  visionId    String
+  vision      Vision   @relation(fields: [visionId], references: [id])
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  status      String   @default("active") // active | completed | archived
+
+  // Ziel-Dimensionen — gleiches Schema wie Vision
+  targets     Json
+  startDate   DateTime
+  targetDate  DateTime
+  notes       String?
+
+  // Verknüpfung zu Makrozyklen die diesem Jahresziel dienen
+  macrocycles Macrocycle[]
+
+  // Evaluation am Ende
+  evaluation  Json?      // { dimensions: [{ name, start, end, target, gap, verdict }] }
+  evaluatedAt DateTime?
+
+  @@index([userId, status])
+}
+
+// ============================================
+// Domain: Goal (legacy single-goal model, kept for back-compat)
 // ============================================
 model Goal {
   id     String @id @default(cuid())
@@ -108,6 +158,18 @@ model Macrocycle {
   user   User   @relation(fields: [userId], references: [id])
   goalId String
   goal   Goal   @relation(fields: [goalId], references: [id])
+
+  // Sprint v0.14: Verknüpfung zum Jahresziel
+  annualGoalId String?
+  annualGoal   AnnualGoal? @relation(fields: [annualGoalId], references: [id])
+
+  // Sprint v0.14: Prioritäts-Modus für diesen Zyklus
+  // "balanced" | "strength_focus" | "endurance_focus" | "recomp"
+  focusMode    String?     @default("balanced")
+
+  // Sprint v0.14: Evaluation am Ende des Zyklus
+  evaluation   Json?
+  evaluatedAt  DateTime?
 
   startDate  DateTime
   endDate    DateTime

@@ -129,5 +129,8 @@ export async function GET() {
     finalSessions,
     sensorOutputs: { readiness, load, limitations },
     week: { weekNumber: weekPlan.weekNumber, blockNumber: phaseRow.blockNumber, phaseName: phaseRow.name },
+    // Sprint v0.14: macrocycle evaluation state for W20 banner
+    macrocycleEvaluated: phaseRow.macrocycle.evaluatedAt !== null,
+    totalWeeks: phaseRow.macrocycle.totalWeeks,
   });
 }

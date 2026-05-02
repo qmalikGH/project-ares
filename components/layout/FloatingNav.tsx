@@ -11,6 +11,7 @@ import {
   Home,
   MessageCircle,
   Settings,
+  Target,
   TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { href: "/today", label: "Heute", icon: Home },
   { href: "/week", label: "Plan", icon: CalendarDays },
+  { href: "/goals", label: "Ziele", icon: Target },
   { href: "/progress", label: "Fortschritt", icon: TrendingUp },
   { href: "/coach", label: "Coach", icon: MessageCircle },
   { href: "/settings", label: "Settings", icon: Settings },
