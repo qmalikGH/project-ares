@@ -383,11 +383,11 @@ function SessionHeroCard({
 
       {/* Sprint v0.13: Pre-Run Activation block for run-only days */}
       {!isStrength && !isRest && final.preRunActivation && final.preRunActivation.length > 0 && (
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2 mb-4">
           <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--color-foreground-muted)]">
             Pre-Run Activation (5 min)
           </span>
-          <ul className="flex flex-col gap-1">
+          <ul className="flex flex-col gap-1.5">
             {final.preRunActivation.map((ex, i) => (
               <li key={i} className="flex items-baseline justify-between text-[var(--color-foreground-muted)]">
                 <span className="text-xs">{ex.name}</span>
@@ -398,7 +398,7 @@ function SessionHeroCard({
               </li>
             ))}
           </ul>
-          <hr className="rule my-1" />
+          <hr className="rule mt-2" />
         </div>
       )}
 
