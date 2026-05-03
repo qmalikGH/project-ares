@@ -26,6 +26,42 @@ import { loadPctToKg } from "./one-rm";
  *  the exercise is light enough that ramp-up is unnecessary. */
 const WARMUP_THRESHOLD_PCT = 60;
 
+/** Movement pattern groups for warmup deduplication.
+ *  Once any exercise in a group gets ramp-up sets, all subsequent
+ *  exercises in the SAME group skip ramp-up (muscles are already warm). */
+type MovementGroup = "lower_body" | "upper_push" | "upper_pull" | "full_body";
+
+const EXERCISE_MOVEMENT_GROUP: Record<string, MovementGroup> = {
+  // Lower Body — hip hinge, knee dominant, glutes, calves, carries
+  "Hex Bar Deadlift": "lower_body",
+  "Romanian Deadlift": "lower_body",
+  "Conventional Deadlift": "lower_body",
+  "Reverse Lunge": "lower_body",
+  "Bulgarian Split Squat": "lower_body",
+  "Front Squat": "lower_body",
+  "Hip Thrust": "lower_body",
+  "Single-Leg Hip Thrust": "lower_body",
+  "Standing Calf Raises": "lower_body",
+  "Seated Calf Raises": "lower_body",
+  "Single-Leg Calf Raises": "lower_body",
+  "Farmer's Carry": "lower_body",
+  "Suitcase Carry": "lower_body",
+  // Upper Push
+  "Bench Press": "upper_push",
+  "DB Bench Press": "upper_push",
+  "Incline DB Press": "upper_push",
+  "Push-ups": "upper_push",
+  "DB Shoulder Press": "upper_push",
+  // Upper Pull
+  "Pull-ups": "upper_pull",
+  "Lat Pulldown": "upper_pull",
+  "Barbell Row": "upper_pull",
+};
+
+function getMovementGroup(exerciseName: string): MovementGroup | null {
+  return EXERCISE_MOVEMENT_GROUP[exerciseName] ?? null;
+}
+
 /** Ramp-up stages as fractions of the working loadPct. */
 const RAMP_STAGES: readonly { fraction: number; reps: number }[] = [
   { fraction: 0.5, reps: 5 },
@@ -76,9 +112,10 @@ export function generateWarmupSetsForExercise(
  * Insert warmup sets before the first working set of each qualifying exercise
  * in a session's exercise array.
  *
- * Deduplication: if two exercises share the same name (e.g. Hex Bar DL appears
- * in both Strength A and C), warmup sets are only generated for the FIRST
- * occurrence. The second occurrence benefits from the prior activation.
+ * Deduplication is by movement pattern group (lower_body, upper_push,
+ * upper_pull, full_body). Once any exercise in a group has been ramped up,
+ * all subsequent exercises in the same group skip ramp-up — the muscles
+ * are already warm. Exercises not mapped to a group do not receive warmup.
  *
  * Pure — returns a new array; inputs are not mutated.
  */
@@ -86,28 +123,36 @@ export function insertWarmupSets(
   exercises: Exercise[],
   maxEstimates?: Record<string, number> | null,
 ): Exercise[] {
-  const warmedUpExercises = new Set<string>();
+  const warmedUpGroups = new Set<MovementGroup>();
   const result: Exercise[] = [];
 
   for (const ex of exercises) {
-    // Skip exercises that are already warmup sets (guard against double-insertion).
-    // Track the name so we don't generate new warmups for the subsequent working set.
+    // Pass through pre-existing warmup sets and mark their group as warm
+    // so a subsequent working set in the same group doesn't get re-ramped.
     if (ex.isWarmup) {
-      warmedUpExercises.add(ex.name);
+      const group = getMovementGroup(ex.name);
+      if (group !== null) {
+        warmedUpGroups.add(group);
+      }
       result.push(ex);
       continue;
     }
 
-    // Generate warmup sets only for first occurrence of qualifying exercises.
+    const group = getMovementGroup(ex.name);
+    // Generate warmup sets only if:
+    //   1. Exercise qualifies (loadPct >= 60%)
+    //   2. Exercise is mapped to a movement group
+    //   3. No other exercise in the same movement group has been warmed up yet
     if (
       ex.loadPct !== undefined &&
       ex.loadPct >= WARMUP_THRESHOLD_PCT &&
-      !warmedUpExercises.has(ex.name)
+      group !== null &&
+      !warmedUpGroups.has(group)
     ) {
       const oneRM = maxEstimates?.[ex.name] ?? null;
       const warmupSets = generateWarmupSetsForExercise(ex, oneRM);
       result.push(...warmupSets);
-      warmedUpExercises.add(ex.name);
+      warmedUpGroups.add(group);
     }
 
     result.push(ex);
