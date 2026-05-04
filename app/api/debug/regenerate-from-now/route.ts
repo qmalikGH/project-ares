@@ -18,7 +18,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
-import { userToday } from "@/lib/date";
+import { userTodayDynamic } from "@/lib/date";
 import { generateWeekRunPlan } from "@/lib/coach-engine/run-coach";
 import { generateWeekStrengthPlan } from "@/lib/coach-engine/strength-coach";
 import {
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
   const resolved = await resolveUserId(req);
   if (resolved instanceof NextResponse) return resolved;
   const userId = resolved;
-  const today0 = userToday();
+  const today0 = await userTodayDynamic();
 
   // KEY DIFFERENCE vs /api/settings/training-days: endDate > today (not
   // startDate >= today). This includes the current week.

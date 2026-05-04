@@ -31,12 +31,12 @@ import {
   getSensorDataOnDate,
   dayKey,
 } from "@/lib/db/queries/sensors";
-import { userToday } from "@/lib/date";
+import { userTodayDynamic } from "@/lib/date";
 
 export async function GET() {
   const userId = await getCurrentUserId();
-  // Use Berlin calendar date, not UTC — see lib/date.ts for rationale.
-  const today = userToday();
+  // User's calendar date (cookie-based when set, else USER_TIMEZONE env).
+  const today = await userTodayDynamic();
 
   // 1. Locate current phase + this week's plan
   const phaseRow = await getCurrentPhaseRow(userId, today);

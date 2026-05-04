@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { dayKey } from "@/lib/db/queries/sensors";
-import { userToday } from "@/lib/date";
+import { userTodayDynamic } from "@/lib/date";
 import type { SessionPlan } from "@/lib/coach-engine/types";
 
 export async function GET(
@@ -20,7 +20,7 @@ export async function GET(
 
   const targetDate = new Date(`${date}T00:00:00.000Z`);
   const targetEnd = new Date(targetDate.getTime() + 86400000);
-  const today0 = userToday();
+  const today0 = await userTodayDynamic();
 
   let position: "past" | "today" | "future";
   if (targetDate.getTime() < today0.getTime()) position = "past";
