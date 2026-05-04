@@ -460,6 +460,12 @@ model UserSettings {
   // Notifications (per-type toggle)
   notificationPrefs       Json?
 
+  // Travel-aware timezone (Sprint v0.16) — IANA name like "America/New_York".
+  // Populated by TimezoneCookieSetter via PATCH /api/settings/timezone on
+  // every browser mount. Crons read from here (no request context = no cookie).
+  // Null falls back to USER_TIMEZONE env (Europe/Berlin default).
+  timezone                String?
+
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 }

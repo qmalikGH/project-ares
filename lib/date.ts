@@ -13,8 +13,22 @@
 
 import { cookies } from "next/headers";
 
+import { db } from "@/lib/db/client";
+
 const ENV_TZ = process.env.USER_TIMEZONE ?? "Europe/Berlin";
 export const USER_TZ_COOKIE = "userTz";
+
+const IANA_REGEX = /^[A-Za-z][A-Za-z_+\-]*\/[A-Za-z][A-Za-z_+\-/]*$/;
+
+function isValidIana(tz: string | null | undefined): tz is string {
+  if (!tz || !IANA_REGEX.test(tz)) return false;
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function makeFormatter(tz: string): Intl.DateTimeFormat {
   return new Intl.DateTimeFormat("en-CA", {
@@ -43,11 +57,35 @@ export async function getUserTimezone(): Promise<string> {
   try {
     const c = await cookies();
     const v = c.get(USER_TZ_COOKIE)?.value;
-    if (v && /^[A-Za-z][A-Za-z_+\-]*\/[A-Za-z][A-Za-z_+\-/]*$/.test(v)) {
-      return v;
-    }
+    if (isValidIana(v)) return v;
   } catch {
     // No request context — fall through to env.
+  }
+  return ENV_TZ;
+}
+
+/**
+ * Like `getUserTimezone()` but also falls back to the user's persisted
+ * `UserSettings.timezone` when the cookie is missing. Use in crons where
+ * there's no request context: cookie read throws, and we look up the
+ * stored timezone for the given userId before defaulting to env.
+ */
+export async function getUserTimezoneForUser(userId: string): Promise<string> {
+  try {
+    const c = await cookies();
+    const v = c.get(USER_TZ_COOKIE)?.value;
+    if (isValidIana(v)) return v;
+  } catch {
+    // No request context — fall through to DB lookup.
+  }
+  try {
+    const settings = await db.userSettings.findUnique({
+      where: { userId },
+      select: { timezone: true },
+    });
+    if (isValidIana(settings?.timezone)) return settings!.timezone!;
+  } catch {
+    // DB unavailable — fall through to env.
   }
   return ENV_TZ;
 }
@@ -59,6 +97,19 @@ export async function getUserTimezone(): Promise<string> {
  */
 export async function userTodayDynamic(): Promise<Date> {
   return userTodayInTz(await getUserTimezone());
+}
+
+/**
+ * Per-user variants for cron contexts. Resolve TZ via cookie → DB → env,
+ * then compute UTC midnight for "today" / "tomorrow" in that zone.
+ */
+export async function userTodayForUser(userId: string): Promise<Date> {
+  return userTodayInTz(await getUserTimezoneForUser(userId));
+}
+
+export async function userTomorrowForUser(userId: string): Promise<Date> {
+  const today = await userTodayForUser(userId);
+  return new Date(today.getTime() + 86400000);
 }
 
 /**

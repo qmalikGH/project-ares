@@ -291,8 +291,15 @@ export async function resyncFutureWorkoutsToGarmin(
   const userSettings = await db.userSettings.findUnique({ where: { userId } });
   if (!userSettings?.garminWorkoutPushEnabled) return result;
 
+  // Skip already-completed rows: re-pushing a finished workout would replace
+  // the Garmin schedule entry the user has already executed against, and the
+  // resulting orphaned planned/completed split is what users see as duplicates.
   const futureWorkouts = await db.workout.findMany({
-    where: { userId, date: { gte: cutoffDate } },
+    where: {
+      userId,
+      date: { gte: cutoffDate },
+      status: { not: "completed" },
+    },
     orderBy: { date: "asc" },
   });
 

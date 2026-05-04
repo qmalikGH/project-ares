@@ -7,6 +7,20 @@ import { dayKey } from "@/lib/db/queries/sensors";
 import { userTodayDynamic } from "@/lib/date";
 import type { SessionPlan } from "@/lib/coach-engine/types";
 
+// Higher = preferred when deduping siblings of the same type on the same day.
+function workoutPriority(w: {
+  status: string;
+  garminActivityId: string | null;
+  executedSession: unknown;
+}): number {
+  let score = 0;
+  if (w.status === "completed") score += 4;
+  else if (w.status === "in_progress") score += 2;
+  if (w.garminActivityId) score += 2;
+  if (w.executedSession !== null && w.executedSession !== undefined) score += 1;
+  return score;
+}
+
 export async function GET(
   _req: Request,
   ctx: { params: Promise<{ date: string }> },
@@ -27,11 +41,29 @@ export async function GET(
   else if (targetDate.getTime() === today0.getTime()) position = "today";
   else position = "future";
 
-  // Workouts that day
-  const workouts = await db.workout.findMany({
+  // Workouts that day. Dedup by `type`: if both a planned/orphan row and a
+  // completed row exist for the same type (e.g. timezone-drift left a
+  // stale planned row when /complete created a completed row dated one day
+  // off), prefer the one with executedSession / garminActivityId / completed
+  // status. Belt-and-suspenders for historical data; forward prevention is
+  // in /api/sessions/complete (window lookup) and resync's status filter.
+  const allWorkouts = await db.workout.findMany({
     where: { userId, date: { gte: targetDate, lt: targetEnd } },
     orderBy: { date: "asc" },
   });
+
+  const byType = new Map<string, typeof allWorkouts[number]>();
+  for (const w of allWorkouts) {
+    const existing = byType.get(w.type);
+    if (!existing) {
+      byType.set(w.type, w);
+      continue;
+    }
+    const existingScore = workoutPriority(existing);
+    const candScore = workoutPriority(w);
+    if (candScore > existingScore) byType.set(w.type, w);
+  }
+  const workouts = Array.from(byType.values());
 
   // Sensor data for that day
   const sensor = await db.dailySensorData.findFirst({

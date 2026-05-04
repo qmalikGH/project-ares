@@ -4,7 +4,7 @@
 import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db/client";
-import { userToday } from "@/lib/date";
+import { userTodayForUser } from "@/lib/date";
 import { syncGarminForDate, classifyError } from "@/lib/garmin/sync";
 
 function authorized(req: Request): boolean {
@@ -24,12 +24,17 @@ export async function GET(req: Request) {
     select: { id: true },
   });
 
-  const today = userToday();
-  const yesterday = new Date(today.getTime() - 86400000);
-
-  const results: Array<{ userId: string; status: string; errors: number }> = [];
+  const results: Array<{
+    userId: string;
+    status: string;
+    errors: number;
+    syncedFor?: string;
+  }> = [];
 
   for (const user of users) {
+    // Per-user "yesterday" — respects each user's persisted timezone.
+    const today = await userTodayForUser(user.id);
+    const yesterday = new Date(today.getTime() - 86400000);
     try {
       const result = await syncGarminForDate(yesterday);
       await db.garminSyncLog.create({
@@ -68,7 +73,12 @@ export async function GET(req: Request) {
         });
       }
 
-      results.push({ userId: user.id, status: result.status, errors: result.errors.length });
+      results.push({
+        userId: user.id,
+        status: result.status,
+        errors: result.errors.length,
+        syncedFor: yesterday.toISOString().slice(0, 10),
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await db.garminSyncLog.create({
@@ -88,5 +98,5 @@ export async function GET(req: Request) {
     }
   }
 
-  return NextResponse.json({ ranAt: new Date().toISOString(), syncedFor: yesterday.toISOString(), results });
+  return NextResponse.json({ ranAt: new Date().toISOString(), results });
 }
