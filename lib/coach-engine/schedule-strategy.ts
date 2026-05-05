@@ -30,7 +30,7 @@
 //   Sat: Long Run alone (fresh legs)
 //   Sun: REST (forced)
 
-import type { SessionPlan } from "./types";
+import type { SessionPlan, SessionType } from "./types";
 import { ACTIVATION_DURATION_MIN } from "./run-coach/activation";
 
 export interface WeekScheduleConstraints {
@@ -254,4 +254,160 @@ export function constraintsFromUserSettings(input: {
     preferredLongRunDay: longRunDay,
     morningOnly: false,
   };
+}
+
+// ============================================
+// Reschedule validation (coach tool)
+// ============================================
+
+const QUALITY_RUN_TYPES: ReadonlySet<SessionType> = new Set([
+  "threshold_run",
+  "tempo_run",
+  "vo2max_intervals",
+  "calibration_run",
+  "time_trial_5k",
+]);
+
+const STRENGTH_TYPES: ReadonlySet<SessionType> = new Set([
+  "strength_a",
+  "strength_b",
+  "strength_c",
+]);
+
+export interface MoveValidationResult {
+  ok: boolean;
+  /** German user-facing reason when ok=false. Surfaced via the coach. */
+  reason?: string;
+}
+
+export interface CanMoveSessionInput {
+  fromDate: Date;
+  toDate: Date;
+  sessionType: SessionType;
+  weekStartMonday: Date;
+  /** All sessions currently planned for the week (Mon→Sun). */
+  weekSessions: SessionPlan[];
+  constraints: WeekScheduleConstraints;
+}
+
+/**
+ * Returns 0..6 (Mon..Sun) for a UTC-midnight date relative to a Monday-anchor
+ * week-start. Inputs outside [weekStartMonday, weekStartMonday+7d) return -1.
+ */
+function dayOffsetWithinWeek(date: Date, weekStartMonday: Date): number {
+  const diffMs = date.getTime() - weekStartMonday.getTime();
+  if (diffMs < 0) return -1;
+  const offset = Math.floor(diffMs / 86400000);
+  if (offset > 6) return -1;
+  return offset;
+}
+
+/**
+ * Validate a same-week session reschedule against the periodisation rules
+ * the coach tool's `reschedule_session` enforces. Pure — no DB / mutation.
+ *
+ * Rules (in order of evaluation):
+ *   1. Trivial: from === to → no-op.
+ *   2. Both dates must lie within [weekStartMonday, +7d).
+ *   3. toDate cannot be in `constraints.forcedRestDays`.
+ *   4. Quality runs cannot land on Mon (Strength A slot) — violates the
+ *      24h-gap-to-lower-body-strength rule (Casado 2022, Schumann 2021).
+ *   5. Strength sessions cannot land on a day that already has a different
+ *      strength session (slot collision).
+ *   6. Long-run slot is reserved on `preferredLongRunDay` if a long_run is
+ *      already scheduled there.
+ *   7. Density: target day cannot already host two non-rest sessions.
+ */
+export function canMoveSession(input: CanMoveSessionInput): MoveValidationResult {
+  const {
+    fromDate,
+    toDate,
+    sessionType,
+    weekStartMonday,
+    weekSessions,
+    constraints,
+  } = input;
+
+  const fromOffset = dayOffsetWithinWeek(fromDate, weekStartMonday);
+  const toOffset = dayOffsetWithinWeek(toDate, weekStartMonday);
+
+  if (fromOffset === -1 || toOffset === -1) {
+    return {
+      ok: false,
+      reason: "Verschieben über Wochengrenzen wird nicht unterstützt — bitte skippen und nächste Woche neu einplanen.",
+    };
+  }
+
+  if (fromOffset === toOffset) {
+    return { ok: false, reason: "Quell- und Zieltag sind identisch." };
+  }
+
+  if (constraints.forcedRestDays.has(toOffset)) {
+    return {
+      ok: false,
+      reason: "Zieltag ist ein Pflicht-Ruhetag — kein Training möglich.",
+    };
+  }
+
+  // Sessions already on the target day (excluding rest markers).
+  const targetSessions = weekSessions.filter((s) => {
+    if (s.type === "rest") return false;
+    const offset = dayOffsetWithinWeek(
+      s.date instanceof Date ? s.date : new Date(s.date),
+      weekStartMonday,
+    );
+    return offset === toOffset;
+  });
+
+  // Quality-run gap rule: Mon is locked to Strength A → quality there
+  // breaks the 24h-gap-to-lower-body rule.
+  if (QUALITY_RUN_TYPES.has(sessionType) && toOffset === 0) {
+    return {
+      ok: false,
+      reason: "Quality-Run am Strength-A-Tag verletzt die 24h-Regel zu Lower-Body-Strength (Casado 2022, Schumann 2021).",
+    };
+  }
+
+  // Strength-slot collision.
+  if (STRENGTH_TYPES.has(sessionType)) {
+    const collidingStrength = targetSessions.find((s) =>
+      STRENGTH_TYPES.has(s.type) && s.type !== sessionType,
+    );
+    if (collidingStrength) {
+      return {
+        ok: false,
+        reason: `Zieltag hat schon ${collidingStrength.type} — zwei Strength-Sessions am gleichen Tag sind nicht vorgesehen.`,
+      };
+    }
+  }
+
+  // Long-run slot guard.
+  if (
+    sessionType === "long_run" &&
+    toOffset !== constraints.preferredLongRunDay
+  ) {
+    return {
+      ok: false,
+      reason: "Long-Run gehört auf den Long-Run-Tag — über Settings ändern, nicht via Reschedule.",
+    };
+  }
+  const collidingLongRun = targetSessions.find(
+    (s) => s.type === "long_run" && sessionType !== "long_run",
+  );
+  if (collidingLongRun) {
+    return {
+      ok: false,
+      reason: "Long-Run-Tag ist reserviert — andere Sessions würden den Erholungseffekt stören.",
+    };
+  }
+
+  // Density cap: max 2 non-rest sessions per day (e.g. Easy Run + Strength).
+  if (targetSessions.length >= 2) {
+    return {
+      ok: false,
+      reason: "Zieltag ist bereits mit zwei Sessions belegt.",
+    };
+  }
+
+  return { ok: true };
 }

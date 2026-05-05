@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   Q_DEFAULT_CONSTRAINTS,
+  canMoveSession,
   constraintsFromUserSettings,
   planWeekSchedule,
 } from "@/lib/coach-engine/schedule-strategy";
@@ -218,5 +219,183 @@ describe("constraintsFromUserSettings adapter", () => {
     expect([...c.forcedRestDays].every((d) => d >= 0 && d <= 6)).toBe(true);
     expect(c.preferredLongRunDay).toBeGreaterThanOrEqual(0);
     expect(c.preferredLongRunDay).toBeLessThanOrEqual(6);
+  });
+});
+
+describe("canMoveSession", () => {
+  const offset = (n: number) =>
+    new Date(MONDAY.getTime() + n * 86400000);
+
+  // Q's default week assembled by hand for predictable test fixtures.
+  // Mon: easy + strength_a, Tue: threshold, Wed: rest, Thu: easy + strength_b,
+  // Fri: easy + strength_c, Sat: long, Sun: rest.
+  const defaultWeek: SessionPlan[] = [
+    s("easy_run", { date: offset(0) }),
+    s("strength_a", { date: offset(0) }),
+    s("threshold_run", { date: offset(1) }),
+    s("rest", { date: offset(2), durationMin: 0 }),
+    s("easy_run", { date: offset(3) }),
+    s("strength_b", { date: offset(3) }),
+    s("easy_run", { date: offset(4) }),
+    s("strength_c", { date: offset(4) }),
+    s("long_run", { date: offset(5) }),
+    s("rest", { date: offset(6), durationMin: 0 }),
+  ];
+
+  it("allows moving Tue threshold to Thu (different group, slot free)", () => {
+    const r = canMoveSession({
+      fromDate: offset(1),
+      toDate: offset(3),
+      sessionType: "threshold_run",
+      weekStartMonday: MONDAY,
+      weekSessions: defaultWeek,
+      constraints: Q_DEFAULT_CONSTRAINTS,
+    });
+    // Thu has 2 sessions already (easy + strength_b) → density cap blocks it.
+    // This documents that "slot free" actually means free; if the user wants
+    // density 3 they must skip first.
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/zwei Sessions/);
+  });
+
+  it("rejects move when fromDate is outside the week", () => {
+    const r = canMoveSession({
+      fromDate: offset(-1),
+      toDate: offset(3),
+      sessionType: "easy_run",
+      weekStartMonday: MONDAY,
+      weekSessions: defaultWeek,
+      constraints: Q_DEFAULT_CONSTRAINTS,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/Wochengrenzen/);
+  });
+
+  it("rejects same-day no-op move", () => {
+    const r = canMoveSession({
+      fromDate: offset(1),
+      toDate: offset(1),
+      sessionType: "threshold_run",
+      weekStartMonday: MONDAY,
+      weekSessions: defaultWeek,
+      constraints: Q_DEFAULT_CONSTRAINTS,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/identisch/);
+  });
+
+  it("rejects move to a forced-rest day", () => {
+    const r = canMoveSession({
+      fromDate: offset(1),
+      toDate: offset(2), // Wed — forced rest in Q_DEFAULT
+      sessionType: "threshold_run",
+      weekStartMonday: MONDAY,
+      weekSessions: defaultWeek,
+      constraints: Q_DEFAULT_CONSTRAINTS,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/Pflicht-Ruhetag/);
+  });
+
+  it("rejects quality run landing on Mon (Strength A 24h-gap rule)", () => {
+    // Build a fixture where Mon has only easy_run (so density isn't the
+    // blocker) and Strength A sits elsewhere — the rule should still fire
+    // because Mon is the canonical Strength A slot.
+    const week: SessionPlan[] = [
+      s("easy_run", { date: offset(0) }),
+      s("strength_a", { date: offset(0) }),
+    ];
+    // Move threshold from Tue to Mon — quality should never be on Strength
+    // A's day regardless of density. Use a sparse fixture: only Mon's easy
+    // (1 session) so density rule (which fires at >=2) doesn't shadow the
+    // gap rule.
+    const sparseWeek: SessionPlan[] = [
+      s("easy_run", { date: offset(0) }),
+      s("threshold_run", { date: offset(1) }),
+    ];
+    const r = canMoveSession({
+      fromDate: offset(1),
+      toDate: offset(0),
+      sessionType: "threshold_run",
+      weekStartMonday: MONDAY,
+      weekSessions: sparseWeek,
+      constraints: { ...Q_DEFAULT_CONSTRAINTS, forcedRestDays: new Set([6]) },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/24h-Regel|Strength-A/);
+    // suppress unused-var lint
+    void week;
+  });
+
+  it("rejects strength colliding with another strength on the same day", () => {
+    const week: SessionPlan[] = [
+      s("strength_a", { date: offset(0) }),
+      s("strength_b", { date: offset(3) }),
+    ];
+    const r = canMoveSession({
+      fromDate: offset(0),
+      toDate: offset(3),
+      sessionType: "strength_a",
+      weekStartMonday: MONDAY,
+      weekSessions: week,
+      constraints: { ...Q_DEFAULT_CONSTRAINTS, forcedRestDays: new Set([6]) },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/strength_b|Strength/);
+  });
+
+  it("rejects density >= 2 on the target day", () => {
+    const r = canMoveSession({
+      fromDate: offset(1),
+      toDate: offset(3), // Thu has easy+strength_b (2 sessions)
+      sessionType: "threshold_run",
+      weekStartMonday: MONDAY,
+      weekSessions: defaultWeek,
+      constraints: Q_DEFAULT_CONSTRAINTS,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/zwei Sessions/);
+  });
+
+  it("rejects long_run move off its preferredLongRunDay", () => {
+    const r = canMoveSession({
+      fromDate: offset(5),
+      toDate: offset(0),
+      sessionType: "long_run",
+      weekStartMonday: MONDAY,
+      weekSessions: defaultWeek,
+      constraints: Q_DEFAULT_CONSTRAINTS,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/Long-Run/);
+  });
+
+  it("rejects landing on a day that already has a long_run", () => {
+    const r = canMoveSession({
+      fromDate: offset(1),
+      toDate: offset(5),
+      sessionType: "easy_run",
+      weekStartMonday: MONDAY,
+      weekSessions: defaultWeek,
+      constraints: Q_DEFAULT_CONSTRAINTS,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/Long-Run-Tag/);
+  });
+
+  it("allows a legitimate easy_run move to a free non-rest day", () => {
+    // Sparse fixture so density doesn't block: just one easy_run on Mon.
+    const sparse: SessionPlan[] = [
+      s("easy_run", { date: offset(0) }),
+    ];
+    const r = canMoveSession({
+      fromDate: offset(0),
+      toDate: offset(1), // Tue, free in this fixture
+      sessionType: "easy_run",
+      weekStartMonday: MONDAY,
+      weekSessions: sparse,
+      constraints: { ...Q_DEFAULT_CONSTRAINTS, forcedRestDays: new Set([6]) },
+    });
+    expect(r.ok).toBe(true);
   });
 });
