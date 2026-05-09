@@ -7,9 +7,70 @@ export interface CoachingExport {
   performanceMarkers: PerformanceMarkersSection | null;
   trainingHistory: TrainingHistorySection;
   wellness: WellnessSection;
+  calories: CaloriesSection;
   health: HealthSection;
   upcoming: UpcomingSection;
   athlete: AthleteSection;
+  nutrition: NutritionSection | null;
+}
+
+// ── Nutrition (Sprint v0.16 Phase B8) ──────────────────────────────────────
+
+export interface NutritionDayLog {
+  date: string;
+  dayType: string;
+  calorieTarget: number;
+  garminTDEE: number | null;
+  delta: number | null;
+  adjustment: string | null;
+  followed: boolean;
+  notes: string | null;
+}
+
+export interface NutritionSection {
+  activePlan: {
+    name: string;
+    calibrationStatus: string;
+    calibratedAt: string | null;
+  } | null;
+  todayPlan: {
+    dayType: string;
+    calorieTarget: number;
+    proteinG: number;
+    carbsG: number;
+    fatG: number;
+    // Slots are exposed as a free-form object — schema lives in
+    // lib/nutrition/types.ts MealSlots, but we pass-through to keep the
+    // export decoupled from the nutrition module shape.
+    slots: unknown;
+    adjustment: unknown | null;
+  } | null;
+  last7DaysLog: NutritionDayLog[];
+  weeklyBudget: {
+    planned: number;
+    perDay: number;
+  } | null;
+}
+
+// ── Calories (Sprint v0.16 Phase A2.5) ─────────────────────────────────────
+
+export interface CalorieDay {
+  date: string;
+  totalKcal: number | null;
+  activeKcal: number | null;
+  bmrKcal: number | null;
+}
+
+export interface CaloriesByDayType {
+  strength_run: number | null;
+  threshold: number | null;
+  long_run: number | null;
+  rest: number | null;
+}
+
+export interface CaloriesSection {
+  days: CalorieDay[];
+  averageByDayType: CaloriesByDayType;
 }
 
 // ── Periodization ──────────────────────────────────────────────────────────
@@ -157,6 +218,8 @@ export interface WellnessDay {
   sleepScore: number | null;
   sleepDurationMin: number | null;
   bodyBatteryMorning: number | null;
+  bodyBatteryEnd: number | null;
+  averageStress: number | null;
   readinessScore: number | null;
   readinessBand: string | null;
 }

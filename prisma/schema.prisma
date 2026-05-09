@@ -38,6 +38,9 @@ model User {
   notifications  Notification[]
   exerciseLogs   ExerciseLog[]
   settings       UserSettings?
+  coachingLogs   CoachingLog[]
+  mealPlans      MealPlan[]
+  nutritionLogs  DailyNutritionLog[]
 }
 
 model Account {
@@ -296,6 +299,14 @@ model DailySensorData {
   bodyWeightKg     Float?   // Körpergewicht in kg
   bodyWeightSource String?  // "manual" | "scale" | "garmin"
 
+  // Sprint v0.16 Phase A2: extended Garmin wellness columns. Top-level (not in
+  // `garmin` JSON) so they are queryable for the nutrition adjustment engine.
+  totalKilocalories  Int?    // TDEE — total daily energy expenditure
+  activeKilocalories Int?    // Active calories (training + NEAT)
+  bmrKilocalories    Int?    // Basal metabolic rate
+  bodyBatteryEnd     Int?    // 0-100 at end of day
+  averageStress      Float?  // 0-100 average stress level
+
   kneeScore    Int? // computed from morning_stiffness + stairs + last_training
   therapyPhase String? // "REACTIVE" | "DISREPAIR" | "REMODELING" | "SPORT_SPECIFIC"
 
@@ -452,6 +463,12 @@ model UserSettings {
   // Values: REACTIVE | DISREPAIR | REMODELING | SPORT_SPECIFIC
   therapyPhaseOverride    String?
 
+  // Sprint v0.16: Health context maintained by the external AI coach via
+  // /api/coaching-update. activeInjuries are surfaced in coaching-export
+  // and drive plan modulation. preventionExercises are suggested daily.
+  activeInjuries          String[]  @default([])
+  preventionExercises     String[]  @default([])
+
   // Sprint v0.15: Body weight tracking — cached 7d average for ×BW display
   currentWeightKg          Float?    // 7-Tage-Durchschnitt
   currentWeightUpdatedAt   DateTime? // Wann zuletzt berechnet
@@ -489,4 +506,102 @@ model ExerciseLog {
   createdAt       DateTime @default(now())
 
   @@index([userId, exerciseName, date(sort: Desc)])
+}
+
+// CoachingLog (Sprint v0.16) — audit trail for the external AI coach's
+// write actions via POST /api/coaching-update. Every state change carries
+// a `reason` so Q can review what the coach changed and why.
+model CoachingLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String   // "updateTherapyPhase" | "updateActiveInjuries" | ...
+  data      Json     // payload sent by the coach
+  reason    String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+// ============================================
+// Nutrition (Sprint v0.16 Part B)
+// ============================================
+// MealPlan — one active plan per user, archived when the coach replaces it.
+// Drives the static meal architecture (4 day-types × slots) and the daily
+// adjustment engine. Calibration status flips pending → calibrated once the
+// 14-day Garmin TDEE rolling averages stabilize.
+model MealPlan {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String   // "Block 1 Standard"
+  status    String   @default("active") // "active" | "archived"
+
+  // Global settings (shared across all DayPlans)
+  budgetPerDay    Float @default(15.0)
+  proteinTarget   Int   // grams/day, e.g. 190
+  deficitKcal     Int   @default(500)
+
+  // Calibration lifecycle
+  calibrationStatus String    @default("pending") // "pending" | "collecting" | "calibrated"
+  calibratedAt      DateTime?
+
+  dayPlans  DayPlan[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId, status])
+}
+
+// DayPlan — one row per (MealPlan × dayType). The slot structure is JSON so
+// the coach can patch individual slots without schema migrations. Calibrated
+// targets overwrite the initial estimates from B2.2.
+model DayPlan {
+  id         String  @id @default(cuid())
+  mealPlanId String
+  mealPlan   MealPlan @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
+
+  dayType String // "strength_run" | "threshold" | "long_run" | "rest"
+
+  // Calorie & macro targets — pre-calibration these are estimates from
+  // INITIAL_TARGETS (Phase B2.2); post-calibration they come from rolling
+  // 14-day Garmin TDEE averages.
+  tdeeEstimate  Int
+  calorieTarget Int
+  proteinG      Int
+  carbsG        Int
+  fatG          Int
+
+  // Slot structure — see lib/nutrition/types.ts MealSlots
+  slots Json
+
+  @@unique([mealPlanId, dayType])
+}
+
+// DailyNutritionLog — one row per (user × calendar date). Records what the
+// plan was and any next-day adjustments the engine applied. Used by the
+// coaching-export to surface the rolling 7-day nutrition story.
+model DailyNutritionLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      DateTime @db.Date
+
+  dayType       String
+  calorieTarget Int
+
+  // Garmin TDEE for `date` (mirror from DailySensorData.totalKilocalories
+  // for query convenience — no FK to keep this audit-style log decoupled).
+  garminTDEE Int?
+
+  // Adjustment for THIS day, computed from yesterday's delta. JSON: see
+  // lib/nutrition/types.ts DailyAdjustment.
+  adjustment Json?
+
+  followed Boolean @default(true)
+  notes    String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, date])
 }

@@ -4,15 +4,20 @@ import { dayKey, getRecentSensorData } from "@/lib/db/queries/sensors";
 import { getEffectiveVdot } from "@/lib/db/queries/settings";
 import { ExecutedSessionSchema } from "@/lib/coach-engine/types";
 import type { PhaseConfig, SessionPlan } from "@/lib/coach-engine/types";
+import { DAY_TYPE_BY_WEEKDAY } from "@/lib/nutrition/day-type";
 import type {
   CoachingExport,
   PeriodizationSection,
   PerformanceMarkersSection,
   TrainingHistorySection,
   WellnessSection,
+  CaloriesSection,
+  CalorieDay,
   HealthSection,
   UpcomingSection,
   AthleteSection,
+  NutritionSection,
+  NutritionDayLog,
   TrainingSession,
   PlannedSessionData,
   ActualSessionData,
@@ -21,6 +26,9 @@ import type {
   PainEntry,
   UpcomingSession,
 } from "./types";
+import { getDayType } from "@/lib/nutrition/day-type";
+import { DEFICIT_KCAL } from "@/lib/nutrition/daily-adjustment";
+import type { DailyAdjustment } from "@/lib/nutrition/types";
 
 // ── Pure helpers ──────────────────────────────────────────────────────────
 
@@ -75,6 +83,11 @@ const DEFAULT_TRAINING_HISTORY: TrainingHistorySection = {
 };
 
 const DEFAULT_WELLNESS: WellnessSection = { days: [], baselines: null };
+
+const DEFAULT_CALORIES: CaloriesSection = {
+  days: [],
+  averageByDayType: { strength_run: null, threshold: null, long_run: null, rest: null },
+};
 
 const DEFAULT_HEALTH: HealthSection = {
   therapyPhase: null,
@@ -340,12 +353,15 @@ async function buildWellness(userId: string): Promise<WellnessSection> {
   const cutoff14 = dayKey(new Date());
   cutoff14.setUTCDate(cutoff14.getUTCDate() - 14);
 
+  // Sprint v0.16 fix: rest of the codebase writes camelCase keys (see
+  // app/api/cron/garmin-sync-daily). The v0.12.1 implementation read
+  // snake_case which silently returned null for every field.
   type GarminBlob = {
-    hrv_status?: string;
-    hrv_rmssd?: number;
-    sleep_score?: number;
-    sleep_duration_min?: number;
-    body_battery_morning?: number;
+    hrvStatus?: string;
+    hrvRmssd?: number;
+    sleepScore?: number;
+    sleepDurationMin?: number;
+    bodyBatteryMorning?: number;
     rhr?: number;
   };
 
@@ -358,11 +374,13 @@ async function buildWellness(userId: string): Promise<WellnessSection> {
     return {
       date: formatDateStr(r.date),
       restingHR: g.rhr ?? null,
-      hrvRMSSD: g.hrv_rmssd ?? null,
-      hrvStatus: g.hrv_status ?? null,
-      sleepScore: g.sleep_score ?? null,
-      sleepDurationMin: g.sleep_duration_min ?? null,
-      bodyBatteryMorning: g.body_battery_morning ?? null,
+      hrvRMSSD: g.hrvRmssd ?? null,
+      hrvStatus: g.hrvStatus ?? null,
+      sleepScore: g.sleepScore ?? null,
+      sleepDurationMin: g.sleepDurationMin ?? null,
+      bodyBatteryMorning: g.bodyBatteryMorning ?? null,
+      bodyBatteryEnd: r.bodyBatteryEnd ?? null,
+      averageStress: r.averageStress ?? null,
       readinessScore: r.readinessScore ?? null,
       readinessBand: r.readinessBand ?? null,
     };
@@ -371,9 +389,9 @@ async function buildWellness(userId: string): Promise<WellnessSection> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rhrVals = rows.map((r: any) => (r.garmin as GarminBlob | null)?.rhr);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const hrvVals = rows.map((r: any) => (r.garmin as GarminBlob | null)?.hrv_rmssd);
+  const hrvVals = rows.map((r: any) => (r.garmin as GarminBlob | null)?.hrvRmssd);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sleepVals = rows.map((r: any) => (r.garmin as GarminBlob | null)?.sleep_score);
+  const sleepVals = rows.map((r: any) => (r.garmin as GarminBlob | null)?.sleepScore);
 
   const baselines: WellnessBaselines | null =
     rows.length === 0
@@ -393,7 +411,11 @@ async function buildHealth(userId: string, today: Date): Promise<HealthSection> 
   const [settings, latestSensor, activeGoal, painWorkouts] = await Promise.all([
     db.userSettings.findUnique({
       where: { userId },
-      select: { therapyPhaseOverride: true },
+      select: {
+        therapyPhaseOverride: true,
+        activeInjuries: true,
+        preventionExercises: true,
+      },
     }),
     db.dailySensorData.findFirst({
       where: { userId },
@@ -415,11 +437,20 @@ async function buildHealth(userId: string, today: Date): Promise<HealthSection> 
   const therapyPhase =
     settings?.therapyPhaseOverride ?? latestSensor?.therapyPhase ?? null;
 
-  const activeInjuries = (
-    (activeGoal?.constraints as { type: string; severity: string }[] | null) ?? []
-  )
-    .filter((c) => c.severity === "active")
-    .map((c) => c.type);
+  // Sprint v0.16 Phase A1 added userSettings.activeInjuries — the AI coach
+  // maintains it via /api/coaching-update. Falls back to Goal.constraints
+  // for legacy data when UserSettings hasn't been populated yet.
+  const settingsInjuries = (settings?.activeInjuries ?? []) as string[];
+  const activeInjuries =
+    settingsInjuries.length > 0
+      ? settingsInjuries
+      : (
+          (activeGoal?.constraints as { type: string; severity: string }[] | null) ?? []
+        )
+          .filter((c) => c.severity === "active")
+          .map((c) => c.type);
+
+  const preventionExercises = (settings?.preventionExercises ?? []) as string[];
 
   const painHistory: PainEntry[] = [];
   for (const w of painWorkouts) {
@@ -436,7 +467,55 @@ async function buildHealth(userId: string, today: Date): Promise<HealthSection> 
     }
   }
 
-  return { therapyPhase, activeInjuries, painHistory, preventionExercises: [] };
+  return { therapyPhase, activeInjuries, painHistory, preventionExercises };
+}
+
+// ── Calories (Sprint v0.16 Phase A2.5) ─────────────────────────────────────
+// Day-type mapping lives in lib/nutrition/day-type.ts (single source of truth).
+
+async function buildCalories(userId: string): Promise<CaloriesSection> {
+  const cutoff14 = dayKey(new Date());
+  cutoff14.setUTCDate(cutoff14.getUTCDate() - 14);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows: any[] = await db.dailySensorData.findMany({
+    where: { userId, date: { gte: cutoff14 } },
+    orderBy: { date: "asc" },
+    select: {
+      date: true,
+      totalKilocalories: true,
+      activeKilocalories: true,
+      bmrKilocalories: true,
+    },
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const days: CalorieDay[] = rows.map((r: any) => ({
+    date: formatDateStr(r.date),
+    totalKcal: r.totalKilocalories ?? null,
+    activeKcal: r.activeKilocalories ?? null,
+    bmrKcal: r.bmrKilocalories ?? null,
+  }));
+
+  const buckets = { strength_run: [] as number[], threshold: [] as number[], long_run: [] as number[], rest: [] as number[] };
+  for (const r of rows) {
+    if (r.totalKilocalories == null) continue;
+    const dayType = DAY_TYPE_BY_WEEKDAY[(r.date as Date).getUTCDay()];
+    buckets[dayType].push(r.totalKilocalories);
+  }
+
+  const avg = (vals: number[]): number | null =>
+    vals.length === 0 ? null : Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+
+  return {
+    days,
+    averageByDayType: {
+      strength_run: avg(buckets.strength_run),
+      threshold: avg(buckets.threshold),
+      long_run: avg(buckets.long_run),
+      rest: avg(buckets.rest),
+    },
+  };
 }
 
 async function buildUpcoming(userId: string, today: Date): Promise<UpcomingSection> {
@@ -516,20 +595,98 @@ async function buildAthlete(userId: string): Promise<AthleteSection> {
   };
 }
 
+// ── Nutrition (Sprint v0.16 Phase B8) ─────────────────────────────────────
+
+async function buildNutrition(userId: string, today: Date): Promise<NutritionSection> {
+  const todayKey = dayKey(today);
+  const dayType = getDayType(today);
+  const cutoff7 = new Date(todayKey.getTime() - 7 * 86400000);
+
+  const [plan, todayLog, recentLogs] = await Promise.all([
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    db.mealPlan.findFirst({
+      where: { userId, status: "active" },
+      include: { dayPlans: true },
+    }) as Promise<any>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    db.dailyNutritionLog.findUnique({
+      where: { userId_date: { userId, date: todayKey } },
+    }) as Promise<any>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    db.dailyNutritionLog.findMany({
+      where: { userId, date: { gte: cutoff7 } },
+      orderBy: { date: "asc" },
+    }) as Promise<any[]>,
+  ]);
+
+  let activePlan: NutritionSection["activePlan"] = null;
+  let todayPlan: NutritionSection["todayPlan"] = null;
+  let weeklyBudget: NutritionSection["weeklyBudget"] = null;
+
+  if (plan) {
+    activePlan = {
+      name: plan.name,
+      calibrationStatus: plan.calibrationStatus,
+      calibratedAt: plan.calibratedAt ? plan.calibratedAt.toISOString() : null,
+    };
+    weeklyBudget = {
+      planned: Math.round(plan.budgetPerDay * 7 * 100) / 100,
+      perDay: plan.budgetPerDay,
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const todayDayPlan = (plan.dayPlans ?? []).find((d: any) => d.dayType === dayType);
+    if (todayDayPlan) {
+      todayPlan = {
+        dayType,
+        calorieTarget: todayDayPlan.calorieTarget,
+        proteinG: todayDayPlan.proteinG,
+        carbsG: todayDayPlan.carbsG,
+        fatG: todayDayPlan.fatG,
+        slots: todayDayPlan.slots,
+        adjustment: (todayLog?.adjustment as unknown) ?? null,
+      };
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const last7DaysLog: NutritionDayLog[] = recentLogs.map((l: any) => {
+    const adj = l.adjustment as DailyAdjustment | null;
+    const delta =
+      l.garminTDEE != null && typeof l.calorieTarget === "number"
+        ? l.calorieTarget - (l.garminTDEE - DEFICIT_KCAL)
+        : null;
+    return {
+      date: l.date.toISOString().slice(0, 10),
+      dayType: l.dayType,
+      calorieTarget: l.calorieTarget,
+      garminTDEE: l.garminTDEE ?? null,
+      delta,
+      adjustment: adj?.message ?? null,
+      followed: l.followed,
+      notes: l.notes ?? null,
+    };
+  });
+
+  return { activePlan, todayPlan, last7DaysLog, weeklyBudget };
+}
+
 // ── Main export ──────────────────────────────────────────────────────────
 
 export async function buildCoachingExport(userId: string): Promise<CoachingExport> {
   const today = await userTodayDynamic();
 
-  const [periodization, performanceMarkers, trainingHistory, wellness, health, upcoming, athlete] =
+  const [periodization, performanceMarkers, trainingHistory, wellness, calories, health, upcoming, athlete, nutrition] =
     await Promise.all([
       safeSection(() => buildPeriodization(userId, today)),
       safeSection(() => buildPerformanceMarkers(userId)),
       safeSection(() => buildTrainingHistory(userId, today), DEFAULT_TRAINING_HISTORY),
       safeSection(() => buildWellness(userId), DEFAULT_WELLNESS),
+      safeSection(() => buildCalories(userId), DEFAULT_CALORIES),
       safeSection(() => buildHealth(userId, today), DEFAULT_HEALTH),
       safeSection(() => buildUpcoming(userId, today), DEFAULT_UPCOMING),
       safeSection(() => buildAthlete(userId), DEFAULT_ATHLETE),
+      safeSection(() => buildNutrition(userId, today)),
     ]);
 
   return {
@@ -538,8 +695,10 @@ export async function buildCoachingExport(userId: string): Promise<CoachingExpor
     performanceMarkers,
     trainingHistory,
     wellness,
+    calories,
     health,
     upcoming,
     athlete,
+    nutrition,
   };
 }

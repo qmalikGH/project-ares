@@ -25,6 +25,10 @@ const STUB_EXPORT = {
     volumeTrends: { weeklyRunKm: [], weeklyStrengthSets: [] },
   },
   wellness: { days: [], baselines: null },
+  calories: {
+    days: [],
+    averageByDayType: { strength_run: null, threshold: null, long_run: null, rest: null },
+  },
   health: {
     therapyPhase: "REMODELING",
     activeInjuries: [],
@@ -39,6 +43,12 @@ const STUB_EXPORT = {
     restDays: ["Wednesday", "Sunday"],
     preferredLongRunDay: "Saturday",
     therapyPhase: null,
+  },
+  nutrition: {
+    activePlan: null,
+    todayPlan: null,
+    last7DaysLog: [],
+    weeklyBudget: null,
   },
 };
 
@@ -94,12 +104,24 @@ describe("GET /api/coaching-export — response shape", () => {
       "performanceMarkers",
       "trainingHistory",
       "wellness",
+      "calories",
       "health",
       "upcoming",
       "athlete",
+      "nutrition",
     ]) {
       expect(body, `missing key: ${key}`).toHaveProperty(key);
     }
+  });
+
+  it("calories.averageByDayType has all 4 day types", async () => {
+    const req = new Request(`http://localhost/api/coaching-export?token=${CORRECT_TOKEN}`);
+    const res = await GET(req);
+    const body = (await res.json()) as typeof STUB_EXPORT;
+    expect(body.calories.averageByDayType).toHaveProperty("strength_run");
+    expect(body.calories.averageByDayType).toHaveProperty("threshold");
+    expect(body.calories.averageByDayType).toHaveProperty("long_run");
+    expect(body.calories.averageByDayType).toHaveProperty("rest");
   });
 
   it("calls buildCoachingExport with the resolved userId", async () => {

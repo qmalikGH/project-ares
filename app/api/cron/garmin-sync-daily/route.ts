@@ -53,6 +53,10 @@ export async function GET(req: Request) {
         },
       });
 
+      // Existing fields stay in the `garmin` JSON (camelCase, matches the rest
+      // of the codebase: lib/coach-engine/readiness, lib/db/queries/sensors-aggregate).
+      // The v0.16 wellness columns are top-level for queryability (calorie
+      // averaging, nutrition adjustment).
       const garminPayload = {
         hrvStatus: result.snapshot.hrvStatus,
         hrvRmssd: result.snapshot.hrvRmssd,
@@ -61,15 +65,33 @@ export async function GET(req: Request) {
         bodyBatteryMorning: result.snapshot.bodyBatteryMorning,
         rhr: result.snapshot.rhr,
       };
+      const v016Fields = {
+        totalKilocalories: result.snapshot.totalKilocalories,
+        activeKilocalories: result.snapshot.activeKilocalories,
+        bmrKilocalories: result.snapshot.bmrKilocalories,
+        bodyBatteryEnd: result.snapshot.bodyBatteryEnd,
+        averageStress: result.snapshot.averageStress,
+      };
       const existing = await db.dailySensorData.findFirst({ where: { userId: user.id, date: yesterday } });
       if (existing) {
         await db.dailySensorData.update({
           where: { id: existing.id },
-          data: { garmin: garminPayload, garminLastSyncAt: new Date(), updatedAt: new Date() },
+          data: {
+            garmin: garminPayload,
+            ...v016Fields,
+            garminLastSyncAt: new Date(),
+            updatedAt: new Date(),
+          },
         });
       } else {
         await db.dailySensorData.create({
-          data: { userId: user.id, date: yesterday, garmin: garminPayload, garminLastSyncAt: new Date() },
+          data: {
+            userId: user.id,
+            date: yesterday,
+            garmin: garminPayload,
+            ...v016Fields,
+            garminLastSyncAt: new Date(),
+          },
         });
       }
 
