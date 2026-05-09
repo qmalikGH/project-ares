@@ -461,7 +461,7 @@ async function buildUpcoming(userId: string, today: Date): Promise<UpcomingSecti
   for (const phase of macro.phases) {
     for (const weekPlan of phase.weeklyPlans) {
       if (!Array.isArray(weekPlan.plannedSessions)) continue;
-      for (const raw of weekPlan.plannedSessions as SessionPlan[]) {
+      for (const raw of weekPlan.plannedSessions as unknown as SessionPlan[]) {
         if (!raw?.date) continue;
         const sessionMs = dayKey(new Date(raw.date)).getTime();
         if (sessionMs >= todayMs && sessionMs < endMs) {
