@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const userSettingsUpsert = vi.hoisted(() => vi.fn());
 const coachingLogCreate = vi.hoisted(() => vi.fn());
 const mealPlanFindFirst = vi.hoisted(() => vi.fn());
+const mealPlanCreate = vi.hoisted(() => vi.fn());
 const dayPlanFindUnique = vi.hoisted(() => vi.fn());
+const dayPlanCreate = vi.hoisted(() => vi.fn());
 const dayPlanUpdate = vi.hoisted(() => vi.fn());
 const dayPlanUpdateMany = vi.hoisted(() => vi.fn());
 const dailyNutritionLogFindUnique = vi.hoisted(() => vi.fn());
@@ -15,9 +17,10 @@ vi.mock("@/lib/db/client", () => ({
   db: {
     userSettings: { upsert: userSettingsUpsert },
     coachingLog: { create: coachingLogCreate },
-    mealPlan: { findFirst: mealPlanFindFirst },
+    mealPlan: { findFirst: mealPlanFindFirst, create: mealPlanCreate },
     dayPlan: {
       findUnique: dayPlanFindUnique,
+      create: dayPlanCreate,
       update: dayPlanUpdate,
       updateMany: dayPlanUpdateMany,
     },
@@ -396,6 +399,67 @@ describe("handleCoachingAction — adjustDaySlot (Phase B9)", () => {
     );
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error).toBe("invalid_data");
+  });
+});
+
+describe("handleCoachingAction — seedMealPlan", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    coachingLogCreate.mockResolvedValue({ id: "log-seed" });
+    mealPlanCreate.mockResolvedValue({ id: "new-plan-id" });
+    dayPlanCreate.mockImplementation(async ({ data }: { data: { dayType: string } }) => ({
+      id: `dp-${data.dayType}`,
+    }));
+  });
+
+  it("creates a MealPlan + 4 DayPlans when none exists", async () => {
+    mealPlanFindFirst.mockResolvedValue(null);
+    const result = await handleCoachingAction(USER_ID, "seedMealPlan", {}, "Initial Block 1 seed");
+    expect(result.success).toBe(true);
+    expect(mealPlanCreate).toHaveBeenCalledTimes(1);
+    expect(dayPlanCreate).toHaveBeenCalledTimes(4);
+    expect(coachingLogCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("seeds Block 1 Standard with the canonical defaults", async () => {
+    mealPlanFindFirst.mockResolvedValue(null);
+    await handleCoachingAction(USER_ID, "seedMealPlan", {}, "Initial Block 1 seed");
+    expect(mealPlanCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: USER_ID,
+        name: "Block 1 Standard",
+        status: "active",
+        budgetPerDay: 15.0,
+        proteinTarget: 190,
+        deficitKcal: 500,
+        calibrationStatus: "pending",
+      }),
+    });
+  });
+
+  it("creates one DayPlan per day-type", async () => {
+    mealPlanFindFirst.mockResolvedValue(null);
+    await handleCoachingAction(USER_ID, "seedMealPlan", {}, "test");
+    const seededTypes = dayPlanCreate.mock.calls.map((c) => (c[0] as { data: { dayType: string } }).data.dayType);
+    expect(seededTypes.sort()).toEqual(["long_run", "rest", "strength_run", "threshold"]);
+  });
+
+  it("returns 409 when an active MealPlan already exists", async () => {
+    mealPlanFindFirst.mockResolvedValue({ id: "existing-plan", name: "Block 1 Standard" });
+    const result = await handleCoachingAction(USER_ID, "seedMealPlan", {}, "Try again");
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toBe("MealPlan already exists");
+      expect(result.status).toBe(409);
+    }
+    expect(mealPlanCreate).not.toHaveBeenCalled();
+    expect(dayPlanCreate).not.toHaveBeenCalled();
+  });
+
+  it("does not write a CoachingLog when an active plan blocks the seed", async () => {
+    mealPlanFindFirst.mockResolvedValue({ id: "existing-plan", name: "X" });
+    await handleCoachingAction(USER_ID, "seedMealPlan", {}, "no-op");
+    expect(coachingLogCreate).not.toHaveBeenCalled();
   });
 });
 

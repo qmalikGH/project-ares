@@ -6,6 +6,8 @@ import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { dayKey } from "@/lib/db/queries/sensors";
 import { calibrateMealPlan } from "@/lib/nutrition/calibration";
+import { templateDayPlan } from "@/lib/nutrition/template";
+import type { DayType } from "@/lib/nutrition/types";
 
 const TherapyPhaseSchema = z.object({
   phase: z.enum(["REACTIVE", "DISREPAIR", "REMODELING", "SPORT_SPECIFIC"]),
@@ -64,6 +66,10 @@ const AdjustDaySlotSchema = z.object({
   action: z.enum(["remove", "reduce", "add"]),
   item: MealItemSchema.optional(),
 });
+
+const SeedMealPlanSchema = z.object({}).strict();
+
+const SEED_DAY_TYPES: DayType[] = ["strength_run", "threshold", "long_run", "rest"];
 
 export type ActionResult =
   | { success: true; logId: string; action: string }
@@ -280,6 +286,71 @@ export async function handleCoachingAction(
       const log = await db.coachingLog.create({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         data: { userId, action, data: parsed.data as any, reason },
+      });
+      return { success: true, logId: log.id, action };
+    }
+
+    case "seedMealPlan": {
+      const parsed = SeedMealPlanSchema.safeParse(data ?? {});
+      if (!parsed.success) {
+        return { success: false, status: 400, error: "invalid_data", details: parsed.error.flatten() };
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const existing: any = await db.mealPlan.findFirst({
+        where: { userId, status: "active" },
+        select: { id: true, name: true },
+      });
+      if (existing) {
+        return {
+          success: false,
+          status: 409,
+          error: "MealPlan already exists",
+          details: { id: existing.id, name: existing.name },
+        };
+      }
+
+      // Same logic as scripts/v0_16_seed_meal_plan.ts. Create the canonical
+      // Block 1 plan + 4 DayPlans from the templates.
+      const plan = await db.mealPlan.create({
+        data: {
+          userId,
+          name: "Block 1 Standard",
+          status: "active",
+          budgetPerDay: 15.0,
+          proteinTarget: 190,
+          deficitKcal: 500,
+          calibrationStatus: "pending",
+        },
+      });
+
+      const dayPlanIds: Array<{ dayType: DayType; id: string; calorieTarget: number }> = [];
+      for (const dayType of SEED_DAY_TYPES) {
+        const template = templateDayPlan(dayType);
+        const dp = await db.dayPlan.create({
+          data: {
+            mealPlanId: plan.id,
+            dayType,
+            tdeeEstimate: template.tdeeEstimate,
+            calorieTarget: template.calorieTarget,
+            proteinG: template.proteinG,
+            carbsG: template.carbsG,
+            fatG: template.fatG,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            slots: template.slots as any,
+          },
+        });
+        dayPlanIds.push({ dayType, id: dp.id, calorieTarget: template.calorieTarget });
+      }
+
+      const log = await db.coachingLog.create({
+        data: {
+          userId,
+          action,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          data: { mealPlanId: plan.id, dayPlans: dayPlanIds } as any,
+          reason,
+        },
       });
       return { success: true, logId: log.id, action };
     }
