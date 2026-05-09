@@ -68,27 +68,48 @@ interface NutritionTodayResponse {
 const DAY_NAMES = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
 
 export async function GET() {
-  const userId = await getCurrentUserId();
+  // Resilient against missing DB (preview deploys, ephemeral builds, DB
+  // outages): every DB call is wrapped, and a template-based response is
+  // returned when any of them fail. This keeps the UI reviewable even
+  // when the connection string is a placeholder.
   const today = await userTodayDynamic();
   const dayType = getDayType(today);
+
+  let userId: string | null = null;
+  try {
+    userId = await getCurrentUserId();
+  } catch {
+    userId = null;
+  }
+
   const todayKey = dayKey(today);
 
   // 1. Active plan + today's DayPlan
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const activePlan: any = await db.mealPlan.findFirst({
-    where: { userId, status: "active" },
-    include: {
-      dayPlans: {
-        where: { dayType },
-      },
-    },
-  });
+  let activePlan: any = null;
+  try {
+    if (userId) {
+      activePlan = await db.mealPlan.findFirst({
+        where: { userId, status: "active" },
+        include: { dayPlans: { where: { dayType } } },
+      });
+    }
+  } catch {
+    activePlan = null;
+  }
 
   // 2. Today's nutrition log (for any persisted adjustment)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const log: any = await db.dailyNutritionLog.findUnique({
-    where: { userId_date: { userId, date: todayKey } },
-  });
+  let log: any = null;
+  try {
+    if (userId) {
+      log = await db.dailyNutritionLog.findUnique({
+        where: { userId_date: { userId, date: todayKey } },
+      });
+    }
+  } catch {
+    log = null;
+  }
 
   let source: "active_plan" | "template_fallback" = "template_fallback";
   let dayPlanData: NutritionTodayResponse["dayPlan"];
@@ -113,7 +134,8 @@ export async function GET() {
       budgetPerDay: activePlan.budgetPerDay,
     };
   } else {
-    // Fallback to canonical template — works even before seed has run.
+    // Fallback to canonical template — works even before seed has run
+    // and on preview deploys without DB access.
     dayPlanData = templateDayPlan(dayType);
   }
 
