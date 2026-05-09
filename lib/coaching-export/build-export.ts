@@ -127,8 +127,8 @@ async function buildPeriodization(userId: string, today: Date): Promise<Periodiz
   }) ?? null;
   if (!currentWeekPlan) throw new Error("No current week plan");
 
-  const config = currentPhase.config as PhaseConfig;
-  const goalTarget = macro.goal.targetValue as { time?: string };
+  const config = currentPhase.config as unknown as PhaseConfig;
+  const goalTarget = macro.goal.targetValue as unknown as { time?: string };
   const firstWeekOfBlock = Math.min(
     ...currentPhase.weeklyPlans.map((w: MacroWeeklyPlan) => w.weekNumber),
   );
