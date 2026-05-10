@@ -7,8 +7,11 @@
 import { useEffect, useState } from "react";
 import { CalendarDays, ChefHat, ShoppingCart, Utensils } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getSessionColor } from "@/lib/ui/session-colors";
 import type { DayType, MealSlots, DailyAdjustment } from "@/lib/nutrition/types";
 import type { ShoppingTrip } from "@/lib/nutrition/shopping-list";
+
+type SessionColors = ReturnType<typeof getSessionColor>;
 
 interface NutritionTodayResponse {
   date: string;
@@ -53,13 +56,20 @@ const DAY_TYPE_LABEL: Record<DayType, string> = {
   rest: "Pause",
 };
 
-// Session-color mapping reused from training UI for visual consistency.
-const DAY_TYPE_ACCENT: Record<DayType, string> = {
-  strength_run: "#8B5CF6", // violet — strength sessions
-  threshold: "#F59E0B", // amber — threshold runs
-  long_run: "#10B981", // emerald — long runs
-  rest: "#6B7280", // gray — rest
+// Each nutrition day-type maps to a canonical training session-type so the
+// design system's session-color vocabulary (lib/ui/session-colors.ts) is the
+// single source of truth. strength_run aggregates strength_a/b/c — they all
+// resolve to Slate Strength.
+const DAY_TYPE_TO_SESSION: Record<DayType, string> = {
+  strength_run: "strength_a",
+  threshold: "threshold_run",
+  long_run: "long_run",
+  rest: "rest",
 };
+
+function colorsForDayType(dayType: DayType): SessionColors {
+  return getSessionColor(DAY_TYPE_TO_SESSION[dayType]);
+}
 
 export default function NutritionDashboard() {
   const [data, setData] = useState<NutritionTodayResponse | null>(null);
@@ -95,13 +105,13 @@ export default function NutritionDashboard() {
   }
   if (error || !data) {
     return (
-      <div className="mx-auto max-w-3xl px-4 pt-8 pb-32 text-sm text-red-400">
+      <div className="mx-auto max-w-3xl px-4 pt-8 pb-32 text-sm text-[var(--color-destructive)]">
         Fehler: {error ?? "unbekannt"}
       </div>
     );
   }
 
-  const accent = DAY_TYPE_ACCENT[data.dayType];
+  const accent = colorsForDayType(data.dayType);
 
   return (
     <div className="mx-auto max-w-3xl px-4 pt-8 pb-32">
@@ -113,14 +123,14 @@ export default function NutritionDashboard() {
         <h1 className="mt-2 flex items-center gap-3 text-2xl font-semibold tracking-tight">
           <span
             className="inline-flex h-8 items-center rounded-md px-2.5 text-sm font-medium"
-            style={{ backgroundColor: `${accent}1A`, color: accent }}
+            style={{ backgroundColor: accent.bg, color: accent.color }}
           >
             {DAY_TYPE_LABEL[data.dayType]}
           </span>
           <span>Nutrition</span>
         </h1>
         {data.source === "template_fallback" && (
-          <div className="mt-2 rounded-md border border-yellow-900/50 bg-yellow-950/30 px-3 py-2 text-xs text-yellow-200">
+          <div className="mt-2 rounded-md border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
             Kein aktiver MealPlan in der DB — Fallback auf Standard-Template.
             <code className="ml-1 font-mono">npx tsx scripts/v0_16_seed_meal_plan.ts</code>
           </div>
@@ -180,7 +190,7 @@ function TabButton({ current, value, onClick, icon: Icon, children }: TabButtonP
 
 interface TodayViewProps {
   data: NutritionTodayResponse;
-  accent: string;
+  accent: SessionColors;
 }
 
 function TodayView({ data, accent }: TodayViewProps) {
@@ -195,7 +205,7 @@ function TodayView({ data, accent }: TodayViewProps) {
           Targets
         </h2>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <Stat label="Kalorien-Ziel" value={`${dayPlan.calorieTarget}`} unit="kcal" accent={accent} />
+          <Stat label="Kalorien-Ziel" value={`${dayPlan.calorieTarget}`} unit="kcal" accent={accent.color} />
           <Stat label="Protein" value={`${dayPlan.proteinG}`} unit="g" />
           <Stat label="Kohlenhydrate" value={`${dayPlan.carbsG}`} unit="g" />
           <Stat label="Fett" value={`${dayPlan.fatG}`} unit="g" />
@@ -251,7 +261,7 @@ function TodayView({ data, accent }: TodayViewProps) {
           Tages-Summe (geplant)
         </h2>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-          <Stat label="kcal" value={`${totals.kcal}`} unit="kcal" accent={accent} />
+          <Stat label="kcal" value={`${totals.kcal}`} unit="kcal" accent={accent.color} />
           <Stat label="Protein" value={`${totals.protein}`} unit="g" />
           <Stat label="Carbs" value={`${totals.carbs}`} unit="g" />
           <Stat label="Fat" value={`${totals.fat}`} unit="g" />
@@ -291,7 +301,7 @@ function SlotCard({ label, slot, adjusted, flexible }: SlotCardProps) {
         <h3 className="font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-foreground-secondary)]">
           {label}
           {flexible && (
-            <span className="ml-2 rounded bg-cyan-900/40 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-cyan-300">
+            <span className="ml-2 rounded-[3px] bg-[rgba(255,255,255,0.08)] px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.05em] text-[var(--color-foreground-secondary)]">
               flex
             </span>
           )}
@@ -439,7 +449,7 @@ function WeekView({ weekOverview, todayDate }: WeekViewProps) {
     <div className="space-y-2">
       {weekOverview.map((d) => {
         const isToday = d.date === todayDate;
-        const accent = DAY_TYPE_ACCENT[d.dayType];
+        const dayColors = colorsForDayType(d.dayType);
         return (
           <div
             key={d.date}
@@ -456,7 +466,7 @@ function WeekView({ weekOverview, todayDate }: WeekViewProps) {
               <div className="flex items-center gap-3">
                 <div
                   className="inline-flex h-7 items-center rounded-md px-2 text-xs font-medium"
-                  style={{ backgroundColor: `${accent}1A`, color: accent }}
+                  style={{ backgroundColor: dayColors.bg, color: dayColors.color }}
                 >
                   {DAY_TYPE_LABEL[d.dayType]}
                 </div>
@@ -468,7 +478,7 @@ function WeekView({ weekOverview, todayDate }: WeekViewProps) {
               <div className="text-right">
                 <div className="text-sm">{d.recipeName}</div>
                 {d.isCookDay && (
-                  <div className="mt-0.5 inline-flex items-center gap-1 rounded bg-orange-900/40 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-orange-300">
+                  <div className="mt-0.5 inline-flex items-center gap-1 rounded-[3px] bg-[rgba(255,255,255,0.08)] px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.05em] text-[var(--color-foreground-secondary)]">
                     <ChefHat className="h-3 w-3" /> Kochtag
                   </div>
                 )}
