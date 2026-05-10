@@ -360,7 +360,7 @@ function Stat({ label, value, unit, accent }: { label: string; value: string; un
         {label}
       </div>
       <div className="mt-0.5 flex items-baseline gap-1">
-        <span className="text-xl font-medium tabular-nums" style={accent ? { color: accent } : undefined}>
+        <span className="num-md" style={accent ? { color: accent } : undefined}>
           {value}
         </span>
         {unit && <span className="font-mono text-xs text-[var(--color-foreground-tertiary)]">{unit}</span>}
@@ -389,7 +389,10 @@ function ShoppingView({ trip }: { trip: ShoppingTrip }) {
         <div className="font-mono text-xs uppercase tracking-wider text-[var(--color-foreground-tertiary)]">
           Trip {trip.tripNumber} — {trip.label}
         </div>
-        <div className="mt-2 text-2xl font-semibold tabular-nums">{trip.totalEstimatedCost.toFixed(2)} €</div>
+        <div className="mt-2 num-lg">
+          {trip.totalEstimatedCost.toFixed(2)}
+          <span className="ml-1 font-mono text-xs text-[var(--color-foreground-tertiary)]">€</span>
+        </div>
         <div className="mt-1 font-mono text-xs text-[var(--color-foreground-tertiary)]">
           Deckt {trip.coversDays.join(" / ")} ab
         </div>
