@@ -200,11 +200,11 @@ function GoalHeader({ goal }: { goal: GoalProgress }) {
       <div className="mt-4 grid grid-cols-2 gap-4">
         <div>
           <p className="text-xs text-muted-foreground">Aktuell</p>
-          <p className="text-3xl font-bold tabular-nums">{goal.currentValue.time}</p>
+          <p className="num-lg">{goal.currentValue.time}</p>
         </div>
         <div className="text-right">
           <p className="text-xs text-muted-foreground">Ziel</p>
-          <p className="text-3xl font-bold tabular-nums text-primary">
+          <p className="num-lg text-primary">
             {goal.targetValue.time}
           </p>
           {diff && (
@@ -727,7 +727,7 @@ function AdherenceCard({ label, stats }: { label: string; stats: AdherenceStats 
     <div className={`rounded-lg border p-5 ${bandClasses[stats.band]}`}>
       <p className="text-xs uppercase tracking-wide opacity-70">{label}</p>
       <div className="mt-1 flex items-baseline gap-2">
-        <p className="text-3xl font-bold tabular-nums">{stats.adherenceScore}%</p>
+        <p className="num-lg">{stats.adherenceScore}%</p>
         <p className="text-xs opacity-70">
           {stats.completed + stats.modified}/{stats.totalSessions} Sessions
         </p>

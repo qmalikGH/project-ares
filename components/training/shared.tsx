@@ -157,7 +157,7 @@ export function Pill({
     >
       <div className="text-xs uppercase tracking-wide opacity-70">{title}</div>
       <div className="mt-1 flex items-baseline gap-2">
-        <div className="text-2xl font-bold tabular-nums">{primary}</div>
+        <div className="num-lg">{primary}</div>
         <div className="text-xs font-semibold uppercase">{sub}</div>
       </div>
       <div className="mt-1 text-xs opacity-80">{meta}</div>
@@ -260,7 +260,7 @@ export function SessionBody({
           Pace_first sessions (time trial) flip the hierarchy. */}
       {final.hrTarget && final.controlMethod !== "pace_first" ? (
         <>
-          <p className="text-2xl font-bold tabular-nums mt-2 text-primary">
+          <p className="num-lg mt-2 text-primary">
             HR {final.hrTarget.from}–{final.hrTarget.to}{" "}
             <span className="text-sm font-normal text-muted-foreground">bpm</span>
           </p>

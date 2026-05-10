@@ -1043,7 +1043,7 @@ function PerformanceSection({
       <div className="grid grid-cols-2 gap-4 mt-3 text-sm">
         <div>
           <p className="text-muted-foreground text-xs">Aktueller VDOT</p>
-          <p className="text-2xl font-bold tabular-nums">{vdot.effective}</p>
+          <p className="num-lg">{vdot.effective}</p>
         </div>
         {vdot.override != null && (
           <div>
