@@ -184,6 +184,42 @@
 }
 
 /* ============================================================================
+   Today dashboard — Hero Spread rhythm
+   Accepted via /impeccable live (Sprint v0.16 visual polish, density=1).
+   The BPM num-hero commands the eye; stat tiles compress + de-emphasize;
+   section padding stretches around the run block. Selectors target
+   stable structures (`.rule`, `.num-hero`) plus the current RecoveryStrip
+   stat-tile chain — refactor those tiles, refactor here.
+   ============================================================================ */
+.today-dashboard {
+  padding-top: 48px;
+  padding-bottom: 112px;
+}
+.today-dashboard .rule {
+  margin-top: 40px;
+  margin-bottom: 40px;
+}
+.today-dashboard .flex.flex-wrap.gap-2 {
+  gap: 6px;
+}
+.today-dashboard .flex.flex-wrap.gap-2 > div {
+  padding: 10px 12px;
+  opacity: 0.92;
+}
+.today-dashboard .flex.flex-wrap.gap-2 .num-md {
+  font-size: 0.95rem;
+}
+.today-dashboard .num-hero {
+  font-size: 5.5rem;
+  line-height: 0.9;
+  letter-spacing: -0.04em;
+}
+.today-dashboard .border-l-\[3px\] {
+  padding-top: 32px;
+  padding-bottom: 32px;
+}
+
+/* ============================================================================
    Direction C: Session-Type Indicator Stripe
    Thin left-border colored by session type. Used on calendar cells + day cards.
    ============================================================================ */
