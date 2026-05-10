@@ -138,7 +138,7 @@ export default function NutritionDashboard() {
       </header>
 
       {/* Tabs */}
-      <div className="mb-6 flex gap-1 rounded-lg border p-1" style={{ borderColor: "var(--color-border)" }}>
+      <div className="mb-6 flex gap-1 rounded-lg border border-[var(--color-border)] p-1">
         <TabButton current={tab} value="today" onClick={setTab} icon={Utensils}>
           Heute
         </TabButton>
@@ -200,7 +200,7 @@ function TodayView({ data, accent }: TodayViewProps) {
   return (
     <div className="space-y-6">
       {/* Targets */}
-      <section className="rounded-lg border p-4" style={{ borderColor: "var(--color-border)" }}>
+      <section className="rounded-lg border border-[var(--color-border)] p-4">
         <h2 className="mb-3 font-mono text-xs uppercase tracking-wider text-[var(--color-foreground-tertiary)]">
           Targets
         </h2>
@@ -253,10 +253,7 @@ function TodayView({ data, accent }: TodayViewProps) {
       </section>
 
       {/* Totals */}
-      <section
-        className="rounded-lg border p-4"
-        style={{ borderColor: "var(--color-border)", backgroundColor: "rgba(255,255,255,0.02)" }}
-      >
+      <section className="rounded-lg border border-[var(--color-border)] bg-white/[0.02] p-4">
         <h2 className="mb-3 font-mono text-xs uppercase tracking-wider text-[var(--color-foreground-tertiary)]">
           Tages-Summe (geplant)
         </h2>
@@ -292,10 +289,9 @@ function SlotCard({ label, slot, adjusted, flexible }: SlotCardProps) {
   return (
     <div
       className={cn(
-        "rounded-lg border p-4 transition-opacity",
+        "rounded-lg border border-[var(--color-border)] p-4 transition-opacity",
         adjusted && "opacity-50 line-through decoration-amber-400/60",
       )}
-      style={{ borderColor: "var(--color-border)" }}
     >
       <header className="mb-2 flex items-center justify-between">
         <h3 className="font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-foreground-secondary)]">
@@ -324,7 +320,7 @@ function SlotCard({ label, slot, adjusted, flexible }: SlotCardProps) {
         <div className="mt-2 font-mono text-[11px] text-[var(--color-foreground-tertiary)]">Rezept: {slot.recipe}</div>
       )}
       {slot.alternatives && slot.alternatives.length > 0 && (
-        <div className="mt-2 border-t pt-2" style={{ borderColor: "var(--color-border)" }}>
+        <div className="mt-2 border-t border-[var(--color-border)] pt-2">
           <div className="font-mono text-[11px] uppercase tracking-wider text-[var(--color-foreground-tertiary)]">
             Alternative
           </div>
@@ -382,10 +378,7 @@ function ShoppingView({ trip }: { trip: ShoppingTrip }) {
 
   return (
     <div className="space-y-4">
-      <header
-        className="rounded-lg border p-4"
-        style={{ borderColor: "var(--color-border)", backgroundColor: "rgba(255,255,255,0.02)" }}
-      >
+      <header className="rounded-lg border border-[var(--color-border)] bg-white/[0.02] p-4">
         <div className="font-mono text-xs uppercase tracking-wider text-[var(--color-foreground-tertiary)]">
           Trip {trip.tripNumber} — {trip.label}
         </div>
@@ -401,8 +394,7 @@ function ShoppingView({ trip }: { trip: ShoppingTrip }) {
       {Object.entries(byCategory).map(([cat, items]) => (
         <section
           key={cat}
-          className="rounded-lg border p-4"
-          style={{ borderColor: "var(--color-border)" }}
+          className="rounded-lg border border-[var(--color-border)] p-4"
         >
           <h3 className="mb-2 font-mono text-xs font-medium uppercase tracking-wider text-[var(--color-foreground-secondary)]">
             {cat}
@@ -457,13 +449,9 @@ function WeekView({ weekOverview, todayDate }: WeekViewProps) {
           <div
             key={d.date}
             className={cn(
-              "rounded-lg border p-3 transition-colors",
-              isToday && "ring-1 ring-[var(--color-foreground)]",
+              "rounded-lg border border-[var(--color-border)] p-3 transition-colors",
+              isToday && "bg-white/[0.04] ring-1 ring-[var(--color-foreground)]",
             )}
-            style={{
-              borderColor: "var(--color-border)",
-              backgroundColor: isToday ? "rgba(255,255,255,0.04)" : undefined,
-            }}
           >
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
