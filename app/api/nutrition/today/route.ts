@@ -63,6 +63,7 @@ interface NutritionTodayResponse {
     recipeName: string;
     isCookDay: boolean;
   }[];
+  dayTypeSlots: Partial<Record<DayType, MealSlots>>;
   slotLabels: Record<string, string>;
 }
 
@@ -199,6 +200,7 @@ export async function GET() {
     adjustment,
     shopping: { next },
     weekOverview,
+    dayTypeSlots: slotsMap,
     slotLabels: SLOT_LABELS,
   };
 

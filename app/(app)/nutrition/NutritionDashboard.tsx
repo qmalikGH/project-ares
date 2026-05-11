@@ -5,7 +5,7 @@
 // Direction-C theme (Geist + GeistMono), session-color accents.
 
 import { useEffect, useState } from "react";
-import { CalendarDays, ChefHat, ShoppingCart, Utensils } from "lucide-react";
+import { CalendarDays, ChefHat, ChevronDown, ShoppingCart, Utensils } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getSessionColor } from "@/lib/ui/session-colors";
 import type { DayType, MealSlots, DailyAdjustment } from "@/lib/nutrition/types";
@@ -44,6 +44,7 @@ interface NutritionTodayResponse {
     recipeName: string;
     isCookDay: boolean;
   }[];
+  dayTypeSlots: Partial<Record<DayType, MealSlots>>;
   slotLabels: Record<string, string>;
 }
 
@@ -152,7 +153,14 @@ export default function NutritionDashboard() {
 
       {tab === "today" && <TodayView data={data} accent={accent} />}
       {tab === "shopping" && <ShoppingView trip={data.shopping.next} />}
-      {tab === "week" && <WeekView weekOverview={data.weekOverview} todayDate={data.date} />}
+      {tab === "week" && (
+        <WeekView
+          weekOverview={data.weekOverview}
+          todayDate={data.date}
+          dayTypeSlots={data.dayTypeSlots}
+          slotLabels={data.slotLabels}
+        />
+      )}
     </div>
   );
 }
@@ -437,23 +445,35 @@ function ShoppingView({ trip }: { trip: ShoppingTrip }) {
 interface WeekViewProps {
   weekOverview: NutritionTodayResponse["weekOverview"];
   todayDate: string;
+  dayTypeSlots: Partial<Record<DayType, MealSlots>>;
+  slotLabels: Record<string, string>;
 }
 
-function WeekView({ weekOverview, todayDate }: WeekViewProps) {
+function WeekView({ weekOverview, todayDate, dayTypeSlots, slotLabels }: WeekViewProps) {
+  const [expandedDate, setExpandedDate] = useState<string | null>(null);
+
   return (
     <div className="space-y-2">
       {weekOverview.map((d) => {
         const isToday = d.date === todayDate;
+        const isExpanded = expandedDate === d.date;
         const dayColors = colorsForDayType(d.dayType);
+        const slots = dayTypeSlots[d.dayType];
+
         return (
           <div
             key={d.date}
             className={cn(
-              "rounded-lg border border-[var(--color-border)] p-3 transition-colors",
+              "rounded-lg border border-[var(--color-border)] transition-colors",
               isToday && "bg-white/[0.04] ring-1 ring-[var(--color-foreground)]",
             )}
           >
-            <div className="flex items-center justify-between gap-3">
+            {/* Clickable header */}
+            <button
+              type="button"
+              className="flex w-full cursor-pointer items-center justify-between gap-3 p-3 text-left hover:bg-white/[0.03]"
+              onClick={() => setExpandedDate((prev) => (prev === d.date ? null : d.date))}
+            >
               <div className="flex items-center gap-3">
                 <div
                   className="inline-flex h-7 items-center rounded-md px-2 text-xs font-medium"
@@ -466,15 +486,42 @@ function WeekView({ weekOverview, todayDate }: WeekViewProps) {
                   <div className="font-mono text-[11px] text-[var(--color-foreground-tertiary)]">{d.date}</div>
                 </div>
               </div>
-              <div className="text-right">
-                <div className="text-sm">{d.recipeName}</div>
-                {d.isCookDay && (
-                  <div className="mt-0.5 inline-flex items-center gap-1 rounded-[3px] bg-[rgba(255,255,255,0.08)] px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.05em] text-[var(--color-foreground-secondary)]">
-                    <ChefHat className="h-3 w-3" /> Kochtag
-                  </div>
-                )}
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <div className="text-sm">{d.recipeName}</div>
+                  {d.isCookDay && (
+                    <div className="mt-0.5 inline-flex items-center gap-1 rounded-[3px] bg-[rgba(255,255,255,0.08)] px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.05em] text-[var(--color-foreground-secondary)]">
+                      <ChefHat className="h-3 w-3" /> Kochtag
+                    </div>
+                  )}
+                </div>
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 shrink-0 text-[var(--color-foreground-tertiary)] transition-transform duration-200",
+                    isExpanded && "rotate-180",
+                  )}
+                />
               </div>
-            </div>
+            </button>
+
+            {/* Expanded meal slots */}
+            {isExpanded && slots && (
+              <div className="space-y-2 border-t border-[var(--color-border)] px-3 pt-3 pb-3">
+                {(Object.keys(slots) as (keyof MealSlots)[]).map((key) => {
+                  const slot = slots[key];
+                  if (!slot || slot.items.length === 0) return null;
+                  return (
+                    <SlotCard
+                      key={key}
+                      label={slotLabels[key] ?? key}
+                      slot={slot}
+                      adjusted={false}
+                      flexible={slot.flexible}
+                    />
+                  );
+                })}
+              </div>
+            )}
           </div>
         );
       })}
