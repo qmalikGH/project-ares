@@ -27,6 +27,8 @@ import {
   COOK_DAYS_WEEKDAY,
   RECIPES,
 } from "@/lib/nutrition/recipes";
+import { findDayTypeConfig } from "@/lib/nutrition/day-type-configs";
+import { findRecipeTemplate } from "@/lib/nutrition/recipe-templates";
 import type { DayType, MealSlots, DailyAdjustment } from "@/lib/nutrition/types";
 
 export const dynamic = "force-dynamic";
@@ -68,6 +70,10 @@ interface NutritionTodayResponse {
     dayType: DayType;
     recipeKey: string;
     recipeName: string;
+    /** v2: mainMeal recipe name (different from dinner). */
+    mainMealRecipeName: string;
+    /** v2: dinner recipe name (different from mainMeal). */
+    dinnerRecipeName: string;
     isCookDay: boolean;
   }[];
   /** Weekday-keyed slots (0=Sun..6=Sat). Each weekday has the correct
@@ -188,12 +194,21 @@ export async function GET() {
     const d = new Date(today.getTime() + i * 86400000);
     const w = d.getUTCDay();
     const recipeKey = WEEKLY_RECIPE_BY_WEEKDAY[w];
+    const dt = getDayType(d);
+
+    // v2: look up per-dayType recipe assignment for mainMeal and dinner
+    const dtConfig = findDayTypeConfig(dt);
+    const mainMealTemplate = findRecipeTemplate(dtConfig.variableSlots.mainMeal.recipeId);
+    const dinnerTemplate = findRecipeTemplate(dtConfig.variableSlots.dinner.recipeId);
+
     weekOverview.push({
       date: d.toISOString().slice(0, 10),
       dayOfWeek: DAY_NAMES[w],
-      dayType: getDayType(d),
+      dayType: dt,
       recipeKey,
       recipeName: RECIPES[recipeKey].name,
+      mainMealRecipeName: mainMealTemplate.name,
+      dinnerRecipeName: dinnerTemplate.name,
       isCookDay: COOK_DAYS_WEEKDAY.includes(w),
     });
   }

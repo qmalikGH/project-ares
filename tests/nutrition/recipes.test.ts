@@ -4,6 +4,10 @@ import {
   WEEKLY_RECIPE_BY_WEEKDAY,
   getRecipeForDate,
 } from "@/lib/nutrition/recipes";
+import type { RecipeKey } from "@/lib/nutrition/recipes";
+
+// The original 3 meal-prep recipes remain as display/instruction references.
+// v2 adds 6 new RecipeKey aliases but RECIPES still has the 3 originals.
 
 describe("RECIPES library", () => {
   it("has all 3 canonical recipes", () => {
@@ -44,6 +48,27 @@ describe("RECIPES library", () => {
   });
 });
 
+describe("RecipeKey type — v2 expansion", () => {
+  it("v2 dinner recipe IDs are valid RecipeKey values", () => {
+    // TypeScript compile-time check — these would fail TSC if not valid
+    const dinnerKeys: RecipeKey[] = [
+      "egg_asia_norice",
+      "egg_brokkoli_norice",
+      "hack_brokkoli_norice",
+    ];
+    expect(dinnerKeys).toHaveLength(3);
+  });
+
+  it("v2 mainMeal recipe IDs are valid RecipeKey values", () => {
+    const mainMealKeys: RecipeKey[] = [
+      "chicken_rice_asia",
+      "hack_rice_brokkoli",
+      "egg_rice_asia",
+    ];
+    expect(mainMealKeys).toHaveLength(3);
+  });
+});
+
 const MON = new Date("2026-05-04T00:00:00.000Z");
 const TUE = new Date("2026-05-05T00:00:00.000Z");
 const WED = new Date("2026-05-06T00:00:00.000Z");
@@ -52,7 +77,7 @@ const FRI = new Date("2026-05-08T00:00:00.000Z");
 const SAT = new Date("2026-05-09T00:00:00.000Z");
 const SUN = new Date("2026-05-10T00:00:00.000Z");
 
-describe("WEEKLY_RECIPE_BY_WEEKDAY", () => {
+describe("WEEKLY_RECIPE_BY_WEEKDAY (legacy rotation)", () => {
   it("Mon-Wed map to chicken_rice", () => {
     expect(getRecipeForDate(MON).key).toBe("chicken_rice_tkgemuse");
     expect(getRecipeForDate(TUE).key).toBe("chicken_rice_tkgemuse");

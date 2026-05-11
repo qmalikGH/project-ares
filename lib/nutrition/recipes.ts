@@ -37,12 +37,25 @@ export interface Recipe {
   perServing: RecipePerServing;
 }
 
-export type RecipeKey =
+/** Legacy recipe keys for the 3 original meal-prep recipes (with full metadata). */
+export type LegacyRecipeKey =
   | "chicken_rice_tkgemuse"
   | "hack_rice_tkgemuse"
   | "egg_rice_tkgemuse";
 
-export const RECIPES: Record<RecipeKey, Recipe> = {
+/** All valid recipe identifiers — legacy + v2 engine IDs. */
+export type RecipeKey =
+  | LegacyRecipeKey
+  // v2 dinner recipes (no rice, lighter)
+  | "egg_asia_norice"
+  | "egg_brokkoli_norice"
+  | "hack_brokkoli_norice"
+  // v2 mainMeal recipe IDs
+  | "chicken_rice_asia"
+  | "hack_rice_brokkoli"
+  | "egg_rice_asia";
+
+export const RECIPES: Record<LegacyRecipeKey, Recipe> = {
   chicken_rice_tkgemuse: {
     key: "chicken_rice_tkgemuse",
     name: "Hähnchen-Reis mit TK-Gemüse",
@@ -99,7 +112,7 @@ export const RECIPES: Record<RecipeKey, Recipe> = {
 // flex/fresh with eggs.
 //
 // Keyed by JS getUTCDay() values: 0=Sun, 1=Mon, ..., 6=Sat.
-export const WEEKLY_RECIPE_BY_WEEKDAY: Record<number, RecipeKey> = {
+export const WEEKLY_RECIPE_BY_WEEKDAY: Record<number, LegacyRecipeKey> = {
   1: "chicken_rice_tkgemuse", // Mon (cook-day for Mo-Mi)
   2: "chicken_rice_tkgemuse", // Tue (reheat)
   3: "chicken_rice_tkgemuse", // Wed (reheat — last portion)

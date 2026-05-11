@@ -146,8 +146,8 @@ export function extractDayNeeds(slots: MealSlots): RawNeed {
     else if (nameContains(item.name, "Rinderhack")) need.hackG += g;
     else if (nameContains(item.name, "Eier")) need.eggCount += extractEggCount(item.name);
 
-    // Carbs
-    if (nameContains(item.name, "Reis") && nameContains(item.name, "trocken")) need.riceG += g;
+    // Carbs — v2 engine labels rice as "Reis Xg" (no "trocken" suffix)
+    if (nameContains(item.name, "Reis")) need.riceG += g;
 
     // Vegetables
     if (nameContains(item.name, "Asia-Gemüse")) need.asiaVegG += g;

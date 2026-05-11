@@ -1,7 +1,13 @@
-// Day-type engine — Sprint v0.16 Phase B2.
+// Day-type engine — Nutrition v2, derived from DayTypeConfigs.
+//
 // Maps weekdays to nutrition day-types and provides initial calorie/macro
 // targets for the pre-calibration window.
+//
+// INITIAL_TARGETS and SLOT_PRESENCE are now DERIVED from DAY_TYPE_CONFIGS
+// (the single source of truth in day-type-configs.ts). Changing a target
+// or slot presence there automatically cascades here.
 
+import { DAY_TYPE_CONFIGS } from "./day-type-configs";
 import type { DayType } from "./types";
 
 // ── Weekday → DayType mapping ────────────────────────────────────────────
@@ -34,9 +40,10 @@ export function getDayType(date: Date): DayType {
   return DAY_TYPE_BY_WEEKDAY[date.getUTCDay()] ?? "rest";
 }
 
-// ── Initial pre-calibration targets (B2.2) ───────────────────────────────
-// These are conservative estimates used until the calibration engine has
-// 14 days of Garmin TDEE data. Real averages overwrite them at that point.
+// ── Initial pre-calibration targets — DERIVED from DAY_TYPE_CONFIGS ──────
+// These are the starting values until the calibration engine has 14+ days
+// of Garmin TDEE data. Real averages overwrite them at that point.
+// tdeeEstimate = calorieTarget + 500 (conservative deficit assumption).
 
 export interface DayTypeTargets {
   tdeeEstimate: number;
@@ -47,33 +54,22 @@ export interface DayTypeTargets {
 }
 
 const DEFAULT_DEFICIT = 500;
-const DEFAULT_PROTEIN_G = 190;
-const DEFAULT_FAT_G = 70;
 
-function compute(tdee: number): DayTypeTargets {
-  const calorieTarget = tdee - DEFAULT_DEFICIT;
-  // Macro split: 190g protein × 4 kcal + 70g fat × 9 kcal = 1390 kcal.
-  // Carbs fill the remainder.
-  const carbsKcal = calorieTarget - DEFAULT_PROTEIN_G * 4 - DEFAULT_FAT_G * 9;
-  return {
-    tdeeEstimate: tdee,
-    calorieTarget,
-    proteinG: DEFAULT_PROTEIN_G,
-    carbsG: Math.max(0, Math.round(carbsKcal / 4)),
-    fatG: DEFAULT_FAT_G,
-  };
-}
+export const INITIAL_TARGETS: Record<DayType, DayTypeTargets> = Object.fromEntries(
+  DAY_TYPE_CONFIGS.map((c) => [
+    c.dayType,
+    {
+      tdeeEstimate: c.calorieTarget + DEFAULT_DEFICIT,
+      calorieTarget: c.calorieTarget,
+      proteinG: c.macroTargets.proteinG,
+      carbsG: c.macroTargets.carbsG,
+      fatG: c.macroTargets.fatG,
+    },
+  ]),
+) as Record<DayType, DayTypeTargets>;
 
-export const INITIAL_TARGETS: Record<DayType, DayTypeTargets> = {
-  strength_run: compute(3000),
-  threshold: compute(2800),
-  long_run: compute(3200),
-  rest: compute(2200),
-};
-
-// ── Slot variation per day-type (B2.3) ───────────────────────────────────
-// Which slots are present on each day-type. Rest days drop pre-training
-// (no nitrate priming needed) and downsize dinner / no Skyr → ~500 kcal less.
+// ── Slot variation per day-type — DERIVED from DAY_TYPE_CONFIGS ──────────
+// Which slots are present on each day-type.
 
 export interface SlotPresence {
   morning: boolean;
@@ -85,41 +81,17 @@ export interface SlotPresence {
   eveningSnack: boolean;
 }
 
-export const SLOT_PRESENCE: Record<DayType, SlotPresence> = {
-  strength_run: {
-    morning: true,
-    preTraining: true,
-    mainMeal: true,
-    postMealDessert: true,
-    afternoonSnack: true,
-    dinner: true,
-    eveningSnack: true,
-  },
-  threshold: {
-    morning: true,
-    preTraining: true,
-    mainMeal: true,
-    postMealDessert: true,
-    afternoonSnack: true,
-    dinner: true,
-    eveningSnack: true,
-  },
-  long_run: {
-    morning: true,
-    preTraining: true,
-    mainMeal: true,
-    postMealDessert: true,
-    afternoonSnack: true,
-    dinner: true,
-    eveningSnack: true,
-  },
-  rest: {
-    morning: true,
-    preTraining: false, // no run/lift → skip nitrate priming
-    mainMeal: true,
-    postMealDessert: false, // drop Skyr (~130 kcal)
-    afternoonSnack: true,
-    dinner: true, // smaller portion handled at slot-content level
-    eveningSnack: true,
-  },
-};
+export const SLOT_PRESENCE: Record<DayType, SlotPresence> = Object.fromEntries(
+  DAY_TYPE_CONFIGS.map((c) => [
+    c.dayType,
+    {
+      morning: true,
+      preTraining: c.fixedSlots.preTraining !== null,
+      mainMeal: true,
+      postMealDessert: c.fixedSlots.flexDessert?.enabled ?? false,
+      afternoonSnack: true,
+      dinner: true,
+      eveningSnack: true,
+    },
+  ]),
+) as Record<DayType, SlotPresence>;
