@@ -276,7 +276,7 @@ async function buildTrainingHistory(userId: string, today: Date): Promise<Traini
   const sessions: TrainingSession[] = workouts.map((w: any) => {
     if (w.type !== "rest") {
       if (w.status === "completed") completedCount++;
-      else if (w.status === "skipped") skippedCount++;
+      else if (w.status === "skipped" || w.status === "skipped_illness") skippedCount++;
       else plannedCount++;
     }
 

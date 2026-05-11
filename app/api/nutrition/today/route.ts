@@ -8,12 +8,13 @@ import { getCurrentUserId } from "@/lib/auth/current-user";
 import { userTodayDynamic } from "@/lib/date";
 import { dayKey } from "@/lib/db/queries/sensors";
 import { getDayType } from "@/lib/nutrition/day-type";
-import { templateDayPlan, sumSlotMacros, SLOT_LABELS } from "@/lib/nutrition/template";
+import { templateDayPlan, templateSlotsForDayType, sumSlotMacros, SLOT_LABELS } from "@/lib/nutrition/template";
 import {
   generateShoppingTrip1,
   generateShoppingTrip2,
   nextTripForDate,
 } from "@/lib/nutrition/shopping-list";
+import type { DayPlanSlotsMap } from "@/lib/nutrition/shopping-list";
 import {
   WEEKLY_RECIPE_BY_WEEKDAY,
   COOK_DAYS_WEEKDAY,
@@ -91,7 +92,7 @@ export async function GET() {
     if (userId) {
       activePlan = await db.mealPlan.findFirst({
         where: { userId, status: "active" },
-        include: { dayPlans: { where: { dayType } } },
+        include: { dayPlans: true },
       });
     }
   } catch {
@@ -115,18 +116,34 @@ export async function GET() {
   let dayPlanData: NutritionTodayResponse["dayPlan"];
   let planSummary: NutritionTodayResponse["plan"] = null;
 
-  if (activePlan && activePlan.dayPlans?.[0]) {
-    source = "active_plan";
-    const dp = activePlan.dayPlans[0];
-    dayPlanData = {
-      dayType,
-      tdeeEstimate: dp.tdeeEstimate,
-      calorieTarget: dp.calorieTarget,
-      proteinG: dp.proteinG,
-      carbsG: dp.carbsG,
-      fatG: dp.fatG,
-      slots: dp.slots as MealSlots,
-    };
+  // Build DayPlanSlotsMap from all dayPlans (needed for shopping list).
+  // Falls back to template-derived slots when no active plan exists.
+  let slotsMap: DayPlanSlotsMap = {};
+
+  if (activePlan && activePlan.dayPlans?.length) {
+    const todayDayPlan = activePlan.dayPlans.find(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (dp: any) => dp.dayType === dayType,
+    );
+    if (todayDayPlan) {
+      source = "active_plan";
+      dayPlanData = {
+        dayType,
+        tdeeEstimate: todayDayPlan.tdeeEstimate,
+        calorieTarget: todayDayPlan.calorieTarget,
+        proteinG: todayDayPlan.proteinG,
+        carbsG: todayDayPlan.carbsG,
+        fatG: todayDayPlan.fatG,
+        slots: todayDayPlan.slots as MealSlots,
+      };
+    } else {
+      dayPlanData = templateDayPlan(dayType);
+    }
+    // Build slotsMap from all day-types in the plan
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const dp of activePlan.dayPlans as any[]) {
+      slotsMap[dp.dayType as DayType] = dp.slots as MealSlots;
+    }
     planSummary = {
       name: activePlan.name,
       calibrationStatus: activePlan.calibrationStatus,
@@ -137,12 +154,16 @@ export async function GET() {
     // Fallback to canonical template — works even before seed has run
     // and on preview deploys without DB access.
     dayPlanData = templateDayPlan(dayType);
+    // Template-based slotsMap for shopping
+    for (const dt of ["strength_run", "threshold", "long_run", "rest"] as DayType[]) {
+      slotsMap[dt] = templateSlotsForDayType(dt);
+    }
   }
 
   const totals = sumSlotMacros(dayPlanData.slots);
 
-  // 3. Shopping (next trip for today)
-  const next = nextTripForDate(today);
+  // 3. Shopping (next trip for today, derived from active DayPlan slots)
+  const next = nextTripForDate(today, slotsMap);
 
   // 4. 7-day overview from today
   const weekOverview: NutritionTodayResponse["weekOverview"] = [];

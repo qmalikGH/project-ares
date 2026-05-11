@@ -38,7 +38,7 @@ export async function GET(req: Request) {
     where.status = "completed";
     where.modulationApplied = true;
   } else if (statusFilter === "skipped") {
-    where.status = "skipped";
+    where.status = { in: ["skipped", "skipped_illness"] };
   }
 
   const [total, workouts] = await Promise.all([

@@ -6,7 +6,8 @@ import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { dayKey } from "@/lib/db/queries/sensors";
 import { calibrateMealPlan } from "@/lib/nutrition/calibration";
-import { templateDayPlan } from "@/lib/nutrition/template";
+import type { DayTypeTargets } from "@/lib/nutrition/day-type";
+import { buildSlotsForTargets, templateDayPlan } from "@/lib/nutrition/template";
 import type { DayType } from "@/lib/nutrition/types";
 
 const TherapyPhaseSchema = z.object({
@@ -199,21 +200,40 @@ export async function handleCoachingAction(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const plan: any = await db.mealPlan.findFirst({
         where: { userId, status: "active" },
-        select: { id: true },
+        select: { id: true, deficitKcal: true },
       });
       if (!plan) return { success: false, status: 404, error: "no_active_meal_plan" };
 
-      const updated = await db.dayPlan.updateMany({
+      // Build full targets and cascade into slots (protein-first, carbs fill rest)
+      const tdeeEstimate = parsed.data.calorieTarget + (plan.deficitKcal ?? 500);
+      const targets: DayTypeTargets = {
+        tdeeEstimate,
+        calorieTarget: parsed.data.calorieTarget,
+        proteinG: parsed.data.proteinG,
+        carbsG: parsed.data.carbsG,
+        fatG: parsed.data.fatG,
+      };
+      const slots = buildSlotsForTargets(parsed.data.dayType as DayType, targets);
+
+      const dayPlans = await db.dayPlan.findMany({
         where: { mealPlanId: plan.id, dayType: parsed.data.dayType },
-        data: {
-          calorieTarget: parsed.data.calorieTarget,
-          proteinG: parsed.data.proteinG,
-          carbsG: parsed.data.carbsG,
-          fatG: parsed.data.fatG,
-        },
+        select: { id: true },
       });
-      if (updated.count === 0) {
+      if (dayPlans.length === 0) {
         return { success: false, status: 404, error: "day_plan_not_found" };
+      }
+      for (const dp of dayPlans) {
+        await db.dayPlan.update({
+          where: { id: dp.id },
+          data: {
+            tdeeEstimate,
+            calorieTarget: parsed.data.calorieTarget,
+            proteinG: parsed.data.proteinG,
+            carbsG: parsed.data.carbsG,
+            fatG: parsed.data.fatG,
+            slots: slots as unknown as object,
+          },
+        });
       }
 
       const log = await db.coachingLog.create({

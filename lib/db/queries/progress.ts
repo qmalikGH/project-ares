@@ -321,7 +321,7 @@ export async function getAdherenceStats(
     if (w.type === "rest") continue;
     if (w.status === "completed" && !w.modulationApplied) completed++;
     else if (w.status === "completed" && w.modulationApplied) modified++;
-    else if (w.status === "skipped") skipped++;
+    else if (w.status === "skipped" || w.status === "skipped_illness") skipped++;
     else pending++;
   }
 

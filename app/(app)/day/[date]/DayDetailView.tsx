@@ -409,10 +409,10 @@ function StatusBadge({
       </span>
     );
   }
-  if (status === "skipped") {
+  if (status === "skipped" || status === "skipped_illness") {
     return (
       <span className="rounded-md bg-red-500/15 text-red-700 dark:text-red-400 text-xs font-semibold px-2 py-0.5 border border-red-500/30">
-        ✗ Skipped
+        {status === "skipped_illness" ? "🤒 Illness" : "✗ Skipped"}
       </span>
     );
   }

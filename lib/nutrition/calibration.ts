@@ -1,13 +1,18 @@
-// Calibration engine — Sprint v0.16 Phase B6.
+// Calibration engine — Sprint v0.16 Phase B6, hardened v0.17.
 // Replaces pre-calibration estimates (INITIAL_TARGETS) with rolling 14-day
 // averages of Garmin-measured TDEE, grouped by nutrition day-type.
 //
-// Re-calibration trigger lives in the cron job (B6.2): every 14 days or
-// when current weight changes by >1kg.
+// Hardening (v0.17):
+//   1. Illness filtering: only "clean" TDEE days (completed sessions for
+//      training days, no planned sessions + TDEE > 2000 for rest days).
+//   2. Coaching override protection: day-types with a recent
+//      updateCalorieTargets CoachingLog entry are skipped.
 
 import { db } from "@/lib/db/client";
 import { dayKey } from "@/lib/db/queries/sensors";
 import { getDayType } from "./day-type";
+import type { DayTypeTargets } from "./day-type";
+import { buildSlotsForTargets } from "./template";
 import type { CalibrationResult, DayType } from "./types";
 
 export const CALIBRATION_WINDOW_DAYS = 14;
@@ -15,9 +20,80 @@ export const MIN_SAMPLES_PER_DAY_TYPE = 2;
 export const FIXED_PROTEIN_G = 190; // ~2g/kg for Q
 export const FIXED_FAT_G = 70;
 
+const ALL_DAY_TYPES: DayType[] = ["strength_run", "threshold", "long_run", "rest"];
+
 // ── Pure helpers ─────────────────────────────────────────────────────────
 
 export type TDEERow = { date: Date; totalKilocalories: number | null };
+export type WorkoutRow = { date: Date; status: string };
+export type CoachingOverrideRow = { dayType: string; createdAt: Date };
+
+/** Minimum rest-day TDEE to include in averages. Days below this are
+ *  likely illness days where BMR was significantly depressed. */
+export const REST_DAY_TDEE_FLOOR = 2000;
+
+/**
+ * Filter TDEE rows to only include "clean" training data:
+ * - Training days (strength_run, threshold, long_run): only if a Workout
+ *   with status "completed" exists on that date.
+ * - Rest days: only if NO Workout was planned on that date AND
+ *   totalKilocalories > REST_DAY_TDEE_FLOOR.
+ *
+ * This excludes illness days, skipped sessions, and anomalously low
+ * rest-day expenditures from the TDEE averages.
+ */
+export function filterCleanTDEE(
+  tdeeRows: TDEERow[],
+  workouts: WorkoutRow[],
+): TDEERow[] {
+  // Build date → statuses map (a date can have multiple workouts)
+  const statusesByDate = new Map<string, string[]>();
+  for (const w of workouts) {
+    const key = w.date.toISOString().slice(0, 10);
+    const existing = statusesByDate.get(key);
+    if (existing) {
+      existing.push(w.status);
+    } else {
+      statusesByDate.set(key, [w.status]);
+    }
+  }
+
+  return tdeeRows.filter((r) => {
+    if (r.totalKilocalories == null) return false;
+
+    const dateKey = r.date.toISOString().slice(0, 10);
+    const dayType = getDayType(r.date);
+    const statuses = statusesByDate.get(dateKey);
+
+    if (dayType === "rest") {
+      // Rest day: no workout planned AND TDEE above illness floor
+      return !statuses && r.totalKilocalories > REST_DAY_TDEE_FLOOR;
+    } else {
+      // Training day: at least one completed session
+      return statuses != null && statuses.includes("completed");
+    }
+  });
+}
+
+/**
+ * Return the set of day-types that have a coaching override
+ * (updateCalorieTargets) more recent than the last calibration.
+ * These day-types must NOT be overwritten by auto-calibration.
+ */
+export function dayTypesWithCoachOverride(
+  overrides: CoachingOverrideRow[],
+  lastCalibration: Date | null,
+): Set<DayType> {
+  const protected_ = new Set<DayType>();
+  for (const o of overrides) {
+    if (!ALL_DAY_TYPES.includes(o.dayType as DayType)) continue;
+    // If never calibrated, all overrides are protected
+    if (!lastCalibration || o.createdAt > lastCalibration) {
+      protected_.add(o.dayType as DayType);
+    }
+  }
+  return protected_;
+}
 
 export function groupTDEEByDayType(rows: TDEERow[]): Record<DayType, number[]> {
   const buckets: Record<DayType, number[]> = {
@@ -68,41 +144,47 @@ export function computeMacros(
 // ── DB pipeline ──────────────────────────────────────────────────────────
 
 /**
- * Pull TDEE rows for the rolling 14-day window, compute averages per
- * day-type, write them onto the active MealPlan's DayPlans, and mark the
- * MealPlan as calibrated.
- *
- * Returns insufficient_data when no day-type has enough samples or no
- * active MealPlan exists.
+ * Pull TDEE rows for the rolling 14-day window, filter for clean data,
+ * compute averages per day-type, skip coaching overrides, write updates
+ * onto the active MealPlan's DayPlans, and mark the MealPlan as calibrated.
  */
 export async function calibrateMealPlan(userId: string): Promise<CalibrationResult> {
   const cutoff = dayKey(new Date());
   cutoff.setUTCDate(cutoff.getUTCDate() - CALIBRATION_WINDOW_DAYS);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rows: any[] = await db.dailySensorData.findMany({
-    where: { userId, date: { gte: cutoff } },
-    select: { date: true, totalKilocalories: true },
-    orderBy: { date: "asc" },
-  });
+  // ── Fetch TDEE + workout data in parallel ──
+  const [rawRows, workouts] = await Promise.all([
+    db.dailySensorData.findMany({
+      where: { userId, date: { gte: cutoff } },
+      select: { date: true, totalKilocalories: true },
+      orderBy: { date: "asc" },
+    }),
+    db.workout.findMany({
+      where: { userId, date: { gte: cutoff } },
+      select: { date: true, status: true },
+    }),
+  ]);
 
-  const buckets = groupTDEEByDayType(rows);
+  // ── Filter: only clean training days ──
+  const cleanRows = filterCleanTDEE(rawRows, workouts);
+  const buckets = groupTDEEByDayType(cleanRows);
   const averages = averageTDEEByDayType(buckets);
-  const daysAvailable = rows.filter((r) => r.totalKilocalories != null).length;
+  const daysAvailable = cleanRows.filter((r) => r.totalKilocalories != null).length;
 
   if (Object.keys(averages).length === 0) {
     return {
       status: "insufficient_data",
       averages: {},
       daysAvailable,
-      message: `Nicht genug TDEE-Daten (${daysAvailable} Tage). Mindestens ${MIN_SAMPLES_PER_DAY_TYPE} pro Tagestyp nötig.`,
+      message: `Nicht genug bereinigte TDEE-Daten (${daysAvailable} saubere Tage). Mindestens ${MIN_SAMPLES_PER_DAY_TYPE} pro Tagestyp nötig.`,
     };
   }
 
+  // ── Load MealPlan ──
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const plan: any = await db.mealPlan.findFirst({
     where: { userId, status: "active" },
-    select: { id: true, deficitKcal: true },
+    select: { id: true, deficitKcal: true, calibratedAt: true },
   });
   if (!plan) {
     return {
@@ -113,18 +195,56 @@ export async function calibrateMealPlan(userId: string): Promise<CalibrationResu
     };
   }
 
+  // ── Coaching override protection ──
+  const overrideLogs = await db.coachingLog.findMany({
+    where: { userId, action: "updateCalorieTargets" },
+    select: { data: true, createdAt: true },
+  });
+  const mapped: CoachingOverrideRow[] = overrideLogs.map((l) => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dayType: (l.data as any)?.dayType as string,
+    createdAt: l.createdAt,
+  }));
+  const protectedTypes = dayTypesWithCoachOverride(mapped, plan.calibratedAt);
+  const skippedCoachingOverride: string[] = [];
+
+  // ── Update loop ──
   for (const [dayType, avgTDEE] of Object.entries(averages) as [DayType, number][]) {
+    if (protectedTypes.has(dayType)) {
+      skippedCoachingOverride.push(dayType);
+      continue;
+    }
+
     const m = computeMacros(avgTDEE, plan.deficitKcal);
-    await db.dayPlan.updateMany({
+    const targets: DayTypeTargets = {
+      tdeeEstimate: avgTDEE,
+      calorieTarget: m.calorieTarget,
+      proteinG: m.proteinG,
+      carbsG: m.carbsG,
+      fatG: m.fatG,
+    };
+
+    // Cascade: rebuild meal slots from calibrated targets so portions
+    // always match the new calorie target (protein-first, carbs fill rest).
+    const slots = buildSlotsForTargets(dayType, targets);
+
+    const dayPlans = await db.dayPlan.findMany({
       where: { mealPlanId: plan.id, dayType },
-      data: {
-        tdeeEstimate: avgTDEE,
-        calorieTarget: m.calorieTarget,
-        proteinG: m.proteinG,
-        carbsG: m.carbsG,
-        fatG: m.fatG,
-      },
+      select: { id: true },
     });
+    for (const dp of dayPlans) {
+      await db.dayPlan.update({
+        where: { id: dp.id },
+        data: {
+          tdeeEstimate: avgTDEE,
+          calorieTarget: m.calorieTarget,
+          proteinG: m.proteinG,
+          carbsG: m.carbsG,
+          fatG: m.fatG,
+          slots: slots as unknown as object,
+        },
+      });
+    }
   }
 
   await db.mealPlan.update({
@@ -132,10 +252,16 @@ export async function calibrateMealPlan(userId: string): Promise<CalibrationResu
     data: { calibrationStatus: "calibrated", calibratedAt: new Date() },
   });
 
+  const updatedCount = Object.keys(averages).length - skippedCoachingOverride.length;
+  const skipMsg = skippedCoachingOverride.length > 0
+    ? ` ${skippedCoachingOverride.join(", ")} übersprungen (Coaching-Override).`
+    : "";
+
   return {
     status: "calibrated",
     averages,
     daysAvailable,
-    message: `Kalibriert über ${daysAvailable} Tage. ${Object.keys(averages).length}/4 Tagestypen aktualisiert.`,
+    skippedCoachingOverride,
+    message: `Kalibriert über ${daysAvailable} bereinigte Tage. ${updatedCount}/${Object.keys(averages).length} Tagestypen aktualisiert.${skipMsg}`,
   };
 }

@@ -5,6 +5,7 @@ const coachingLogCreate = vi.hoisted(() => vi.fn());
 const mealPlanFindFirst = vi.hoisted(() => vi.fn());
 const mealPlanCreate = vi.hoisted(() => vi.fn());
 const dayPlanFindUnique = vi.hoisted(() => vi.fn());
+const dayPlanFindMany = vi.hoisted(() => vi.fn());
 const dayPlanCreate = vi.hoisted(() => vi.fn());
 const dayPlanUpdate = vi.hoisted(() => vi.fn());
 const dayPlanUpdateMany = vi.hoisted(() => vi.fn());
@@ -20,6 +21,7 @@ vi.mock("@/lib/db/client", () => ({
     mealPlan: { findFirst: mealPlanFindFirst, create: mealPlanCreate },
     dayPlan: {
       findUnique: dayPlanFindUnique,
+      findMany: dayPlanFindMany,
       create: dayPlanCreate,
       update: dayPlanUpdate,
       updateMany: dayPlanUpdateMany,
@@ -286,11 +288,12 @@ describe("handleCoachingAction — updateCalorieTargets (Phase B9)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     coachingLogCreate.mockResolvedValue({ id: "log-cal" });
-    mealPlanFindFirst.mockResolvedValue({ id: "plan-1" });
-    dayPlanUpdateMany.mockResolvedValue({ count: 1 });
+    mealPlanFindFirst.mockResolvedValue({ id: "plan-1", deficitKcal: 500 });
+    dayPlanFindMany.mockResolvedValue([{ id: "dp-rest-1" }]);
+    dayPlanUpdate.mockResolvedValue({});
   });
 
-  it("updates DayPlan macros for the given dayType", async () => {
+  it("updates DayPlan macros + slots for the given dayType", async () => {
     const result = await handleCoachingAction(
       USER_ID,
       "updateCalorieTargets",
@@ -304,14 +307,27 @@ describe("handleCoachingAction — updateCalorieTargets (Phase B9)", () => {
       "Switching rest day target post-calibration",
     );
     expect(result.success).toBe(true);
-    expect(dayPlanUpdateMany).toHaveBeenCalledWith({
+    // Slot cascade: now uses findMany + individual update instead of updateMany
+    expect(dayPlanFindMany).toHaveBeenCalledWith({
       where: { mealPlanId: "plan-1", dayType: "rest" },
-      data: { calorieTarget: 1700, proteinG: 190, carbsG: 78, fatG: 70 },
+      select: { id: true },
     });
+    expect(dayPlanUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "dp-rest-1" },
+        data: expect.objectContaining({
+          calorieTarget: 1700,
+          proteinG: 190,
+          carbsG: 78,
+          fatG: 70,
+          slots: expect.any(Object),
+        }),
+      }),
+    );
   });
 
   it("returns 404 when DayPlan does not exist", async () => {
-    dayPlanUpdateMany.mockResolvedValue({ count: 0 });
+    dayPlanFindMany.mockResolvedValue([]);
     const result = await handleCoachingAction(
       USER_ID,
       "updateCalorieTargets",

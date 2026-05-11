@@ -69,4 +69,6 @@ export interface CalibrationResult {
   averages: Partial<Record<DayType, number>>;
   daysAvailable: number;
   message: string;
+  /** Day-types skipped because a coaching override exists (updateCalorieTargets). */
+  skippedCoachingOverride?: string[];
 }

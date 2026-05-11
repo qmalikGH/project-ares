@@ -64,7 +64,7 @@ export function buildBlockReviewInput(rows: BlockTrainingRows): BlockReviewInput
   }
 
   // Missed sessions — planned but not completed within the block
-  const missed = rows.workouts.filter((w) => w.status === "skipped" || w.status === "planned").length;
+  const missed = rows.workouts.filter((w) => w.status === "skipped" || w.status === "skipped_illness" || w.status === "planned").length;
 
   // Performance marker — block 1-4: VDOT proxy. Block 5: time trial result.
   const targetVdot = rows.performance.targetVdot ?? 0;

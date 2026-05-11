@@ -280,7 +280,7 @@ function WorkoutRow({
       ? "✓"
       : workout.status === "completed" && workout.modulationApplied
       ? "↻"
-      : workout.status === "skipped"
+      : workout.status === "skipped" || workout.status === "skipped_illness"
       ? "✗"
       : "⚪";
 
@@ -289,7 +289,7 @@ function WorkoutRow({
       ? "text-emerald-600 dark:text-emerald-400"
       : workout.status === "completed"
       ? "text-yellow-700 dark:text-yellow-300"
-      : workout.status === "skipped"
+      : workout.status === "skipped" || workout.status === "skipped_illness"
       ? "text-red-600 dark:text-red-400"
       : "text-muted-foreground";
 
