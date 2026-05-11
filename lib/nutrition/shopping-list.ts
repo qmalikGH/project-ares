@@ -5,9 +5,12 @@
 //
 // Two weekly trips (Sun → Mo-Mi, Wed → Do-Sa) + periodic staples.
 // Quantities are rounded up to REWE package sizes (Verpackungseinheiten).
+//
+// Slots are WEEKDAY-KEYED (0=Sun..6=Sat), NOT dayType-keyed. This
+// ensures the recipe rotation (chicken Mo-Mi, hack Do-Sa, egg So)
+// produces correct ingredient aggregation per trip.
 
-import { DAY_TYPE_BY_WEEKDAY } from "./day-type";
-import type { DayType, MealSlots } from "./types";
+import type { MealSlots } from "./types";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -29,7 +32,7 @@ export interface ShoppingItem {
   category: ShoppingCategory;
   estimatedCostEur: number;
   store: Store;
-  /** Exact grams needed (before rounding to package size). For debugging. */
+  /** Exact grams/units needed (before rounding to package size). For debugging. */
   rawGrams?: number;
 }
 
@@ -82,6 +85,12 @@ function extractGrams(itemName: string): number {
   return match ? parseInt(match[1], 10) : 0;
 }
 
+/** Extract egg count from item name like "Eier 4 Stück". */
+function extractEggCount(itemName: string): number {
+  const match = itemName.match(/(\d+)\s*Stück/);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
 /** True if item name contains a keyword (case-insensitive). */
 function nameContains(name: string, keyword: string): boolean {
   return name.toLowerCase().includes(keyword.toLowerCase());
@@ -92,6 +101,7 @@ function nameContains(name: string, keyword: string): boolean {
 interface RawNeed {
   chickenG: number;
   hackG: number;
+  eggCount: number; // total eggs (whole units)
   riceG: number;
   asiaVegG: number;
   broccoliG: number;
@@ -107,6 +117,7 @@ function emptyRawNeed(): RawNeed {
   return {
     chickenG: 0,
     hackG: 0,
+    eggCount: 0,
     riceG: 0,
     asiaVegG: 0,
     broccoliG: 0,
@@ -133,6 +144,7 @@ export function extractDayNeeds(slots: MealSlots): RawNeed {
     // Protein sources
     if (nameContains(item.name, "Hähnchenbrust")) need.chickenG += g;
     else if (nameContains(item.name, "Rinderhack")) need.hackG += g;
+    else if (nameContains(item.name, "Eier")) need.eggCount += extractEggCount(item.name);
 
     // Carbs
     if (nameContains(item.name, "Reis") && nameContains(item.name, "trocken")) need.riceG += g;
@@ -168,6 +180,7 @@ function sumNeeds(days: RawNeed[]): RawNeed {
   for (const d of days) {
     total.chickenG += d.chickenG;
     total.hackG += d.hackG;
+    total.eggCount += d.eggCount;
     total.riceG += d.riceG;
     total.asiaVegG += d.asiaVegG;
     total.broccoliG += d.broccoliG;
@@ -224,14 +237,27 @@ function makeCountItem(pkg: PackageDef, count: number): ShoppingItem {
 function buildTripItems(need: RawNeed): ShoppingItem[] {
   const items: ShoppingItem[] = [];
 
-  // PROTEIN
+  // PROTEIN — chicken
   if (need.chickenG > 0) {
     const packs = packagesNeeded(need.chickenG, PACKAGES.chicken.packageG);
     items.push(makeItem(PACKAGES.chicken, packs, need.chickenG));
   }
+  // PROTEIN — hack
   if (need.hackG > 0) {
     const packs = packagesNeeded(need.hackG, PACKAGES.hack.packageG);
     items.push(makeItem(PACKAGES.hack, packs, need.hackG));
+  }
+  // PROTEIN — eggs (10er Packung)
+  if (need.eggCount > 0) {
+    const packs = Math.ceil(need.eggCount / 10);
+    items.push({
+      name: "Eier Freiland 10er",
+      amount: packs === 1 ? "10 Stück" : `${packs}× 10 Stück`,
+      category: "PROTEIN",
+      estimatedCostEur: Math.round(packs * 2.29 * 100) / 100,
+      store: "rewe",
+      rawGrams: need.eggCount, // actually count, not grams
+    });
   }
 
   // CARBS — rice
@@ -324,10 +350,14 @@ function totalCost(items: ShoppingItem[]): number {
 }
 
 /**
- * Map of dayType → MealSlots from the active DayPlans. The shopping list
- * uses this to compute per-day ingredient needs for each day of the week.
+ * Weekday-keyed slots map (0=Sun..6=Sat). Each weekday has its own
+ * MealSlots with the correct recipe (chicken/hack/egg). Built by
+ * `buildWeekdaySlotsMap()` from template.ts.
  */
-export type DayPlanSlotsMap = Partial<Record<DayType, MealSlots>>;
+export type WeekdaySlotsMap = Partial<Record<number, MealSlots>>;
+
+/** @deprecated Use WeekdaySlotsMap instead. Kept for backward compat. */
+export type DayPlanSlotsMap = WeekdaySlotsMap;
 
 /** Trip 1 covers Mon (1), Tue (2), Wed (3). */
 const TRIP_1_WEEKDAYS = [1, 2, 3] as const;
@@ -335,14 +365,13 @@ const TRIP_1_WEEKDAYS = [1, 2, 3] as const;
 const TRIP_2_WEEKDAYS = [4, 5, 6] as const;
 
 /**
- * Collect day needs for a set of weekdays, using the DayPlanSlotsMap to
- * resolve each weekday's dayType → its MealSlots.
+ * Collect day needs for a set of weekdays, using the weekday-keyed
+ * slots map to look up each day's MealSlots directly.
  */
-function collectNeeds(weekdays: readonly number[], slotsMap: DayPlanSlotsMap): RawNeed {
+function collectNeeds(weekdays: readonly number[], slotsMap: WeekdaySlotsMap): RawNeed {
   const dayNeeds: RawNeed[] = [];
   for (const wd of weekdays) {
-    const dayType = DAY_TYPE_BY_WEEKDAY[wd];
-    const slots = slotsMap[dayType];
+    const slots = slotsMap[wd];
     if (slots) {
       dayNeeds.push(extractDayNeeds(slots));
     }
@@ -350,7 +379,7 @@ function collectNeeds(weekdays: readonly number[], slotsMap: DayPlanSlotsMap): R
   return sumNeeds(dayNeeds);
 }
 
-export function generateShoppingTrip1(slotsMap: DayPlanSlotsMap): ShoppingTrip {
+export function generateShoppingTrip1(slotsMap: WeekdaySlotsMap): ShoppingTrip {
   const need = collectNeeds(TRIP_1_WEEKDAYS, slotsMap);
   const items = buildTripItems(need);
   return {
@@ -363,7 +392,7 @@ export function generateShoppingTrip1(slotsMap: DayPlanSlotsMap): ShoppingTrip {
   };
 }
 
-export function generateShoppingTrip2(slotsMap: DayPlanSlotsMap): ShoppingTrip {
+export function generateShoppingTrip2(slotsMap: WeekdaySlotsMap): ShoppingTrip {
   const need = collectNeeds(TRIP_2_WEEKDAYS, slotsMap);
   const items = buildTripItems(need);
   return {
@@ -385,9 +414,9 @@ export function generateStaplesList(): StaplesList {
 }
 
 /**
- * Both weekly trips, derived from the active DayPlan slots.
+ * Both weekly trips, derived from weekday-keyed DayPlan slots.
  */
-export function generateShoppingList(slotsMap: DayPlanSlotsMap): ShoppingTrip[] {
+export function generateShoppingList(slotsMap: WeekdaySlotsMap): ShoppingTrip[] {
   return [generateShoppingTrip1(slotsMap), generateShoppingTrip2(slotsMap)];
 }
 
@@ -396,7 +425,7 @@ export function generateShoppingList(slotsMap: DayPlanSlotsMap): ShoppingTrip[] 
  *   Sun, Mon-Tue → Trip 1 (cook on Sun)
  *   Wed, Thu-Sat → Trip 2 (cook on Wed)
  */
-export function nextTripForDate(date: Date, slotsMap: DayPlanSlotsMap): ShoppingTrip {
+export function nextTripForDate(date: Date, slotsMap: WeekdaySlotsMap): ShoppingTrip {
   const d = date.getUTCDay();
   return d === 0 || d === 1 || d === 2
     ? generateShoppingTrip1(slotsMap)

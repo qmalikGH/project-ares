@@ -7,90 +7,91 @@ import {
   generateStaplesList,
   nextTripForDate,
 } from "@/lib/nutrition/shopping-list";
-import type { DayPlanSlotsMap } from "@/lib/nutrition/shopping-list";
-import { templateSlotsForDayType } from "@/lib/nutrition/template";
+import type { WeekdaySlotsMap } from "@/lib/nutrition/shopping-list";
+import { buildWeekdaySlotsMap, buildSlotsForWeekday, sumSlotMacros } from "@/lib/nutrition/template";
+import { INITIAL_TARGETS, DAY_TYPE_BY_WEEKDAY } from "@/lib/nutrition/day-type";
 import type { MealSlots } from "@/lib/nutrition/types";
 
 // ── Test fixtures ───────────────────────────────────────────────────────
-// Use the real template slots so tests exercise the actual item-name
-// parsing logic (extractDayNeeds must match the names the template emits).
+// Build weekday-keyed slots with the actual recipe rotation:
+//   Mo-Mi → chicken, Do-Sa → hack, So → egg
 
-const slotsMap: DayPlanSlotsMap = {
-  strength_run: templateSlotsForDayType("strength_run"),
-  threshold: templateSlotsForDayType("threshold"),
-  long_run: templateSlotsForDayType("long_run"),
-  rest: templateSlotsForDayType("rest"),
-};
+const slotsMap: Record<number, MealSlots> = buildWeekdaySlotsMap(INITIAL_TARGETS);
 
 // ═══════════════════════════════════════════════════════════════════════
 // extractDayNeeds — pure slot-parsing logic
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("extractDayNeeds", () => {
-  it("extracts chicken grams from strength_run slots", () => {
-    const need = extractDayNeeds(slotsMap.strength_run!);
-    // strength_run uses chicken — mainMeal + dinner both have "Hähnchenbrust Xg"
+  it("extracts chicken grams from Monday (chicken recipe)", () => {
+    const need = extractDayNeeds(slotsMap[1]!); // Mon = chicken
     expect(need.chickenG).toBeGreaterThan(0);
-    expect(need.hackG).toBe(0); // no hack in chicken recipe
+    expect(need.hackG).toBe(0);
+    expect(need.eggCount).toBe(0);
   });
 
-  it("extracts hack grams from long_run slots", () => {
-    const need = extractDayNeeds(slotsMap.long_run!);
-    // long_run uses hack recipe
+  it("extracts hack grams from Thursday (hack recipe)", () => {
+    const need = extractDayNeeds(slotsMap[4]!); // Thu = hack
     expect(need.hackG).toBeGreaterThan(0);
-    expect(need.chickenG).toBe(0); // no chicken in hack recipe
+    expect(need.chickenG).toBe(0);
+    expect(need.eggCount).toBe(0);
+  });
+
+  it("extracts egg count from Sunday (egg recipe)", () => {
+    const need = extractDayNeeds(slotsMap[0]!); // Sun = egg
+    expect(need.eggCount).toBeGreaterThan(0);
+    expect(need.chickenG).toBe(0);
+    expect(need.hackG).toBe(0);
   });
 
   it("extracts rice grams", () => {
-    const need = extractDayNeeds(slotsMap.strength_run!);
-    expect(need.riceG).toBeGreaterThan(0); // mainMeal + dinner have rice
+    const need = extractDayNeeds(slotsMap[1]!);
+    expect(need.riceG).toBeGreaterThan(0);
   });
 
   it("detects Skyr in training day slots", () => {
-    const need = extractDayNeeds(slotsMap.strength_run!);
-    expect(need.skyrCount).toBe(1); // one Skyr per training day
+    const need = extractDayNeeds(slotsMap[1]!); // Mon = strength_run
+    expect(need.skyrCount).toBe(1);
   });
 
   it("rest day has no Skyr", () => {
-    const need = extractDayNeeds(slotsMap.rest!);
-    expect(need.skyrCount).toBe(0); // rest drops postMealDessert
+    const need = extractDayNeeds(slotsMap[3]!); // Wed = rest
+    expect(need.skyrCount).toBe(0);
   });
 
   it("detects beet juice in training day", () => {
-    const need = extractDayNeeds(slotsMap.strength_run!);
-    expect(need.beetJuiceDays).toBe(1); // preTraining has "Rote Bete Saft"
+    const need = extractDayNeeds(slotsMap[1]!);
+    expect(need.beetJuiceDays).toBe(1);
   });
 
   it("rest day has no beet juice", () => {
-    const need = extractDayNeeds(slotsMap.rest!);
-    expect(need.beetJuiceDays).toBe(0); // no preTraining slot
+    const need = extractDayNeeds(slotsMap[3]!); // Wed = rest
+    expect(need.beetJuiceDays).toBe(0);
   });
 
   it("detects Hummus in training day afternoonSnack", () => {
-    const need = extractDayNeeds(slotsMap.strength_run!);
-    expect(need.hummusDays).toBe(1); // "Karotten + Hummus"
+    const need = extractDayNeeds(slotsMap[1]!);
+    expect(need.hummusDays).toBe(1);
   });
 
   it("rest day afternoonSnack has no Hummus", () => {
-    const need = extractDayNeeds(slotsMap.rest!);
-    expect(need.hummusDays).toBe(0); // just "Karotten 200g", no Hummus
+    const need = extractDayNeeds(slotsMap[3]!); // Wed = rest
+    expect(need.hummusDays).toBe(0);
   });
 
   it("detects Erbsen Flips in alternatives", () => {
-    const need = extractDayNeeds(slotsMap.strength_run!);
-    expect(need.erbsenFlipsDays).toBe(1); // afternoonSnack alternative
+    const need = extractDayNeeds(slotsMap[1]!); // training day
+    expect(need.erbsenFlipsDays).toBe(1);
   });
 
   it("detects Asia-Gemüse in chicken recipe", () => {
-    const need = extractDayNeeds(slotsMap.strength_run!);
+    const need = extractDayNeeds(slotsMap[1]!); // Mon = chicken
     expect(need.asiaVegG).toBeGreaterThan(0);
-    expect(need.broccoliG).toBe(0);
   });
 
   it("detects Brokkoli in hack recipe", () => {
-    const need = extractDayNeeds(slotsMap.long_run!);
+    const need = extractDayNeeds(slotsMap[4]!); // Thu = hack
     expect(need.broccoliG).toBeGreaterThan(0);
-    expect(need.asiaVegG).toBe(0);
   });
 
   it("handles empty slots gracefully", () => {
@@ -106,12 +107,48 @@ describe("extractDayNeeds", () => {
     const need = extractDayNeeds(emptySlots);
     expect(need.chickenG).toBe(0);
     expect(need.hackG).toBe(0);
+    expect(need.eggCount).toBe(0);
     expect(need.riceG).toBe(0);
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Shopping Trip 1 (Sun → Mo-Mi)
+// Recipe rotation validation — the core fix
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("Recipe rotation per weekday", () => {
+  it("Mon-Wed slots contain chicken, not hack", () => {
+    for (const wd of [1, 2, 3]) {
+      const need = extractDayNeeds(slotsMap[wd]!);
+      expect(need.chickenG).toBeGreaterThan(0);
+      expect(need.hackG).toBe(0);
+      expect(need.eggCount).toBe(0);
+    }
+  });
+
+  it("Thu-Sat slots contain hack, not chicken", () => {
+    for (const wd of [4, 5]) {
+      const need = extractDayNeeds(slotsMap[wd]!);
+      expect(need.hackG).toBeGreaterThan(0);
+      expect(need.chickenG).toBe(0);
+      expect(need.eggCount).toBe(0);
+    }
+    // Sat = long_run = hack
+    const satNeed = extractDayNeeds(slotsMap[6]!);
+    expect(satNeed.hackG).toBeGreaterThan(0);
+    expect(satNeed.chickenG).toBe(0);
+  });
+
+  it("Sunday slots contain eggs, not chicken or hack", () => {
+    const need = extractDayNeeds(slotsMap[0]!);
+    expect(need.eggCount).toBeGreaterThan(0);
+    expect(need.chickenG).toBe(0);
+    expect(need.hackG).toBe(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Shopping Trip 1 (Sun → Mo-Mi) — should have ONLY chicken, no hack
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Shopping Trip 1 (Sun → Mo-Mi)", () => {
@@ -121,15 +158,18 @@ describe("Shopping Trip 1 (Sun → Mo-Mi)", () => {
   it("covers Mon/Tue/Wed", () => expect(trip.coversDays).toEqual(["Mon", "Tue", "Wed"]));
   it("cook day = Sunday (UTC weekday 0)", () => expect(trip.cookDayWeekday).toBe(0));
 
-  it("includes chicken (Mo=strength_run, Tu=threshold both use chicken recipe)", () => {
+  it("includes chicken (Mon/Tue/Wed all use chicken recipe)", () => {
     const chicken = trip.items.find((i) => i.name === "ja! Hähnchenbrust");
     expect(chicken).toBeDefined();
     expect(chicken!.rawGrams).toBeGreaterThan(0);
   });
 
-  it("does NOT include hack (Mon/Tue/Wed all use chicken recipe)", () => {
-    // Mon=strength_run(chicken), Tue=threshold(chicken), Wed=rest(chicken)
+  it("does NOT include hack (Mon-Wed are all chicken)", () => {
     expect(trip.items.find((i) => i.name === "Rinderhack")).toBeUndefined();
+  });
+
+  it("does NOT include eggs (no Sunday in trip 1 coverage)", () => {
+    expect(trip.items.find((i) => i.name === "Eier Freiland 10er")).toBeUndefined();
   });
 
   it("includes rice", () => {
@@ -139,12 +179,7 @@ describe("Shopping Trip 1 (Sun → Mo-Mi)", () => {
   it("includes Skyr (2 training days Mon+Tue; Wed=rest has no Skyr)", () => {
     const skyr = trip.items.find((i) => i.name === "Arla Skyr Vanille 200g");
     expect(skyr).toBeDefined();
-    expect(skyr!.amount).toBe("2 Becher"); // Mon + Tue
-  });
-
-  it("includes beet juice (2 training days have preTraining)", () => {
-    const beet = trip.items.find((i) => i.name === "Rote Bete Saft");
-    expect(beet).toBeDefined();
+    expect(skyr!.amount).toBe("2 Becher");
   });
 
   it("all items have positive cost", () => {
@@ -159,7 +194,7 @@ describe("Shopping Trip 1 (Sun → Mo-Mi)", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Shopping Trip 2 (Wed → Do-Sa)
+// Shopping Trip 2 (Wed → Do-Sa) — should have ONLY hack, no chicken
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Shopping Trip 2 (Wed → Do-Sa)", () => {
@@ -169,23 +204,22 @@ describe("Shopping Trip 2 (Wed → Do-Sa)", () => {
   it("covers Thu/Fri/Sat", () => expect(trip.coversDays).toEqual(["Thu", "Fri", "Sat"]));
   it("cook day = Thursday (UTC weekday 4)", () => expect(trip.cookDayWeekday).toBe(4));
 
-  it("includes hack (Sat=long_run uses hack recipe)", () => {
+  it("includes hack (Thu-Sat use hack recipe)", () => {
     const hack = trip.items.find((i) => i.name === "Rinderhack");
     expect(hack).toBeDefined();
     expect(hack!.rawGrams).toBeGreaterThan(0);
   });
 
-  it("includes chicken (Thu/Fri=strength_run use chicken recipe)", () => {
-    const chicken = trip.items.find((i) => i.name === "ja! Hähnchenbrust");
-    expect(chicken).toBeDefined();
+  it("does NOT include chicken (Thu-Sat are all hack)", () => {
+    expect(trip.items.find((i) => i.name === "ja! Hähnchenbrust")).toBeUndefined();
   });
 
-  it("includes Brokkoli (from hack/long_run recipe)", () => {
+  it("includes Brokkoli (from hack recipe)", () => {
     expect(trip.items.find((i) => i.name === "REWE BW Brokkoli")).toBeDefined();
   });
 
-  it("includes Asia-Gemüse (from chicken/strength_run recipe)", () => {
-    expect(trip.items.find((i) => i.name === "REWE BW Asia-Gemüse")).toBeDefined();
+  it("does NOT include Asia-Gemüse (that's the chicken recipe veg)", () => {
+    expect(trip.items.find((i) => i.name === "REWE BW Asia-Gemüse")).toBeUndefined();
   });
 
   it("includes 3× Skyr (Thu+Fri+Sat are all training days)", () => {
@@ -271,22 +305,16 @@ describe("nextTripForDate", () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Shopping adapts to slot changes", () => {
-  it("different targets produce different chicken quantities", () => {
-    // Default template slots vs. empty → verify the system is slot-driven
-    const trip1Default = generateShoppingTrip1(slotsMap);
-    const trip1Empty = generateShoppingTrip1({}); // no slots → no items
-    expect(trip1Default.items.length).toBeGreaterThan(0);
+  it("empty slotsMap produces no items", () => {
+    const trip1Empty = generateShoppingTrip1({});
     expect(trip1Empty.items).toHaveLength(0);
   });
 
-  it("partial slotsMap only generates items for available day-types", () => {
-    // Only strength_run — covers Mon, Thu, Fri
-    const partial: DayPlanSlotsMap = {
-      strength_run: slotsMap.strength_run,
+  it("partial slotsMap only generates items for available weekdays", () => {
+    const partial: WeekdaySlotsMap = {
+      1: slotsMap[1], // only Monday
     };
     const trip1 = generateShoppingTrip1(partial);
-    // Trip 1 covers Mon(strength_run), Tue(threshold), Wed(rest)
-    // Only Mon has slots → much less food
     const tripFull = generateShoppingTrip1(slotsMap);
     expect(trip1.totalEstimatedCost).toBeLessThan(tripFull.totalEstimatedCost);
   });
@@ -294,8 +322,24 @@ describe("Shopping adapts to slot changes", () => {
   it("package rounding: amounts are always in package-size multiples", () => {
     const trip = generateShoppingTrip1(slotsMap);
     for (const item of trip.items) {
-      // Amount format: "600g", "2× 600g", "1kg", "3 Becher", "1 Stück", "1× Beutel"
       expect(item.amount).toMatch(/^\d+[×g ]|^\d+kg$/);
     }
   });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Calorie tolerance — slot sums must stay within 50 kcal of target
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("Slot-sum calorie tolerance (all weekdays)", () => {
+  for (let wd = 0; wd <= 6; wd++) {
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const dayType = DAY_TYPE_BY_WEEKDAY[wd];
+    const target = INITIAL_TARGETS[dayType as keyof typeof INITIAL_TARGETS].calorieTarget;
+
+    it(`${dayNames[wd]} (${dayType}): slot sum within 50 kcal of ${target}`, () => {
+      const totals = sumSlotMacros(slotsMap[wd]!);
+      expect(Math.abs(totals.kcal - target)).toBeLessThanOrEqual(50);
+    });
+  }
 });

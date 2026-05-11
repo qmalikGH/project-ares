@@ -2,14 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   SLOT_LABELS,
   buildSlotsForTargets,
+  buildSlotsForWeekday,
+  buildWeekdaySlotsMap,
   sumSlotMacros,
   sumSingleSlotMacros,
   templateDayPlan,
   templateSlotsForDayType,
 } from "@/lib/nutrition/template";
-import { INITIAL_TARGETS } from "@/lib/nutrition/day-type";
+import { INITIAL_TARGETS, DAY_TYPE_BY_WEEKDAY } from "@/lib/nutrition/day-type";
 import type { DayTypeTargets } from "@/lib/nutrition/day-type";
 import type { DayType } from "@/lib/nutrition/types";
+import { WEEKLY_RECIPE_BY_WEEKDAY } from "@/lib/nutrition/recipes";
 
 const ALL_DAY_TYPES: DayType[] = ["strength_run", "threshold", "long_run", "rest"];
 const CALORIE_TOLERANCE = 50;
@@ -303,5 +306,169 @@ describe("buildSlotsForTargets — calibration cascade", () => {
     const a = buildSlotsForTargets("strength_run", CALIBRATED_STRENGTH);
     const b = buildSlotsForTargets("strength_run", CALIBRATED_STRENGTH);
     expect(a).toEqual(b);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// buildSlotsForWeekday — weekday-driven recipe rotation
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("buildSlotsForWeekday — recipe rotation by weekday", () => {
+  const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  it("Mon-Wed (weekdays 1-3) use chicken recipe", () => {
+    for (const wd of [1, 2, 3]) {
+      const dayType = DAY_TYPE_BY_WEEKDAY[wd] as DayType;
+      const slots = buildSlotsForWeekday(wd, INITIAL_TARGETS[dayType]);
+      expect(slots.mainMeal.recipe).toBe("chicken_rice_tkgemuse");
+      expect(slots.dinner.recipe).toBe("chicken_rice_tkgemuse");
+      const hasChicken = slots.mainMeal.items.some((i) => i.name.includes("Hähnchenbrust"));
+      expect(hasChicken).toBe(true);
+    }
+  });
+
+  it("Thu-Sat (weekdays 4-6) use hack recipe", () => {
+    for (const wd of [4, 5, 6]) {
+      const dayType = DAY_TYPE_BY_WEEKDAY[wd] as DayType;
+      const slots = buildSlotsForWeekday(wd, INITIAL_TARGETS[dayType]);
+      expect(slots.mainMeal.recipe).toBe("hack_rice_tkgemuse");
+      expect(slots.dinner.recipe).toBe("hack_rice_tkgemuse");
+      const hasHack = slots.mainMeal.items.some((i) => i.name.includes("Rinderhack"));
+      expect(hasHack).toBe(true);
+    }
+  });
+
+  it("Sunday (weekday 0) uses egg recipe", () => {
+    const dayType = DAY_TYPE_BY_WEEKDAY[0] as DayType;
+    const slots = buildSlotsForWeekday(0, INITIAL_TARGETS[dayType]);
+    expect(slots.mainMeal.recipe).toBe("egg_rice_tkgemuse");
+    expect(slots.dinner.recipe).toBe("egg_rice_tkgemuse");
+    const hasEggs = slots.mainMeal.items.some((i) => i.name.includes("Eier"));
+    expect(hasEggs).toBe(true);
+  });
+
+  it("chicken days have NO hack or egg items", () => {
+    for (const wd of [1, 2, 3]) {
+      const dayType = DAY_TYPE_BY_WEEKDAY[wd] as DayType;
+      const slots = buildSlotsForWeekday(wd, INITIAL_TARGETS[dayType]);
+      const allItems = [...slots.mainMeal.items, ...slots.dinner.items];
+      expect(allItems.some((i) => i.name.includes("Rinderhack"))).toBe(false);
+      expect(allItems.some((i) => i.name.includes("Eier"))).toBe(false);
+    }
+  });
+
+  it("hack days have NO chicken or egg items", () => {
+    for (const wd of [4, 5, 6]) {
+      const dayType = DAY_TYPE_BY_WEEKDAY[wd] as DayType;
+      const slots = buildSlotsForWeekday(wd, INITIAL_TARGETS[dayType]);
+      const allItems = [...slots.mainMeal.items, ...slots.dinner.items];
+      expect(allItems.some((i) => i.name.includes("Hähnchenbrust"))).toBe(false);
+      expect(allItems.some((i) => i.name.includes("Eier"))).toBe(false);
+    }
+  });
+
+  it("egg day has NO chicken or hack items", () => {
+    const dayType = DAY_TYPE_BY_WEEKDAY[0] as DayType;
+    const slots = buildSlotsForWeekday(0, INITIAL_TARGETS[dayType]);
+    const allItems = [...slots.mainMeal.items, ...slots.dinner.items];
+    expect(allItems.some((i) => i.name.includes("Hähnchenbrust"))).toBe(false);
+    expect(allItems.some((i) => i.name.includes("Rinderhack"))).toBe(false);
+  });
+
+  it("egg recipe produces whole-number egg counts", () => {
+    const dayType = DAY_TYPE_BY_WEEKDAY[0] as DayType;
+    const slots = buildSlotsForWeekday(0, INITIAL_TARGETS[dayType]);
+    for (const slot of [slots.mainMeal, slots.dinner]) {
+      for (const item of slot.items) {
+        const match = item.name.match(/Eier (\d+) Stück/);
+        if (match) {
+          const count = parseInt(match[1], 10);
+          expect(count).toBeGreaterThan(0);
+          expect(Number.isInteger(count)).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("recipe key matches WEEKLY_RECIPE_BY_WEEKDAY for every weekday", () => {
+    for (let wd = 0; wd <= 6; wd++) {
+      const dayType = DAY_TYPE_BY_WEEKDAY[wd] as DayType;
+      const slots = buildSlotsForWeekday(wd, INITIAL_TARGETS[dayType]);
+      const expected = WEEKLY_RECIPE_BY_WEEKDAY[wd];
+      expect(slots.mainMeal.recipe).toBe(expected);
+      expect(slots.dinner.recipe).toBe(expected);
+    }
+  });
+
+  it("slot sum within 50 kcal of calorie target for every weekday", () => {
+    for (let wd = 0; wd <= 6; wd++) {
+      const dayType = DAY_TYPE_BY_WEEKDAY[wd] as DayType;
+      const targets = INITIAL_TARGETS[dayType];
+      const slots = buildSlotsForWeekday(wd, targets);
+      const totals = sumSlotMacros(slots);
+      expect(Math.abs(totals.kcal - targets.calorieTarget)).toBeLessThanOrEqual(
+        CALORIE_TOLERANCE,
+      );
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// buildWeekdaySlotsMap — full 7-day map
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("buildWeekdaySlotsMap", () => {
+  const slotsMap = buildWeekdaySlotsMap(INITIAL_TARGETS);
+
+  it("returns all 7 weekdays (0-6)", () => {
+    for (let wd = 0; wd <= 6; wd++) {
+      expect(slotsMap[wd]).toBeDefined();
+    }
+  });
+
+  it("each weekday has the correct recipe from rotation", () => {
+    for (let wd = 0; wd <= 6; wd++) {
+      const expected = WEEKLY_RECIPE_BY_WEEKDAY[wd];
+      expect(slotsMap[wd].mainMeal.recipe).toBe(expected);
+      expect(slotsMap[wd].dinner.recipe).toBe(expected);
+    }
+  });
+
+  it("Mo-Mi items contain chicken, Do-Sa contain hack, So contains eggs", () => {
+    // Chicken days
+    for (const wd of [1, 2, 3]) {
+      expect(slotsMap[wd].mainMeal.items.some((i) => i.name.includes("Hähnchenbrust"))).toBe(true);
+    }
+    // Hack days
+    for (const wd of [4, 5, 6]) {
+      expect(slotsMap[wd].mainMeal.items.some((i) => i.name.includes("Rinderhack"))).toBe(true);
+    }
+    // Egg day
+    expect(slotsMap[0].mainMeal.items.some((i) => i.name.includes("Eier"))).toBe(true);
+  });
+
+  it("slot sum within 50 kcal for all weekdays", () => {
+    for (let wd = 0; wd <= 6; wd++) {
+      const dayType = DAY_TYPE_BY_WEEKDAY[wd] as DayType;
+      const target = INITIAL_TARGETS[dayType].calorieTarget;
+      const totals = sumSlotMacros(slotsMap[wd]);
+      expect(Math.abs(totals.kcal - target)).toBeLessThanOrEqual(CALORIE_TOLERANCE);
+    }
+  });
+
+  it("is deterministic", () => {
+    const a = buildWeekdaySlotsMap(INITIAL_TARGETS);
+    const b = buildWeekdaySlotsMap(INITIAL_TARGETS);
+    expect(a).toEqual(b);
+  });
+
+  it("uses custom targets when provided", () => {
+    const custom: Partial<Record<DayType, DayTypeTargets>> = {
+      strength_run: { ...INITIAL_TARGETS.strength_run, calorieTarget: 3000 },
+    };
+    const customMap = buildWeekdaySlotsMap(custom);
+    // Mon (strength_run) should reflect custom target
+    const monTotals = sumSlotMacros(customMap[1]);
+    expect(monTotals.kcal).toBeGreaterThan(sumSlotMacros(slotsMap[1]).kcal);
   });
 });

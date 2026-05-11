@@ -6,13 +6,20 @@
 // remaining calorie budget after fixed slots, using protein-first logic:
 //   1. Sum fixed slot kcal → remaining = calorieTarget - fixedSum - skyr
 //   2. Split remaining: mainMeal 55%, dinner 45%
-//   3. Protein-first: meat grams = proteinTarget / proteinPerGram
+//   3. Protein-first: meat/egg amount from protein target
 //   4. Carbs fill rest: rice grams = remainingKcal / riceKcalPerGram
 //   5. Validation: assert |slotSum - calorieTarget| < 50 kcal
 //
+// RECIPE ROTATION is driven by WEEKDAY, not by day-type:
+//   Mo-Mi → chicken_rice_tkgemuse (Kochtag Sonntag)
+//   Do-Sa → hack_rice_tkgemuse   (Kochtag Donnerstag)
+//   So    → egg_rice_tkgemuse    (frisch)
+//
 // This guarantees target and slot-sum can never diverge.
 
-import { INITIAL_TARGETS, SLOT_PRESENCE } from "./day-type";
+import { DAY_TYPE_BY_WEEKDAY, INITIAL_TARGETS, SLOT_PRESENCE } from "./day-type";
+import { WEEKLY_RECIPE_BY_WEEKDAY } from "./recipes";
+import type { RecipeKey } from "./recipes";
 import type { DayTypeTargets } from "./day-type";
 import type { DayType, MealItem, MealSlot, MealSlots } from "./types";
 
@@ -82,14 +89,21 @@ const PROTEIN_SOURCES = {
 
 type ProteinSourceKey = keyof typeof PROTEIN_SOURCES;
 
+/** Per-unit macros for eggs. ~50g per egg, ~78 kcal, ~6g protein. */
+const EGG = {
+  kcalPerUnit: 78,
+  proteinPerUnit: 6,
+  carbsPerUnit: 0.6,
+  fatPerUnit: 5,
+  costEurPerUnit: 0.25,
+} as const;
+
 /** Per-gram macros for rice (dry weight). 150g dry = 540 kcal / 10g P. */
 const RICE_PER_G = { kcal: 3.6, protein: 0.067, carbs: 0.78, fat: 0.007, costEur: 0.002 };
 
 // ═══════════════════════════════════════════════════════════════════════════
 // §3 — Per-recipe garnish (fixed items, not scaled)
 // ═══════════════════════════════════════════════════════════════════════════
-
-type RecipeKey = "chicken_rice_tkgemuse" | "hack_rice_tkgemuse";
 
 const GARNISH: Record<RecipeKey, { main: MealItem[]; dinner: MealItem[] }> = {
   chicken_rice_tkgemuse: {
@@ -110,11 +124,19 @@ const GARNISH: Record<RecipeKey, { main: MealItem[]; dinner: MealItem[] }> = {
       { name: "TK Brokkoli 200g", kcal: 56, protein: 6, carbs: 6, fat: 1, costEur: 0.45 },
     ],
   },
+  egg_rice_tkgemuse: {
+    main: [
+      { name: "TK Asia-Gemüse 250g", kcal: 60, protein: 3, carbs: 8, fat: 1, costEur: 0.6 },
+      { name: "Sojasauce", kcal: 8, protein: 0, carbs: 1, fat: 0, costEur: 0.08 },
+    ],
+    dinner: [
+      { name: "TK Asia-Gemüse 200g", kcal: 50, protein: 2, carbs: 6, fat: 1, costEur: 0.48 },
+    ],
+  },
 };
 
-/** Canonical recipe per day-type. Egg recipe dropped — too kcal-dense per
- *  gram of protein for the protein-first backward computation at rest-day
- *  calorie budgets (78 kcal / 6g P per egg vs. 1.1 kcal / 0.22g P per g chicken). */
+/** Fallback recipe per day-type — used only when no weekday is provided
+ *  (e.g. DB slot storage, legacy callers). Display always uses weekday. */
 const RECIPE_BY_DAY_TYPE: Record<DayType, RecipeKey> = {
   strength_run: "chicken_rice_tkgemuse",
   threshold: "chicken_rice_tkgemuse",
@@ -151,6 +173,18 @@ function meatItem(source: ProteinSourceKey, grams: number): MealItem {
   };
 }
 
+/** Build a MealItem for eggs at a specific count. */
+function eggItem(count: number): MealItem {
+  return {
+    name: `Eier ${count} Stück`,
+    kcal: Math.round(count * EGG.kcalPerUnit),
+    protein: Math.round(count * EGG.proteinPerUnit),
+    carbs: Math.round(count * EGG.carbsPerUnit),
+    fat: Math.round(count * EGG.fatPerUnit),
+    costEur: Math.round(count * EGG.costEurPerUnit * 100) / 100,
+  };
+}
+
 /** Build a MealItem for dry rice at a specific weight. */
 function riceItem(grams: number): MealItem {
   return {
@@ -168,9 +202,11 @@ function riceItem(grams: number): MealItem {
  *
  * Algorithm (protein-first, carbs fill remainder):
  *   1. Subtract fixed garnish kcal + protein from budget
- *   2. Compute grams of protein source to hit remaining protein target
+ *   2. Compute amount of protein source to hit remaining protein target
+ *      - Chicken/hack: grams, rounded to 10g
+ *      - Eggs: whole units, rounded to nearest integer
  *   3. Remaining kcal after protein → rice grams
- *   4. Round portions to nearest 10g for practical cooking
+ *   4. Round rice to nearest 10g for practical cooking
  */
 function computeScalableMeal(
   targetKcal: number,
@@ -178,28 +214,41 @@ function computeScalableMeal(
   recipe: RecipeKey,
   isDinner: boolean,
 ): MealSlot {
-  const source: ProteinSourceKey = recipe.startsWith("chicken") ? "chicken" : "hack";
   const garnish = isDinner ? GARNISH[recipe].dinner : GARNISH[recipe].main;
   const garnishTotals = sumItemsMacros(garnish);
 
   const availableKcal = targetKcal - garnishTotals.kcal;
   const neededProtein = Math.max(0, targetProtein - garnishTotals.protein);
 
-  // Step 1: protein source grams — protein target drives meat quantity.
-  // Cap at kcal ceiling: calorie-dense proteins (hack at 2.1 kcal/g) can
-  // exceed the calorie budget before hitting the protein target. In that
-  // case, prioritize calorie target — overall daily protein still lands
-  // close because fixed slots contribute ~110g.
-  const idealMeatG = neededProtein / PROTEIN_SOURCES[source].perG.protein;
-  const maxMeatByKcal = availableKcal / PROTEIN_SOURCES[source].perG.kcal;
-  const meatG = Math.max(0, roundTo(Math.min(idealMeatG, maxMeatByKcal), 10));
-  const meatKcal = meatG * PROTEIN_SOURCES[source].perG.kcal;
+  let proteinItem: MealItem;
+  let proteinKcal: number;
 
-  // Step 2: rice fills remaining kcal (carb-filler)
-  const riceKcalBudget = Math.max(0, availableKcal - meatKcal);
+  if (recipe === "egg_rice_tkgemuse") {
+    // ── Egg path: per-unit computation ──
+    const idealEggs = neededProtein / EGG.proteinPerUnit;
+    const maxEggsByKcal = availableKcal / EGG.kcalPerUnit;
+    const count = Math.max(0, Math.round(Math.min(idealEggs, maxEggsByKcal)));
+    proteinItem = eggItem(count);
+    proteinKcal = count * EGG.kcalPerUnit;
+  } else {
+    // ── Meat path: per-gram computation ──
+    const source: ProteinSourceKey = recipe.startsWith("chicken") ? "chicken" : "hack";
+    // Cap at kcal ceiling: calorie-dense proteins (hack at 2.1 kcal/g) can
+    // exceed the calorie budget before hitting the protein target. In that
+    // case, prioritize calorie target — overall daily protein still lands
+    // close because fixed slots contribute ~110g.
+    const idealMeatG = neededProtein / PROTEIN_SOURCES[source].perG.protein;
+    const maxMeatByKcal = availableKcal / PROTEIN_SOURCES[source].perG.kcal;
+    const meatG = Math.max(0, roundTo(Math.min(idealMeatG, maxMeatByKcal), 10));
+    proteinItem = meatItem(source, meatG);
+    proteinKcal = meatG * PROTEIN_SOURCES[source].perG.kcal;
+  }
+
+  // Rice fills remaining kcal (carb-filler)
+  const riceKcalBudget = Math.max(0, availableKcal - proteinKcal);
   const riceG = Math.max(0, roundTo(riceKcalBudget / RICE_PER_G.kcal, 10));
 
-  const items: MealItem[] = [meatItem(source, meatG)];
+  const items: MealItem[] = [proteinItem];
   if (riceG > 0) items.push(riceItem(riceG));
   items.push(...garnish);
 
@@ -224,6 +273,12 @@ function resolveAfternoonSnack(dayType: DayType, present: boolean): MealSlot {
  * Build all 7 meal slots for a day-type. Variable slots (mainMeal, dinner)
  * are backwards-computed from the calorie target so the total always matches.
  *
+ * @param dayType   — determines which fixed slots are present (SLOT_PRESENCE)
+ * @param targetsOverride — custom calorie/macro targets (default: INITIAL_TARGETS)
+ * @param weekday   — JS getUTCDay() (0=Sun..6=Sat). When provided, selects
+ *                    recipe from WEEKLY_RECIPE_BY_WEEKDAY. Otherwise falls back
+ *                    to RECIPE_BY_DAY_TYPE (for DB storage / legacy callers).
+ *
  * Budget flow:
  *   calorieTarget
  *     − fixed slots (morning, preTraining, snacks, skyr)
@@ -231,10 +286,11 @@ function resolveAfternoonSnack(dayType: DayType, present: boolean): MealSlot {
  *     → 55% mainMeal
  *     → 45% dinner
  */
-function buildSlots(dayType: DayType, targetsOverride?: DayTypeTargets): MealSlots {
+function buildSlots(dayType: DayType, targetsOverride?: DayTypeTargets, weekday?: number): MealSlots {
   const presence = SLOT_PRESENCE[dayType];
   const targets = targetsOverride ?? INITIAL_TARGETS[dayType];
-  const recipe = RECIPE_BY_DAY_TYPE[dayType];
+  const recipe: RecipeKey =
+    weekday !== undefined ? WEEKLY_RECIPE_BY_WEEKDAY[weekday] : RECIPE_BY_DAY_TYPE[dayType];
 
   // ── Step 1: Sum fixed slot kcal + protein ──
   const fixedEntries: { slot: MealSlot; present: boolean }[] = [
@@ -288,21 +344,51 @@ function buildSlots(dayType: DayType, targetsOverride?: DayTypeTargets): MealSlo
 // §6 — Public exports
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Build slots using the day-type's default recipe (no weekday context). */
 export function templateSlotsForDayType(dayType: DayType): MealSlots {
   return buildSlots(dayType);
 }
 
 /**
- * Build slots for a day-type with CUSTOM targets (e.g. from calibration).
- * Same backward-computation logic as templateSlotsForDayType, but the calorie
- * target + protein target come from the caller instead of INITIAL_TARGETS.
+ * Build slots for a day-type with CUSTOM targets and the day-type's default
+ * recipe. Used for DB slot storage (per-dayType DayPlan records).
  *
- * This is the calibration cascade entry point: when calibrateMealPlan()
- * updates DayPlan targets from Garmin TDEE data, it calls this to rebuild
- * the meal portions so they always match the new target.
+ * For display or shopping, use `buildSlotsForWeekday` instead — it picks
+ * the correct recipe from the weekly rotation.
  */
 export function buildSlotsForTargets(dayType: DayType, targets: DayTypeTargets): MealSlots {
   return buildSlots(dayType, targets);
+}
+
+/**
+ * Build slots for a specific weekday with CUSTOM targets. The weekday
+ * determines which recipe is used (chicken Mo-Mi, hack Do-Sa, egg So).
+ *
+ * This is the DISPLAY entry point — always use this when showing slots
+ * to the user, not `buildSlotsForTargets`.
+ */
+export function buildSlotsForWeekday(weekday: number, targets: DayTypeTargets): MealSlots {
+  const dayType = DAY_TYPE_BY_WEEKDAY[weekday] ?? "rest";
+  return buildSlots(dayType, targets, weekday);
+}
+
+/**
+ * Build a complete weekday → MealSlots map (7 entries, 0=Sun..6=Sat).
+ * Each weekday gets the correct recipe from the weekly rotation, with
+ * calorie targets looked up from the per-dayType targets map.
+ *
+ * Used by the API route + shopping list as the single source of truth.
+ */
+export function buildWeekdaySlotsMap(
+  targetsByDayType: Partial<Record<DayType, DayTypeTargets>>,
+): Record<number, MealSlots> {
+  const result: Record<number, MealSlots> = {};
+  for (let wd = 0; wd <= 6; wd++) {
+    const dayType = DAY_TYPE_BY_WEEKDAY[wd] ?? "rest";
+    const targets = targetsByDayType[dayType] ?? INITIAL_TARGETS[dayType];
+    result[wd] = buildSlots(dayType, targets, wd);
+  }
+  return result;
 }
 
 /** Maximum acceptable |slotSum − calorieTarget| in kcal. Small rounding

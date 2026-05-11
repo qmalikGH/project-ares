@@ -44,7 +44,7 @@ interface NutritionTodayResponse {
     recipeName: string;
     isCookDay: boolean;
   }[];
-  dayTypeSlots: Partial<Record<DayType, MealSlots>>;
+  weekdaySlots: Record<number, MealSlots>;
   slotLabels: Record<string, string>;
 }
 
@@ -157,7 +157,7 @@ export default function NutritionDashboard() {
         <WeekView
           weekOverview={data.weekOverview}
           todayDate={data.date}
-          dayTypeSlots={data.dayTypeSlots}
+          weekdaySlots={data.weekdaySlots}
           slotLabels={data.slotLabels}
         />
       )}
@@ -445,11 +445,11 @@ function ShoppingView({ trip }: { trip: ShoppingTrip }) {
 interface WeekViewProps {
   weekOverview: NutritionTodayResponse["weekOverview"];
   todayDate: string;
-  dayTypeSlots: Partial<Record<DayType, MealSlots>>;
+  weekdaySlots: Record<number, MealSlots>;
   slotLabels: Record<string, string>;
 }
 
-function WeekView({ weekOverview, todayDate, dayTypeSlots, slotLabels }: WeekViewProps) {
+function WeekView({ weekOverview, todayDate, weekdaySlots, slotLabels }: WeekViewProps) {
   const [expandedDate, setExpandedDate] = useState<string | null>(null);
 
   return (
@@ -458,7 +458,9 @@ function WeekView({ weekOverview, todayDate, dayTypeSlots, slotLabels }: WeekVie
         const isToday = d.date === todayDate;
         const isExpanded = expandedDate === d.date;
         const dayColors = colorsForDayType(d.dayType);
-        const slots = dayTypeSlots[d.dayType];
+        // Look up by weekday (0=Sun..6=Sat) from the date string
+        const weekday = new Date(d.date + "T00:00:00Z").getUTCDay();
+        const slots = weekdaySlots[weekday];
 
         return (
           <div
