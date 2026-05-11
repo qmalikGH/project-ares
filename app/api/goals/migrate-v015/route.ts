@@ -21,11 +21,18 @@ const CORRECTED_ANNUAL_TARGETS = {
 export async function POST() {
   const userId = await getCurrentUserId();
 
-  // 1. Set focusMode on active macrocycle
-  const macroUpdate = await db.macrocycle.updateMany({
+  // 1. Find active macrocycle + set focusMode
+  const activeMacro = await db.macrocycle.findFirst({
     where: { userId, status: "active" },
-    data: { focusMode: "recomp" },
   });
+  let macrocyclesUpdated = 0;
+  if (activeMacro) {
+    await db.macrocycle.update({
+      where: { id: activeMacro.id },
+      data: { focusMode: "recomp" },
+    });
+    macrocyclesUpdated = 1;
+  }
 
   // 2. Update AnnualGoal targets
   const annualGoal = await db.annualGoal.findFirst({
@@ -34,6 +41,7 @@ export async function POST() {
   });
 
   let annualGoalUpdated = false;
+  let annualGoalLinked = false;
   if (annualGoal) {
     const existingTargets = (annualGoal.targets as Record<string, unknown>) ?? {};
     await db.annualGoal.update({
@@ -43,6 +51,15 @@ export async function POST() {
       },
     });
     annualGoalUpdated = true;
+
+    // 2b. Link active macrocycle → active AnnualGoal by explicit ID update
+    if (activeMacro) {
+      await db.macrocycle.update({
+        where: { id: activeMacro.id },
+        data: { annualGoalId: annualGoal.id },
+      });
+      annualGoalLinked = true;
+    }
   }
 
   // 3. Set targetWeightKg on UserSettings
@@ -54,8 +71,11 @@ export async function POST() {
 
   return NextResponse.json({
     status: "ok",
-    macrocyclesUpdated: macroUpdate.count,
+    macrocyclesUpdated,
+    macrocycleId: activeMacro?.id ?? null,
+    annualGoalId: annualGoal?.id ?? null,
     annualGoalUpdated,
+    annualGoalLinked,
     targetWeightKg: 87,
     focusMode: "recomp",
     targets: CORRECTED_ANNUAL_TARGETS,
