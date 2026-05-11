@@ -43,6 +43,15 @@
   --color-session-rest-bg: rgba(58, 58, 60, 0.04);
   --color-session-calibration-bg: rgba(155, 142, 194, 0.08);
 
+  /* System accents — the only colors used outside the session vocabulary.
+     Amber: focus rings, warning state, attention surface. Sky: FloatingNav
+     active state only (no other component may reference it). */
+  --color-accent-amber: #D4A853;
+  --color-accent-amber-ring: rgba(212, 168, 83, 0.5);
+  --color-nav-accent: #7DD3FC;
+  --color-nav-accent-bg: rgba(125, 211, 252, 0.12);
+  --color-nav-hover-bg: rgba(255, 255, 255, 0.06);
+
   /* Functional status (unchanged intent, new values) */
   --color-success: #6BBF7B;
   --color-warning: #D4A853;
@@ -175,6 +184,42 @@
 }
 
 /* ============================================================================
+   Today dashboard — Hero Spread rhythm
+   Accepted via /impeccable live (Sprint v0.16 visual polish, density=1).
+   The BPM num-hero commands the eye; stat tiles compress + de-emphasize;
+   section padding stretches around the run block. Selectors target
+   stable structures (`.rule`, `.num-hero`) plus the current RecoveryStrip
+   stat-tile chain — refactor those tiles, refactor here.
+   ============================================================================ */
+.today-dashboard {
+  padding-top: 48px;
+  padding-bottom: 112px;
+}
+.today-dashboard .rule {
+  margin-top: 40px;
+  margin-bottom: 40px;
+}
+.today-dashboard .flex.flex-wrap.gap-2 {
+  gap: 6px;
+}
+.today-dashboard .flex.flex-wrap.gap-2 > div {
+  padding: 10px 12px;
+  opacity: 0.92;
+}
+.today-dashboard .flex.flex-wrap.gap-2 .num-md {
+  font-size: 0.95rem;
+}
+.today-dashboard .num-hero {
+  font-size: 5.5rem;
+  line-height: 0.9;
+  letter-spacing: -0.04em;
+}
+.today-dashboard .border-l-\[3px\] {
+  padding-top: 32px;
+  padding-bottom: 32px;
+}
+
+/* ============================================================================
    Direction C: Session-Type Indicator Stripe
    Thin left-border colored by session type. Used on calendar cells + day cards.
    ============================================================================ */
@@ -219,10 +264,10 @@
 }
 
 /* ============================================================================
-   Focus rings (a11y) — amber instead of cyan
+   Focus rings (a11y) — amber, the system's only attention accent
    ============================================================================ */
 :focus-visible {
-  outline: 2px solid rgba(212, 168, 83, 0.5);
+  outline: 2px solid var(--color-accent-amber-ring);
   outline-offset: 2px;
   border-radius: 2px;
 }

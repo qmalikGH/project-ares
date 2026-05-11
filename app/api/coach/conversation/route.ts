@@ -49,7 +49,7 @@ import { COACH_TOOLS } from "@/lib/ai-coach/tools";
 import { executeCoachTool } from "@/lib/coach-engine/coach-tools";
 import { getActiveGoal, getActiveMacrocycle } from "@/lib/db/queries/plans";
 import { getRecentSensorData } from "@/lib/db/queries/sensors";
-import { userToday } from "@/lib/date";
+import { userTodayDynamic } from "@/lib/date";
 import { loadWorkoutContext } from "@/lib/db/queries/workout-context";
 import { formatWorkoutContext } from "@/lib/ai-coach/prompts/workout-context";
 import { isAiCoachEnabled } from "@/lib/db/queries/settings";
@@ -97,7 +97,7 @@ export async function POST(req: Request) {
   // ── Profile + intent + workout context (unchanged from v0.11) ──
   const goal = await getActiveGoal(userId);
   const macro = await getActiveMacrocycle(userId);
-  const today = userToday();
+  const today = await userTodayDynamic();
   const currentPhase = macro?.phases.find(
     (p) => today >= p.startDate && today < p.plannedEndDate,
   );
@@ -176,7 +176,7 @@ export async function POST(req: Request) {
 
   let workoutContext: string | null = null;
   try {
-    const ctx = await loadWorkoutContext(userId, new Date());
+    const ctx = await loadWorkoutContext(userId, today);
     if (ctx) workoutContext = formatWorkoutContext(ctx);
   } catch {
     // Non-fatal — coach still works on profile + intent context alone.

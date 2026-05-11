@@ -165,19 +165,19 @@ function QuickStats({
       </p>
       <div className="mt-1 grid grid-cols-3 gap-3 text-sm">
         <div>
-          <div className="text-2xl font-bold tabular-nums">
+          <div className="num-lg">
             {stats.thisWeekSessions}
           </div>
           <div className="text-xs text-muted-foreground">Sessions abgeschlossen</div>
         </div>
         <div>
-          <div className="text-2xl font-bold tabular-nums">
+          <div className="num-lg">
             {stats.thisWeekRunMin}
           </div>
           <div className="text-xs text-muted-foreground">Minuten Lauf</div>
         </div>
         <div>
-          <div className="text-2xl font-bold tabular-nums">
+          <div className="num-lg">
             {stats.thisWeekStrengthCount}
           </div>
           <div className="text-xs text-muted-foreground">Strength-Sessions</div>

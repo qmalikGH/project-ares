@@ -179,24 +179,59 @@ describe("insertWarmupSets", () => {
     expect(result[4].name).toBe("Pallof Press");
   });
 
-  it("deduplicates warmup for same exercise appearing twice", () => {
+  it("deduplicates warmup for exercises in the same movement group", () => {
     const exercises: Exercise[] = [
       { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8 },
       { name: "Bench Press", sets: 3, reps: 8, loadPct: 75, rpeCap: 8 },
-      { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7 },
+      { name: "Reverse Lunge", sets: 3, reps: 10, loadPct: 60, rpeCap: 7 },
     ];
     const result = insertWarmupSets(exercises);
 
+    // Hex Bar DL gets warmup (first lower_body)
     const hexWarmups = result.filter(
       (e) => e.name === "Hex Bar Deadlift" && e.isWarmup,
     );
-    // Only one set of 3 warmups for HBD, not 6
     expect(hexWarmups).toHaveLength(3);
 
+    // Bench gets warmup (first upper_push — different group)
     const benchWarmups = result.filter(
       (e) => e.name === "Bench Press" && e.isWarmup,
     );
     expect(benchWarmups).toHaveLength(3);
+
+    // Reverse Lunge does NOT get warmup (lower_body already warmed up by Hex Bar)
+    const lungeWarmups = result.filter(
+      (e) => e.name === "Reverse Lunge" && e.isWarmup,
+    );
+    expect(lungeWarmups).toHaveLength(0);
+  });
+
+  it("skips warmup for Hip Thrust when RDL already warmed up lower_body", () => {
+    const exercises: Exercise[] = [
+      { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7 },
+      { name: "Hip Thrust", sets: 3, reps: 10, loadPct: 65, rpeCap: 7 },
+    ];
+    const result = insertWarmupSets(exercises);
+
+    const rdlWarmups = result.filter(
+      (e) => e.name === "Romanian Deadlift" && e.isWarmup,
+    );
+    expect(rdlWarmups).toHaveLength(3);
+
+    const htWarmups = result.filter(
+      (e) => e.name === "Hip Thrust" && e.isWarmup,
+    );
+    expect(htWarmups).toHaveLength(0);
+  });
+
+  it("does not generate warmup for unknown exercise not in movement group map", () => {
+    const exercises: Exercise[] = [
+      { name: "Some New Exercise", sets: 3, reps: 5, loadPct: 75, rpeCap: 8 },
+    ];
+    const result = insertWarmupSets(exercises);
+    // Unknown exercise has no movement group → no warmup (safe default)
+    const warmups = result.filter((e) => e.isWarmup);
+    expect(warmups).toHaveLength(0);
   });
 
   it("does not insert warmups for exercises below 60% loadPct", () => {

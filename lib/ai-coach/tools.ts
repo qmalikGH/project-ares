@@ -139,6 +139,37 @@ export const COACH_TOOLS: Anthropic.Tool[] = [
       required: ["date", "reason"],
     },
   },
+  {
+    name: "reschedule_session",
+    description:
+      "Verschiebe eine geplante Session auf einen anderen Tag innerhalb derselben Woche. Nutze dies bei legitimen Gründen (Termin, leichte Krankheit) wenn ein anderer Tag offen ist. Validiert Periodisierungs-Regeln (24h-Gap zu Strength A für Quality-Runs, Pflicht-Ruhetage, Slot-Konflikte, Tagesdichte). Bei Validierungsfehler kommt eine deutsche Begründung zurück — dann dem User erklären und ggf. skip_session vorschlagen. Cross-Week ist explizit nicht unterstützt — dafür skippen und manuell neu planen.",
+    input_schema: {
+      type: "object",
+      properties: {
+        fromDate: {
+          type: "string",
+          description:
+            "Quell-Datum YYYY-MM-DD (z.B. '2026-05-05'). Muss eine planbare Session enthalten.",
+        },
+        toDate: {
+          type: "string",
+          description:
+            "Ziel-Datum YYYY-MM-DD. Muss in derselben Trainingswoche wie fromDate liegen.",
+        },
+        reason: {
+          type: "string",
+          description:
+            "Kurze Begründung für die Verschiebung, z.B. 'Termin am Dienstag', 'leichte Erkältung'.",
+        },
+        type: {
+          type: "string",
+          description:
+            "Optional: spezifischer Session-Typ falls fromDate mehrere Sessions hat (z.B. 'easy_run' wenn nur der Run, nicht aber das Strength-Workout verschoben werden soll). Pflicht wenn fromDate mehrdeutig ist.",
+        },
+      },
+      required: ["fromDate", "toDate", "reason"],
+    },
+  },
 ];
 
 // Sprint v0.12: cache the tools array. Anthropic SDK accepts cache_control on

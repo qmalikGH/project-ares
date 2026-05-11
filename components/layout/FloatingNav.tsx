@@ -13,6 +13,7 @@ import {
   Settings,
   Target,
   TrendingUp,
+  Utensils,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +26,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { href: "/today", label: "Heute", icon: Home },
   { href: "/week", label: "Plan", icon: CalendarDays },
+  { href: "/nutrition", label: "Nutrition", icon: Utensils },
   { href: "/goals", label: "Ziele", icon: Target },
   { href: "/progress", label: "Fortschritt", icon: TrendingUp },
   { href: "/coach", label: "Coach", icon: MessageCircle },

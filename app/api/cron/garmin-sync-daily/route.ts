@@ -4,7 +4,7 @@
 import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db/client";
-import { userToday } from "@/lib/date";
+import { userTodayForUser } from "@/lib/date";
 import { syncGarminForDate, classifyError } from "@/lib/garmin/sync";
 
 function authorized(req: Request): boolean {
@@ -24,12 +24,17 @@ export async function GET(req: Request) {
     select: { id: true },
   });
 
-  const today = userToday();
-  const yesterday = new Date(today.getTime() - 86400000);
-
-  const results: Array<{ userId: string; status: string; errors: number }> = [];
+  const results: Array<{
+    userId: string;
+    status: string;
+    errors: number;
+    syncedFor?: string;
+  }> = [];
 
   for (const user of users) {
+    // Per-user "yesterday" — respects each user's persisted timezone.
+    const today = await userTodayForUser(user.id);
+    const yesterday = new Date(today.getTime() - 86400000);
     try {
       const result = await syncGarminForDate(yesterday);
       await db.garminSyncLog.create({
@@ -48,6 +53,10 @@ export async function GET(req: Request) {
         },
       });
 
+      // Existing fields stay in the `garmin` JSON (camelCase, matches the rest
+      // of the codebase: lib/coach-engine/readiness, lib/db/queries/sensors-aggregate).
+      // The v0.16 wellness columns are top-level for queryability (calorie
+      // averaging, nutrition adjustment).
       const garminPayload = {
         hrvStatus: result.snapshot.hrvStatus,
         hrvRmssd: result.snapshot.hrvRmssd,
@@ -56,19 +65,42 @@ export async function GET(req: Request) {
         bodyBatteryMorning: result.snapshot.bodyBatteryMorning,
         rhr: result.snapshot.rhr,
       };
+      const v016Fields = {
+        totalKilocalories: result.snapshot.totalKilocalories,
+        activeKilocalories: result.snapshot.activeKilocalories,
+        bmrKilocalories: result.snapshot.bmrKilocalories,
+        bodyBatteryEnd: result.snapshot.bodyBatteryEnd,
+        averageStress: result.snapshot.averageStress,
+      };
       const existing = await db.dailySensorData.findFirst({ where: { userId: user.id, date: yesterday } });
       if (existing) {
         await db.dailySensorData.update({
           where: { id: existing.id },
-          data: { garmin: garminPayload, garminLastSyncAt: new Date(), updatedAt: new Date() },
+          data: {
+            garmin: garminPayload,
+            ...v016Fields,
+            garminLastSyncAt: new Date(),
+            updatedAt: new Date(),
+          },
         });
       } else {
         await db.dailySensorData.create({
-          data: { userId: user.id, date: yesterday, garmin: garminPayload, garminLastSyncAt: new Date() },
+          data: {
+            userId: user.id,
+            date: yesterday,
+            garmin: garminPayload,
+            ...v016Fields,
+            garminLastSyncAt: new Date(),
+          },
         });
       }
 
-      results.push({ userId: user.id, status: result.status, errors: result.errors.length });
+      results.push({
+        userId: user.id,
+        status: result.status,
+        errors: result.errors.length,
+        syncedFor: yesterday.toISOString().slice(0, 10),
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await db.garminSyncLog.create({
@@ -88,5 +120,5 @@ export async function GET(req: Request) {
     }
   }
 
-  return NextResponse.json({ ranAt: new Date().toISOString(), syncedFor: yesterday.toISOString(), results });
+  return NextResponse.json({ ranAt: new Date().toISOString(), results });
 }

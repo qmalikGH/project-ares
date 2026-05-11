@@ -12,8 +12,7 @@
 import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db/client";
-import { dayKey } from "@/lib/db/queries/sensors";
-import { userTomorrow } from "@/lib/date";
+import { userTomorrowForUser } from "@/lib/date";
 import { vdotToPaces } from "@/lib/coach-engine/run-coach";
 import { pushWorkoutToGarmin } from "@/lib/garmin/workout-sync";
 import type { SessionPlan } from "@/lib/coach-engine/types";
@@ -29,11 +28,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Berlin-aware tomorrow — replaces fragile .setDate()/.getDate() which use
-  // the server's local timezone instead of the user's.
-  const tomorrowKey = userTomorrow();
-  const dayAfter = new Date(tomorrowKey.getTime() + 86400000);
-
   const usersWithPush = await db.userSettings.findMany({
     where: { garminWorkoutPushEnabled: true },
     select: {
@@ -48,10 +42,17 @@ export async function GET(req: Request) {
     type?: string;
     status: string;
     error?: string;
+    targetDate?: string;
   }> = [];
 
   for (const settings of usersWithPush) {
     try {
+      // Per-user tomorrow: respects UserSettings.timezone (populated from
+      // the userTz cookie by TimezoneCookieSetter). Crons have no request
+      // context, so reading the persisted zone is the only travel-aware path.
+      const tomorrowKey = await userTomorrowForUser(settings.userId);
+      const dayAfter = new Date(tomorrowKey.getTime() + 86400000);
+
       // Each user can have multiple sessions per day (run AM + strength PM).
       // Push every PLANNED run-style session — buildGarminWorkout filters
       // strength/rest/etc to null automatically.
@@ -64,7 +65,11 @@ export async function GET(req: Request) {
       });
 
       if (tomorrowWorkouts.length === 0) {
-        results.push({ userId: settings.userId, status: "no_workout_tomorrow" });
+        results.push({
+          userId: settings.userId,
+          status: "no_workout_tomorrow",
+          targetDate: tomorrowKey.toISOString().slice(0, 10),
+        });
         continue;
       }
 
@@ -97,6 +102,7 @@ export async function GET(req: Request) {
             ? "synced"
             : result.skipReason ?? "failed",
           error: result.error,
+          targetDate: tomorrowKey.toISOString().slice(0, 10),
         });
       }
     } catch (e) {
@@ -110,7 +116,6 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     ts: new Date().toISOString(),
-    targetDate: tomorrowKey.toISOString().slice(0, 10),
     usersConsidered: usersWithPush.length,
     results,
   });

@@ -8,12 +8,17 @@
 // Same regeneration code-path as training-days, but with `endDate > today`
 // filter so the current week is included.
 //
+// Auth:
+//   - Browser/session: cookie-based, runs against the logged-in user.
+//   - Service: `Authorization: Bearer <CRON_SECRET>` + JSON body `{ userId }`.
+//     Lets out-of-band callers (cron, ops, agent) trigger regen without a session.
+//
 // Best-effort: Garmin re-sync runs after but never fails the request.
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
-import { userToday } from "@/lib/date";
+import { userTodayDynamic } from "@/lib/date";
 import { generateWeekRunPlan } from "@/lib/coach-engine/run-coach";
 import { generateWeekStrengthPlan } from "@/lib/coach-engine/strength-coach";
 import {
@@ -29,9 +34,32 @@ import type {
   WeekStrengthPlan,
 } from "@/lib/coach-engine/types";
 
-export async function POST() {
-  const userId = await getCurrentUserId();
-  const today0 = userToday();
+async function resolveUserId(req: NextRequest): Promise<string | NextResponse> {
+  const auth = req.headers.get("authorization");
+  const secret = process.env.CRON_SECRET;
+  if (secret && auth === `Bearer ${secret}`) {
+    let body: { userId?: unknown } = {};
+    try {
+      body = (await req.json()) as { userId?: unknown };
+    } catch {
+      // empty / non-JSON body — fall through to validation below
+    }
+    if (typeof body.userId !== "string" || body.userId.length === 0) {
+      return NextResponse.json(
+        { status: "error", message: "Missing userId in body" },
+        { status: 400 },
+      );
+    }
+    return body.userId;
+  }
+  return getCurrentUserId();
+}
+
+export async function POST(req: NextRequest) {
+  const resolved = await resolveUserId(req);
+  if (resolved instanceof NextResponse) return resolved;
+  const userId = resolved;
+  const today0 = await userTodayDynamic();
 
   // KEY DIFFERENCE vs /api/settings/training-days: endDate > today (not
   // startDate >= today). This includes the current week.

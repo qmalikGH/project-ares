@@ -13,6 +13,15 @@ export interface GarminDailySnapshot {
   sleepDurationMin: number | null;
   bodyBatteryMorning: number | null;
   rhr: number | null;
+
+  // Sprint v0.16 Phase A2: extended wellness fields. All from the same
+  // usersummary-service/usersummary/daily endpoint already used for body
+  // battery — single network call, multiple fields.
+  totalKilocalories: number | null;
+  activeKilocalories: number | null;
+  bmrKilocalories: number | null;
+  bodyBatteryEnd: number | null;
+  averageStress: number | null;
 }
 
 export interface SyncStatusFlags {
@@ -62,6 +71,11 @@ export async function syncGarminForDate(date: Date): Promise<SyncResult> {
     sleepDurationMin: null,
     bodyBatteryMorning: null,
     rhr: null,
+    totalKilocalories: null,
+    activeKilocalories: null,
+    bmrKilocalories: null,
+    bodyBatteryEnd: null,
+    averageStress: null,
   };
   const errors: { datatype: string; message: string }[] = [];
   let activitiesCount = 0;
@@ -154,21 +168,53 @@ export async function syncGarminForDate(date: Date): Promise<SyncResult> {
     errors.push({ datatype: "hrv", message: e instanceof Error ? e.message : String(e) });
   }
 
-  // Body Battery ------------------------------------------------------------
-  // Use the user-summary endpoint for body battery start-of-day.
+  // Daily user-summary -----------------------------------------------------
+  // One endpoint, many fields: body battery (morning + end), TDEE / calorie
+  // breakdown, average stress. Sprint v0.16 Phase A2.2.
   try {
-    if (!displayName) throw new Error("Missing displayName for body battery endpoint");
+    if (!displayName) throw new Error("Missing displayName for daily user-summary endpoint");
     const url = `${GC_API}/usersummary-service/usersummary/daily/${displayName}?calendarDate=${dateKey(date)}`;
     const summary = (await client.get<{
       bodyBatteryMostRecentValue?: number;
       bodyBatteryAtWakeTime?: number;
+      bodyBatteryLowestValue?: number;
+      totalKilocalories?: number;
+      activeKilocalories?: number;
+      bmrKilocalories?: number;
+      averageStressLevel?: number;
     }>(url)) ?? {};
+
+    // Body battery morning — prefer at-wake-time, fall back to most-recent.
     if (typeof summary.bodyBatteryAtWakeTime === "number") {
       snapshot.bodyBatteryMorning = summary.bodyBatteryAtWakeTime;
       flags.bodyBatterySyncOk = true;
     } else if (typeof summary.bodyBatteryMostRecentValue === "number") {
       snapshot.bodyBatteryMorning = summary.bodyBatteryMostRecentValue;
       flags.bodyBatterySyncOk = true;
+    }
+
+    // Body battery end — most-recent for a day in the past = end-of-day value.
+    if (typeof summary.bodyBatteryMostRecentValue === "number") {
+      snapshot.bodyBatteryEnd = summary.bodyBatteryMostRecentValue;
+    }
+
+    // TDEE breakdown
+    if (typeof summary.totalKilocalories === "number") {
+      snapshot.totalKilocalories = Math.round(summary.totalKilocalories);
+    }
+    if (typeof summary.activeKilocalories === "number") {
+      snapshot.activeKilocalories = Math.round(summary.activeKilocalories);
+    }
+    if (typeof summary.bmrKilocalories === "number") {
+      snapshot.bmrKilocalories = Math.round(summary.bmrKilocalories);
+    }
+
+    // Stress (0-100, daily average; -1 / -2 in Garmin = no data)
+    if (
+      typeof summary.averageStressLevel === "number" &&
+      summary.averageStressLevel >= 0
+    ) {
+      snapshot.averageStress = summary.averageStressLevel;
     }
   } catch (e) {
     errors.push({ datatype: "body_battery", message: e instanceof Error ? e.message : String(e) });

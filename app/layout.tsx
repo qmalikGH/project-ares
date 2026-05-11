@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { TimezoneCookieSetter } from "./TimezoneCookieSetter";
 
 // Sprint v0.11 (Direction C): Geist Sans + Geist Mono — Geist for body/UI text,
 // Geist Mono for ALL numeric data (HR, pace, weight, sets×reps, percentages).
@@ -58,7 +59,10 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
       suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <TimezoneCookieSetter />
+        {children}
+      </body>
     </html>
   );
 }

@@ -16,9 +16,14 @@ import { db } from "@/lib/db/client";
 import { userToday } from "@/lib/date";
 import { dayKey } from "@/lib/db/queries/sensors";
 import { regeneratePlansFromNow } from "@/lib/db/queries/regenerate-plans";
+import {
+  canMoveSession,
+  constraintsFromUserSettings,
+} from "@/lib/coach-engine/schedule-strategy";
 import type {
   Exercise,
   SessionPlan,
+  SessionType,
   TherapyPhase,
 } from "@/lib/coach-engine/types";
 
@@ -424,6 +429,164 @@ export async function skipSession(
 }
 
 // ─────────────────────────────────────────────────────
+// reschedule_session
+// ─────────────────────────────────────────────────────
+
+export interface RescheduleSessionInput {
+  /** YYYY-MM-DD source date — must contain a session. */
+  fromDate: string;
+  /** YYYY-MM-DD target date — must lie in the same week. */
+  toDate: string;
+  reason: string;
+  /** Optional — required when fromDate has multiple sessions. */
+  type?: string;
+}
+
+/**
+ * Move a single planned session to another day in the same week, validated
+ * against the periodisation rules in `canMoveSession`. The Coach uses this
+ * for "verschiebe X auf Y" intents.
+ *
+ * Strategy:
+ *   1. Parse + validate the date strings; both must be UTC midnight.
+ *   2. Locate the WeeklyPlan that contains both dates (cross-week is
+ *      explicitly rejected).
+ *   3. Find the matching SessionPlan in plannedSessions JSON. Ambiguity
+ *      (multiple types on the same day) → reject with a hint.
+ *   4. Build the per-user constraints + flatten weekSessions; run
+ *      canMoveSession. On reject, surface the reason.
+ *   5. Mutate plannedSessions: drop from fromDate, insert at toDate, sort.
+ *   6. Update any matching Workout row's date in place.
+ *   7. Best-effort Garmin removal of the moved workout if previously
+ *      pushed — the next garmin-workout-push cron repushes for the new
+ *      date.
+ */
+export async function rescheduleSession(
+  userId: string,
+  input: RescheduleSessionInput,
+): Promise<string> {
+  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+  if (!dateRegex.test(input.fromDate) || !dateRegex.test(input.toDate)) {
+    return `Daten müssen YYYY-MM-DD sein. Erhalten: from='${input.fromDate}', to='${input.toDate}'.`;
+  }
+  const fromDate = new Date(`${input.fromDate}T00:00:00.000Z`);
+  const toDate = new Date(`${input.toDate}T00:00:00.000Z`);
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+    return `Datum konnte nicht geparst werden.`;
+  }
+
+  // 1. Locate the WeeklyPlan that contains the from-date. The same plan
+  // must also cover the to-date — schedule-strategy already enforces this
+  // logically, but a plan-spanning check here gives a clearer error.
+  const plan = await db.weeklyPlan.findFirst({
+    where: {
+      phase: { macrocycle: { userId, status: "active" } },
+      startDate: { lte: fromDate },
+      endDate: { gt: fromDate },
+    },
+  });
+  if (!plan) {
+    return `Keine aktive Woche gefunden, die ${input.fromDate} enthält.`;
+  }
+  if (toDate < plan.startDate || toDate >= plan.endDate) {
+    return `Verschieben über Wochengrenzen wird nicht unterstützt — ${input.toDate} liegt außerhalb der Woche von ${input.fromDate}. Bitte skippen und manuell neu einplanen.`;
+  }
+
+  if (!Array.isArray(plan.plannedSessions)) {
+    return `Wochen-Plan enthält keine Sessions zum Verschieben.`;
+  }
+  const sessions = plan.plannedSessions as unknown as SessionPlan[];
+
+  // 2. Find the session(s) on fromDate.
+  const onFromDate = sessions.filter((s) => {
+    const sd = s.date instanceof Date ? s.date : new Date(s.date);
+    return sd.getTime() === fromDate.getTime() && s.type !== "rest";
+  });
+  if (onFromDate.length === 0) {
+    return `Am ${input.fromDate} ist keine planbare Session — nichts zu verschieben.`;
+  }
+  let matched: SessionPlan;
+  if (input.type) {
+    const found = onFromDate.find((s) => s.type === input.type);
+    if (!found) {
+      return `Am ${input.fromDate} gibt es keine '${input.type}'-Session.`;
+    }
+    matched = found;
+  } else if (onFromDate.length > 1) {
+    const types = onFromDate.map((s) => s.type).join(", ");
+    return `${input.fromDate} hat mehrere Sessions (${types}) — bitte 'type' mitgeben, damit klar ist welche verschoben werden soll.`;
+  } else {
+    matched = onFromDate[0];
+  }
+
+  // 3. Build constraints from UserSettings + run validator.
+  const settings = await db.userSettings.findUnique({ where: { userId } });
+  const constraints = constraintsFromUserSettings({
+    forcedRestDaysIso: settings?.forcedRestDays ?? null,
+    preferredLongRunDayIso: settings?.preferredLongRunDay ?? null,
+  });
+  const validation = canMoveSession({
+    fromDate,
+    toDate,
+    sessionType: matched.type as SessionType,
+    weekStartMonday: plan.startDate,
+    weekSessions: sessions,
+    constraints,
+  });
+  if (!validation.ok) {
+    return validation.reason ?? "Verschieben nicht möglich.";
+  }
+
+  // 4. Mutate plannedSessions: drop the matched entry, insert with new date,
+  // and re-sort by date so consumers (calendar / today) read in order.
+  const next = sessions.filter((s) => s !== matched);
+  const moved: SessionPlan = { ...matched, date: toDate };
+  next.push(moved);
+  next.sort((a, b) => {
+    const ad = a.date instanceof Date ? a.date : new Date(a.date);
+    const bd = b.date instanceof Date ? b.date : new Date(b.date);
+    return ad.getTime() - bd.getTime();
+  });
+
+  await db.weeklyPlan.update({
+    where: { id: plan.id },
+    data: { plannedSessions: next as unknown as object },
+  });
+
+  // 5. Update matching Workout row's date if one exists for fromDate. This
+  // keeps /today and /api/day consistent without waiting for sessions/start
+  // to recreate it on the new date.
+  const workout = await db.workout.findFirst({
+    where: {
+      userId,
+      date: fromDate,
+      type: matched.type,
+      status: { in: ["planned", "in_progress"] },
+    },
+  });
+  let garminNote = "";
+  if (workout) {
+    if (workout.garminWorkoutId) {
+      try {
+        const { removeWorkoutFromGarmin } = await import(
+          "@/lib/garmin/workout-sync"
+        );
+        await removeWorkoutFromGarmin(workout.id);
+        garminNote = " (Garmin-Push entfernt — nächster Push-Cron schickt für das neue Datum)";
+      } catch {
+        /* swallow */
+      }
+    }
+    await db.workout.update({
+      where: { id: workout.id },
+      data: { date: toDate },
+    });
+  }
+
+  return `Session '${matched.type}' von ${input.fromDate} auf ${input.toDate} verschoben — Grund: ${input.reason}.${garminNote}`;
+}
+
+// ─────────────────────────────────────────────────────
 // Public dispatch helper
 // ─────────────────────────────────────────────────────
 
@@ -431,7 +594,8 @@ export type CoachToolName =
   | "substitute_exercise"
   | "adjust_run_volume"
   | "set_therapy_phase"
-  | "skip_session";
+  | "skip_session"
+  | "reschedule_session";
 
 export async function executeCoachTool(
   userId: string,
@@ -499,6 +663,19 @@ export async function executeCoachTool(
         const type =
           typeof input.type === "string" && input.type ? input.type : undefined;
         return await skipSession(userId, { date, reason, type });
+      }
+      case "reschedule_session": {
+        const fromDate = String(input.fromDate ?? "");
+        const toDate = String(input.toDate ?? "");
+        const reason = String(input.reason ?? "kein Grund angegeben");
+        const type =
+          typeof input.type === "string" && input.type ? input.type : undefined;
+        return await rescheduleSession(userId, {
+          fromDate,
+          toDate,
+          reason,
+          type,
+        });
       }
       default:
         return `Unbekanntes Tool: ${name}`;

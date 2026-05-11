@@ -13,7 +13,7 @@ import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { dayKey } from "@/lib/db/queries/sensors";
-import { userToday } from "@/lib/date";
+import { userTodayDynamic } from "@/lib/date";
 import { getActivityDetail, getActivityHrZones } from "@/lib/garmin/activities";
 import { mapGarminZonesToPolarizedTID } from "@/lib/coach-engine/hr-zones";
 import {
@@ -65,14 +65,18 @@ export async function POST(req: Request) {
   }
 
   const userId = await getCurrentUserId();
-  const today = userToday();
+  const today = await userTodayDynamic();
   const { rpe, notes, trainingScore, workoutId } = parsed.data;
   let durationActualMin = parsed.data.durationActualMin ?? null;
   let garminActivityIdStr: string | null = null;
 
-  // Resolution order: explicit workoutId → most-recent in_progress today →
-  // any workout today. The first wins on two-a-days, the others keep the
-  // single-session legacy path working.
+  // Resolution order: explicit workoutId → in_progress today → any today.
+  // If nothing matches today exactly, widen to a ±1 day window to absorb
+  // timezone drift (e.g. plan stored as Mon UTC midnight while user's
+  // current "today" is Sun UTC midnight in their travel TZ). The window
+  // hit gets updated in place — never create a duplicate sibling.
+  const yesterday = new Date(today.getTime() - 86400000);
+  const dayAfter = new Date(today.getTime() + 2 * 86400000);
   const workout = workoutId
     ? await db.workout.findFirst({ where: { id: workoutId, userId } })
     : (await db.workout.findFirst({
@@ -81,6 +85,14 @@ export async function POST(req: Request) {
       })) ??
       (await db.workout.findFirst({
         where: { userId, date: today },
+        orderBy: { createdAt: "desc" },
+      })) ??
+      (await db.workout.findFirst({
+        where: {
+          userId,
+          date: { gte: yesterday, lt: dayAfter },
+          status: { in: ["in_progress", "planned"] },
+        },
         orderBy: { createdAt: "desc" },
       }));
   if (!workout) {

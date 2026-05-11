@@ -21,7 +21,7 @@ import {
   findAllTodaySessionsInPlan,
 } from "@/lib/db/queries/plans";
 import { dayKey } from "@/lib/db/queries/sensors";
-import { userToday } from "@/lib/date";
+import { userTodayDynamic } from "@/lib/date";
 import { computeReadiness, computeBaselines } from "@/lib/coach-engine/readiness";
 import { buildLoadOutput, computeDailyLoad } from "@/lib/coach-engine/load-monitoring";
 import { computeKneeStatus } from "@/lib/coach-engine/limitations";
@@ -56,7 +56,7 @@ export async function POST(req: Request) {
   const requestedType = parsed.success ? parsed.data.type : undefined;
 
   const userId = await getCurrentUserId();
-  const today = userToday();
+  const today = await userTodayDynamic();
   const todayDay = dayKey(today);
 
   const phaseRow = await getCurrentPhaseRow(userId, today);

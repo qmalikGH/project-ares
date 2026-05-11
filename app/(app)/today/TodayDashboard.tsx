@@ -1020,8 +1020,11 @@ export default function TodayDashboard() {
     month: "long",
   });
 
-  return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col px-6 py-8 pb-24">
+  // Live-mode: extracted dashboard inner so 3 variants can reference the same
+  // content tree with different scoped CSS spacing rules. The original keeps
+  // its baseline className; variants override via scoped CSS variables.
+  const dashboardInner = (
+    <>
       {/* Header — uppercase weekday · mono day-month */}
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">
@@ -1076,8 +1079,6 @@ export default function TodayDashboard() {
       {/* Ready: full dashboard, separated by rule lines */}
       {today.status === "READY" && (
         <>
-          {/* Sprint v0.14: W20 evaluation banner — shown in last block (W17+) when
-              the macrocycle hasn't been evaluated yet. Violet left-border for distinction. */}
           {today.week.weekNumber >= 17 && !today.macrocycleEvaluated && (
             <div className="mb-6 flex items-center justify-between rounded-lg border-l-4 border-[var(--color-session-calibration)] bg-[var(--color-session-calibration)]/8 px-4 py-3">
               <div>
@@ -1145,11 +1146,6 @@ export default function TodayDashboard() {
 
           <hr className="rule my-6" />
 
-          {/* Sprint v0.12: Coach is no longer a daily auto-generated text on
-              /today. It's an interactive tool surface — Q opens /coach when
-              he wants to substitute an exercise, adjust volume, change
-              therapy phase, or skip a session. The link below replaces the
-              old AI-generated paragraph (cost + noise reduction). */}
           <Link
             href="/coach"
             className="block py-3 text-sm uppercase tracking-[0.2em] font-semibold text-[var(--color-foreground-tertiary)] hover:text-[var(--color-foreground-secondary)] transition-colors"
@@ -1158,6 +1154,12 @@ export default function TodayDashboard() {
           </Link>
         </>
       )}
+    </>
+  );
+
+  return (
+    <div className="today-dashboard mx-auto flex w-full max-w-3xl flex-col px-6">
+      {dashboardInner}
     </div>
   );
 }

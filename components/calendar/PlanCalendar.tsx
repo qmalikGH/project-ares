@@ -13,7 +13,6 @@ import {
   endOfMonth,
   endOfWeek,
   format,
-  isSameDay,
   isSameMonth,
   isToday,
   parse,
@@ -149,7 +148,13 @@ export function PlanCalendar({
   const goToToday = () => setCurrentMonth(format(today, "MMM-yyyy"));
 
   function getSessionsForDay(day: Date): SessionPlan[] {
-    const entry = days.find((d) => isSameDay(d.date, day));
+    // Session dates are UTC-midnight (the date IS the intended calendar day);
+    // grid days are local-midnight. Match by their respective YYYY-MM-DD so
+    // the lookup stays correct in any browser timezone (esp. when traveling).
+    const dayKey = format(day, "yyyy-MM-dd");
+    const entry = days.find(
+      (d) => d.date.toISOString().slice(0, 10) === dayKey,
+    );
     return entry?.sessions ?? [];
   }
 
