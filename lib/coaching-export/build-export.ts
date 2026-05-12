@@ -733,6 +733,23 @@ async function buildNutrition(userId: string, today: Date): Promise<NutritionSec
         };
       }
     }
+
+    // v1.1 fix: Prefer ComputedMealSlots + DayTypeConfig for todayPlan
+    // (same data source as the UI's /api/nutrition/today route)
+    if (computedPlans?.[dayType] && dayTypeConfigs) {
+      const todayConfig = dayTypeConfigs.find((c) => c.dayType === dayType);
+      if (todayConfig) {
+        todayPlan = {
+          dayType,
+          calorieTarget: todayConfig.calorieTarget,
+          proteinG: todayConfig.proteinG,
+          carbsG: todayConfig.carbsG,
+          fatG: todayConfig.fatG,
+          slots: computedPlans[dayType].slots,
+          adjustment: (todayLog?.adjustment as unknown) ?? null,
+        };
+      }
+    }
   }
 
   return {
