@@ -58,9 +58,9 @@ const FLEX_DESSERT_ON = { enabled: true, items: [SKYR] };
 
 export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
   {
-    dayType: "strength_run", // Mo, Do, Fr
-    calorieTarget: 2500,
-    macroTargets: { proteinG: 190, carbsG: 278, fatG: 70 },
+    dayType: "strength_run", // Mo, Do, Fr — easy AM + Kraft PM
+    calorieTarget: 2853, // Intake = TDEE 3353 − 500 deficit
+    macroTargets: { proteinG: 190, carbsG: 310, fatG: 70 },
     fixedSlots: {
       morning: MORNING,
       preTraining: PRE_TRAINING,
@@ -72,11 +72,14 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
       mainMeal: { recipeId: "chicken_rice_asia", budgetRatio: 0.55 },
       dinner: { recipeId: "egg_asia_norice", budgetRatio: 0.45 },
     },
+    tdeeEstimate: 3353,
+    trainingWindow: "both",
+    dinnerNeedsCarbs: false,
   },
   {
-    dayType: "threshold", // Di
-    calorieTarget: 2939,
-    macroTargets: { proteinG: 190, carbsG: 350, fatG: 70 },
+    dayType: "threshold", // Di — Abend-Run only
+    calorieTarget: 2439, // Intake = TDEE 2939 − 500 deficit
+    macroTargets: { proteinG: 190, carbsG: 280, fatG: 70 },
     fixedSlots: {
       morning: MORNING,
       preTraining: PRE_TRAINING,
@@ -85,16 +88,18 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
       flexDessert: FLEX_DESSERT_ON,
     },
     variableSlots: {
-      // Higher mainMeal ratio: egg-only dinner caps at ~676 kcal (8 eggs),
-      // so extra budget goes to mainMeal where rice absorbs the kcal.
-      mainMeal: { recipeId: "chicken_rice_asia", budgetRatio: 0.65 },
-      dinner: { recipeId: "egg_asia_norice", budgetRatio: 0.35 },
+      // 50:50 — dinner now has rice (egg_chicken_rice_asia) for Post-WO Carbs.
+      mainMeal: { recipeId: "chicken_rice_asia", budgetRatio: 0.50 },
+      dinner: { recipeId: "egg_chicken_rice_asia", budgetRatio: 0.50 },
     },
+    tdeeEstimate: 2939,
+    trainingWindow: "evening",
+    dinnerNeedsCarbs: true,
   },
   {
-    dayType: "long_run", // Sa
-    calorieTarget: 3168,
-    macroTargets: { proteinG: 190, carbsG: 380, fatG: 70 },
+    dayType: "long_run", // Sa — Abend-Run only
+    calorieTarget: 2668, // Intake = TDEE 3168 − 500 deficit
+    macroTargets: { proteinG: 190, carbsG: 310, fatG: 70 },
     fixedSlots: {
       morning: MORNING,
       preTraining: PRE_TRAINING,
@@ -103,15 +108,20 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
       flexDessert: FLEX_DESSERT_ON,
     },
     variableSlots: {
-      // Higher mainMeal ratio: egg-only dinner caps at ~676 kcal.
-      mainMeal: { recipeId: "hack_rice_brokkoli", budgetRatio: 0.65 },
-      dinner: { recipeId: "egg_brokkoli_norice", budgetRatio: 0.35 },
+      // 0.54/0.46 — mainMeal gets extra budget so hack reaches 225g (25g step
+      // boundary), pushing day protein from 184→188g engine / 187g bridge.
+      // Dinner still gets enough rice (70g = ~55g carbs) for Post-WO recovery.
+      mainMeal: { recipeId: "hack_rice_brokkoli", budgetRatio: 0.54 },
+      dinner: { recipeId: "egg_rice_brokkoli", budgetRatio: 0.46 },
     },
+    tdeeEstimate: 3168,
+    trainingWindow: "evening",
+    dinnerNeedsCarbs: true,
   },
   {
-    dayType: "rest", // Mi, So
-    calorieTarget: 2400,
-    macroTargets: { proteinG: 190, carbsG: 220, fatG: 70 },
+    dayType: "rest", // Mi, So — kein Training
+    calorieTarget: 2000, // Intake = TDEE 2500 (capped) − 500 deficit
+    macroTargets: { proteinG: 190, carbsG: 180, fatG: 70 },
     fixedSlots: {
       morning: MORNING,
       preTraining: null, // no training → no pre-training slot
@@ -120,12 +130,16 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
       flexDessert: FLEX_DESSERT_ON,
     },
     variableSlots: {
-      // Rest day: egg mainMeal (with rice) + hack dinner (no rice).
-      // 50:50 split — equal portions, no training bias. Dinner needs
-      // ≥0.49 to reach 325g beef (discrete 25g steps) for 184g protein.
-      mainMeal: { recipeId: "egg_rice_asia", budgetRatio: 0.50 },
-      dinner: { recipeId: "hack_brokkoli_norice", budgetRatio: 0.50 },
+      // Rest day: egg_asia_norice MainMeal (KEIN REIS, Carb-Cut) +
+      // chicken_rice_brokkoli Dinner (Hähnchen statt Hack, 2x Protein-Effizienz).
+      // 0.48/0.52 (not 50:50) — dinner gets extra budget so chicken reaches
+      // 275g (25g step boundary), pushing day protein from 180→186g (≥184g).
+      mainMeal: { recipeId: "egg_asia_norice", budgetRatio: 0.48 },
+      dinner: { recipeId: "chicken_rice_brokkoli", budgetRatio: 0.52 },
     },
+    tdeeEstimate: 2500,
+    trainingWindow: "none",
+    dinnerNeedsCarbs: false,
   },
 ];
 

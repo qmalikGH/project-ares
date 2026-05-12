@@ -39,8 +39,9 @@ const CALORIE_TOLERANCE = 30;
 /** Minimum remaining budget after fixed slots. If lower, the config is broken. */
 const MIN_REMAINING_BUDGET = 400;
 
-/** Maximum daily food cost in EUR. */
-const MAX_DAILY_COST = 15.0;
+/** Maximum daily food cost in EUR.
+ *  Increased from 15 → 16 in v1.2 (higher calorie targets = more food). */
+const MAX_DAILY_COST = 16.0;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -199,6 +200,19 @@ export function computeDayPlan(
   // 7f. Cost warning
   if (dayTotals.cost > MAX_DAILY_COST * 0.9) {
     warnings.push(`Cost €${dayTotals.cost.toFixed(2)} approaching €${MAX_DAILY_COST.toFixed(2)} limit`);
+  }
+
+  // 7g. Protein cap per slot — SOFT warning (not error) for MPS-optimal distribution
+  const PROTEIN_CAP_PER_SLOT = 60;
+  if (scaledMainMeal.totals.protein > PROTEIN_CAP_PER_SLOT) {
+    warnings.push(
+      `MainMeal protein ${Math.round(scaledMainMeal.totals.protein)}g > ${PROTEIN_CAP_PER_SLOT}g soft cap`,
+    );
+  }
+  if (scaledDinner.totals.protein > PROTEIN_CAP_PER_SLOT) {
+    warnings.push(
+      `Dinner protein ${Math.round(scaledDinner.totals.protein)}g > ${PROTEIN_CAP_PER_SLOT}g soft cap`,
+    );
   }
 
   const validation: ValidationResult = {

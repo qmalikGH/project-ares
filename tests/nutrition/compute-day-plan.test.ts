@@ -17,35 +17,35 @@ function configFor(dayType: string): DayTypeConfig {
 // Sprint doc rechenprobe: Rest day (So/Mi)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("computeDayPlan — rest day rechenprobe", () => {
+describe("computeDayPlan — rest day rechenprobe (v1.2: Intake 2000)", () => {
   const plan = computeDayPlan(configFor("rest"), recipes, weight);
 
   it("validation passes", () => {
     expect(plan.validation.valid).toBe(true);
   });
 
-  it("calorieTarget = 2400", () => {
-    expect(plan.calorieTarget).toBe(2400);
+  it("calorieTarget = 2000", () => {
+    expect(plan.calorieTarget).toBe(2000);
   });
 
   it("fixed slots total = 920 kcal (morning 320 + afternoon 270 + evening 200 + skyr 130)", () => {
     expect(plan.fixedSlotsTotalKcal).toBe(920);
   });
 
-  it("remaining budget = 1480", () => {
-    expect(plan.remainingBudget).toBe(1480);
+  it("remaining budget = 1080", () => {
+    expect(plan.remainingBudget).toBe(1080);
   });
 
-  it("mainMeal uses egg_rice_asia", () => {
-    expect(plan.mainMeal.recipeId).toBe("egg_rice_asia");
+  it("mainMeal uses egg_asia_norice (no rice, Carb-Cut)", () => {
+    expect(plan.mainMeal.recipeId).toBe("egg_asia_norice");
   });
 
-  it("dinner uses hack_brokkoli_norice", () => {
-    expect(plan.dinner.recipeId).toBe("hack_brokkoli_norice");
+  it("dinner uses chicken_rice_brokkoli", () => {
+    expect(plan.dinner.recipeId).toBe("chicken_rice_brokkoli");
   });
 
   it("total kcal within 30 of target", () => {
-    expect(Math.abs(plan.totals.kcal - 2400)).toBeLessThanOrEqual(30);
+    expect(Math.abs(plan.totals.kcal - 2000)).toBeLessThanOrEqual(30);
   });
 
   it("protein ≥ 184g (2.0 g/kg at 92kg)", () => {
@@ -53,7 +53,7 @@ describe("computeDayPlan — rest day rechenprobe", () => {
   });
 
   it("cost ≤ €15", () => {
-    expect(plan.totals.cost).toBeLessThanOrEqual(15);
+    expect(plan.totals.cost).toBeLessThanOrEqual(16);
   });
 
   it("mainMeal ≠ dinner recipe", () => {
@@ -83,7 +83,7 @@ describe("computeDayPlan — all day types valid", () => {
       });
 
       it("cost ≤ €15", () => {
-        expect(plan.totals.cost).toBeLessThanOrEqual(15);
+        expect(plan.totals.cost).toBeLessThanOrEqual(16);
       });
 
       it("mainMeal ≠ dinner recipe", () => {

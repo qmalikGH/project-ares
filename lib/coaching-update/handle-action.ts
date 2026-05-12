@@ -93,6 +93,11 @@ const ToggleFlexDessertSchema = z.object({
   enabled: z.boolean(),
 });
 
+// v1.2 — Global deficit adjustment
+const AdjustDeficitSchema = z.object({
+  deficit: z.number().int().min(0).max(1500),
+});
+
 const SEED_DAY_TYPES: DayType[] = ["strength_run", "threshold", "long_run", "rest"];
 
 export type ActionResult =
@@ -590,6 +595,74 @@ export async function handleCoachingAction(
       const log = await db.coachingLog.create({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         data: { userId, action, data: parsed.data as any, reason },
+      });
+      return { success: true, logId: log.id, action };
+    }
+
+    // ── v1.2 actions ────────────────────────────────────────────────────
+
+    case "adjustDeficit": {
+      const parsed = AdjustDeficitSchema.safeParse(data);
+      if (!parsed.success) {
+        return { success: false, status: 400, error: "invalid_data", details: parsed.error.flatten() };
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const plan: any = await db.mealPlan.findFirst({
+        where: { userId, status: "active" },
+        select: { id: true, deficitKcal: true },
+      });
+      if (!plan) return { success: false, status: 404, error: "no_active_meal_plan" };
+
+      const newDeficit = parsed.data.deficit;
+      const oldDeficit = plan.deficitKcal ?? 500;
+
+      // Load all DayTypeConfigs and recalculate calorieTargets
+      const dbConfigs = await db.dayTypeConfig.findMany({ where: { planId: plan.id } });
+      if (dbConfigs.length === 0) {
+        return { success: false, status: 404, error: "no_day_type_configs" };
+      }
+
+      // Dry-run: compute new targets and validate
+      const dryRunResult = await dryRunConfigChange(plan.id, userId, (configs) => {
+        for (let i = 0; i < configs.length; i++) {
+          const tdee = configs[i].tdeeEstimate;
+          if (!tdee) {
+            return `DayType ${configs[i].dayType} has no tdeeEstimate — run calibration first`;
+          }
+          configs[i] = {
+            ...configs[i],
+            calorieTarget: tdee - newDeficit,
+          };
+        }
+        return null;
+      });
+      if (!dryRunResult.ok) {
+        return { success: false, status: 422, error: "dry_run_failed", details: dryRunResult.errors };
+      }
+
+      // Apply: update MealPlan deficit + all DayTypeConfig calorie targets
+      await db.mealPlan.update({
+        where: { id: plan.id },
+        data: { deficitKcal: newDeficit },
+      });
+
+      for (const config of dbConfigs) {
+        const tdee = config.tdeeEstimate;
+        if (tdee != null) {
+          await db.dayTypeConfig.update({
+            where: { id: config.id },
+            data: { calorieTarget: tdee - newDeficit },
+          });
+        }
+      }
+
+      // Cascade: recompute all ComputedMealSlots
+      await cascadeNutritionUpdate(plan.id, "config_change", reason);
+
+      const log = await db.coachingLog.create({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        data: { userId, action, data: { oldDeficit, newDeficit } as any, reason },
       });
       return { success: true, logId: log.id, action };
     }

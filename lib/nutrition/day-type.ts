@@ -59,7 +59,8 @@ export const INITIAL_TARGETS: Record<DayType, DayTypeTargets> = Object.fromEntri
   DAY_TYPE_CONFIGS.map((c) => [
     c.dayType,
     {
-      tdeeEstimate: c.calorieTarget + DEFAULT_DEFICIT,
+      // v1.2: use explicit tdeeEstimate if set, otherwise derive from calorieTarget + deficit
+      tdeeEstimate: c.tdeeEstimate ?? (c.calorieTarget + DEFAULT_DEFICIT),
       calorieTarget: c.calorieTarget,
       proteinG: c.macroTargets.proteinG,
       carbsG: c.macroTargets.carbsG,

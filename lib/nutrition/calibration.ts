@@ -10,6 +10,7 @@
 
 import { db } from "@/lib/db/client";
 import { dayKey } from "@/lib/db/queries/sensors";
+import { cascadeNutritionUpdate } from "./cascade";
 import { getDayType } from "./day-type";
 import type { DayTypeTargets } from "./day-type";
 import { buildSlotsForTargets } from "./template";
@@ -31,6 +32,10 @@ export type CoachingOverrideRow = { dayType: string; createdAt: Date };
 /** Minimum rest-day TDEE to include in averages. Days below this are
  *  likely illness days where BMR was significantly depressed. */
 export const REST_DAY_TDEE_FLOOR = 2000;
+
+/** Maximum rest-day TDEE for calibration. Travel/outlier days above this
+ *  are capped to prevent inflated rest-day targets. */
+export const REST_DAY_TDEE_CAP = 2500;
 
 /**
  * Filter TDEE rows to only include "clean" training data:
@@ -209,11 +214,15 @@ export async function calibrateMealPlan(userId: string): Promise<CalibrationResu
   const skippedCoachingOverride: string[] = [];
 
   // ── Update loop ──
-  for (const [dayType, avgTDEE] of Object.entries(averages) as [DayType, number][]) {
+  let anyConfigUpdated = false;
+  for (const [dayType, rawTDEE] of Object.entries(averages) as [DayType, number][]) {
     if (protectedTypes.has(dayType)) {
       skippedCoachingOverride.push(dayType);
       continue;
     }
+
+    // v1.2: Cap rest-day TDEE to avoid travel-inflated targets
+    const avgTDEE = dayType === "rest" ? Math.min(rawTDEE, REST_DAY_TDEE_CAP) : rawTDEE;
 
     const m = computeMacros(avgTDEE, plan.deficitKcal);
     const targets: DayTypeTargets = {
@@ -245,6 +254,29 @@ export async function calibrateMealPlan(userId: string): Promise<CalibrationResu
         },
       });
     }
+
+    // v1.2: Also update DayTypeConfig (tdeeEstimate + recalculated calorieTarget)
+    const existingConfig = await db.dayTypeConfig.findUnique({
+      where: { planId_dayType: { planId: plan.id, dayType } },
+    });
+    if (existingConfig) {
+      await db.dayTypeConfig.update({
+        where: { id: existingConfig.id },
+        data: {
+          tdeeEstimate: avgTDEE,
+          calorieTarget: m.calorieTarget,
+          proteinG: m.proteinG,
+          carbsG: m.carbsG,
+          fatG: m.fatG,
+        },
+      });
+      anyConfigUpdated = true;
+    }
+  }
+
+  // v1.2: Cascade recompute ComputedMealSlots after all config updates
+  if (anyConfigUpdated) {
+    await cascadeNutritionUpdate(plan.id, "calibration", "Auto-calibration from Garmin TDEE");
   }
 
   await db.mealPlan.update({

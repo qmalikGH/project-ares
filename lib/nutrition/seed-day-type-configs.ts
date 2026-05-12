@@ -23,6 +23,10 @@ interface PrismaDayTypeConfigRow {
   dinnerRecipeId: string;
   dinnerRatio: number;
   flexDessertEnabled: boolean;
+  // v1.2 timing fields
+  tdeeEstimate: number | null;
+  trainingWindow: string;
+  dinnerNeedsCarbs: boolean;
 }
 
 /** Convert a flat Prisma DayTypeConfig row → nested engine DayTypeConfig. */
@@ -49,6 +53,10 @@ export function dbConfigToEngineConfig(row: PrismaDayTypeConfigRow): DayTypeConf
       mainMeal: { recipeId: row.mainMealRecipeId, budgetRatio: row.mainMealRatio },
       dinner: { recipeId: row.dinnerRecipeId, budgetRatio: row.dinnerRatio },
     },
+    // v1.2 timing fields
+    tdeeEstimate: row.tdeeEstimate ?? undefined,
+    trainingWindow: (row.trainingWindow as DayTypeConfig["trainingWindow"]) ?? "none",
+    dinnerNeedsCarbs: row.dinnerNeedsCarbs ?? false,
   };
 }
 
@@ -67,6 +75,10 @@ function engineConfigToDbData(planId: string, config: DayTypeConfig) {
     dinnerRecipeId: config.variableSlots.dinner.recipeId,
     dinnerRatio: config.variableSlots.dinner.budgetRatio,
     flexDessertEnabled: config.fixedSlots.flexDessert?.enabled ?? true,
+    // v1.2 timing fields
+    tdeeEstimate: config.tdeeEstimate ?? null,
+    trainingWindow: config.trainingWindow ?? "none",
+    dinnerNeedsCarbs: config.dinnerNeedsCarbs ?? false,
   };
 }
 

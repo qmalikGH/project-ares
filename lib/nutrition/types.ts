@@ -168,6 +168,10 @@ export interface DayTypeConfig {
       budgetRatio: number; // e.g. 0.45 — must sum to 1.0 with mainMeal
     };
   };
+  // v1.2 — Training timing fields (optional for backward compat)
+  tdeeEstimate?: number; // Garmin-calibrated TDEE; calorieTarget = tdeeEstimate - deficit
+  trainingWindow?: "morning" | "evening" | "both" | "none";
+  dinnerNeedsCarbs?: boolean; // true when dinner = post-workout meal after threshold/long_run
 }
 
 export interface FixedSlotDef {

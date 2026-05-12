@@ -71,21 +71,21 @@ describe("DAY_TYPE_CONFIGS", () => {
 // Calorie targets match sprint spec
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("Calorie targets", () => {
-  it("strength_run = 2500", () => {
-    expect(findDayTypeConfig("strength_run").calorieTarget).toBe(2500);
+describe("Calorie targets (v1.2 — Intake = TDEE − 500)", () => {
+  it("strength_run = 2853 (TDEE 3353 − 500)", () => {
+    expect(findDayTypeConfig("strength_run").calorieTarget).toBe(2853);
   });
 
-  it("threshold = 2939", () => {
-    expect(findDayTypeConfig("threshold").calorieTarget).toBe(2939);
+  it("threshold = 2439 (TDEE 2939 − 500)", () => {
+    expect(findDayTypeConfig("threshold").calorieTarget).toBe(2439);
   });
 
-  it("long_run = 3168", () => {
-    expect(findDayTypeConfig("long_run").calorieTarget).toBe(3168);
+  it("long_run = 2668 (TDEE 3168 − 500)", () => {
+    expect(findDayTypeConfig("long_run").calorieTarget).toBe(2668);
   });
 
-  it("rest = 2400", () => {
-    expect(findDayTypeConfig("rest").calorieTarget).toBe(2400);
+  it("rest = 2000 (TDEE 2500 capped − 500)", () => {
+    expect(findDayTypeConfig("rest").calorieTarget).toBe(2000);
   });
 });
 
@@ -93,29 +93,29 @@ describe("Calorie targets", () => {
 // Recipe assignments match sprint spec table
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("Recipe assignments", () => {
-  it("strength_run: chicken mainMeal, egg dinner", () => {
+describe("Recipe assignments (v1.2)", () => {
+  it("strength_run: chicken mainMeal, egg_asia_norice dinner", () => {
     const c = findDayTypeConfig("strength_run");
     expect(c.variableSlots.mainMeal.recipeId).toBe("chicken_rice_asia");
     expect(c.variableSlots.dinner.recipeId).toBe("egg_asia_norice");
   });
 
-  it("threshold: chicken mainMeal, egg dinner", () => {
+  it("threshold: chicken mainMeal, egg_chicken_rice_asia dinner (Lösung C)", () => {
     const c = findDayTypeConfig("threshold");
     expect(c.variableSlots.mainMeal.recipeId).toBe("chicken_rice_asia");
-    expect(c.variableSlots.dinner.recipeId).toBe("egg_asia_norice");
+    expect(c.variableSlots.dinner.recipeId).toBe("egg_chicken_rice_asia");
   });
 
-  it("long_run: hack mainMeal, egg+brokkoli dinner", () => {
+  it("long_run: hack mainMeal, egg_rice_brokkoli dinner", () => {
     const c = findDayTypeConfig("long_run");
     expect(c.variableSlots.mainMeal.recipeId).toBe("hack_rice_brokkoli");
-    expect(c.variableSlots.dinner.recipeId).toBe("egg_brokkoli_norice");
+    expect(c.variableSlots.dinner.recipeId).toBe("egg_rice_brokkoli");
   });
 
-  it("rest: egg mainMeal, hack dinner", () => {
+  it("rest: egg_asia_norice mainMeal (no rice), chicken_rice_brokkoli dinner", () => {
     const c = findDayTypeConfig("rest");
-    expect(c.variableSlots.mainMeal.recipeId).toBe("egg_rice_asia");
-    expect(c.variableSlots.dinner.recipeId).toBe("hack_brokkoli_norice");
+    expect(c.variableSlots.mainMeal.recipeId).toBe("egg_asia_norice");
+    expect(c.variableSlots.dinner.recipeId).toBe("chicken_rice_brokkoli");
   });
 });
 

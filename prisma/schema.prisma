@@ -626,6 +626,10 @@ model DayTypeConfig {
   dinnerRecipeId     String   // → RecipeTemplate.id
   dinnerRatio        Float    // e.g. 0.45
   flexDessertEnabled Boolean  @default(true)
+  // v1.2 — Training timing + TDEE tracking
+  tdeeEstimate       Int?     // Garmin-calibrated TDEE; calorieTarget = tdeeEstimate - deficit
+  trainingWindow     String   @default("none") // "morning" | "evening" | "both" | "none"
+  dinnerNeedsCarbs   Boolean  @default(false) // true when dinner = post-workout meal
   updatedAt          DateTime @updatedAt
 
   @@unique([planId, dayType])

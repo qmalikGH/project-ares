@@ -259,6 +259,23 @@ function mapExecutedSession(json: unknown): ActualSessionData | undefined {
   };
 }
 
+/**
+ * Extract run distance in km from an executed session.
+ * Stufe 1: Session-total distanceKm (when Garmin fetch succeeded).
+ * Stufe 2: Aggregate from splits (Garmin-Fetch-Failure → manual fallback).
+ */
+function getRunDistanceKm(actual: ActualSessionData | undefined): number | null {
+  if (!actual) return null;
+  // Stufe 1: Session-Total
+  if (actual.distanceKm) return actual.distanceKm;
+  // Stufe 2: Splits aggregation fallback
+  if (actual.splits?.length) {
+    const totalM = actual.splits.reduce((sum, s) => sum + (s.distanceM || 0), 0);
+    if (totalM > 0) return totalM / 1000;
+  }
+  return null;
+}
+
 async function buildTrainingHistory(userId: string, today: Date): Promise<TrainingHistorySection> {
   const cutoff = new Date(today.getTime() - 28 * 86400000);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -285,9 +302,10 @@ async function buildTrainingHistory(userId: string, today: Date): Promise<Traini
     const weekKey = isoWeekKey(w.date);
     const actual = w.executedSession ? mapExecutedSession(w.executedSession) : undefined;
 
-    if (actual?.distanceKm) {
+    const runKm = getRunDistanceKm(actual);
+    if (runKm) {
       const entry = runVolByWeek.get(weekKey) ?? { planned: 0, actual: 0 };
-      entry.actual += actual.distanceKm;
+      entry.actual += runKm;
       runVolByWeek.set(weekKey, entry);
     }
 

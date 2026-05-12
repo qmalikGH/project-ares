@@ -40,24 +40,24 @@ describe("INITIAL_TARGETS — derived from DAY_TYPE_CONFIGS", () => {
     expect(INITIAL_TARGETS.rest).toBeDefined();
   });
 
-  it("strength_run target = 2500 kcal (tdee=3000)", () => {
-    expect(INITIAL_TARGETS.strength_run.tdeeEstimate).toBe(3000);
-    expect(INITIAL_TARGETS.strength_run.calorieTarget).toBe(2500);
+  it("strength_run target = 2853 kcal (tdee=3353, v1.2 Garmin-calibrated)", () => {
+    expect(INITIAL_TARGETS.strength_run.tdeeEstimate).toBe(3353);
+    expect(INITIAL_TARGETS.strength_run.calorieTarget).toBe(2853);
   });
 
-  it("threshold target = 2939 kcal (tdee=3439)", () => {
-    expect(INITIAL_TARGETS.threshold.calorieTarget).toBe(2939);
-    expect(INITIAL_TARGETS.threshold.tdeeEstimate).toBe(3439);
+  it("threshold target = 2439 kcal (tdee=2939)", () => {
+    expect(INITIAL_TARGETS.threshold.calorieTarget).toBe(2439);
+    expect(INITIAL_TARGETS.threshold.tdeeEstimate).toBe(2939);
   });
 
-  it("long_run target = 3168 kcal (tdee=3668)", () => {
-    expect(INITIAL_TARGETS.long_run.calorieTarget).toBe(3168);
-    expect(INITIAL_TARGETS.long_run.tdeeEstimate).toBe(3668);
+  it("long_run target = 2668 kcal (tdee=3168)", () => {
+    expect(INITIAL_TARGETS.long_run.calorieTarget).toBe(2668);
+    expect(INITIAL_TARGETS.long_run.tdeeEstimate).toBe(3168);
   });
 
-  it("rest target = 2400 kcal (tdee=2900)", () => {
-    expect(INITIAL_TARGETS.rest.calorieTarget).toBe(2400);
-    expect(INITIAL_TARGETS.rest.tdeeEstimate).toBe(2900);
+  it("rest target = 2000 kcal (tdee=2500, capped)", () => {
+    expect(INITIAL_TARGETS.rest.calorieTarget).toBe(2000);
+    expect(INITIAL_TARGETS.rest.tdeeEstimate).toBe(2500);
   });
 
   it("protein constant at 190g across all day types", () => {

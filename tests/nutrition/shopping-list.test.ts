@@ -13,11 +13,11 @@ import { INITIAL_TARGETS, DAY_TYPE_BY_WEEKDAY } from "@/lib/nutrition/day-type";
 import type { MealSlots } from "@/lib/nutrition/types";
 
 // ── Test fixtures ───────────────────────────────────────────────────────
-// Build weekday-keyed slots with v2 recipe assignment:
-//   strength_run (Mo,Do,Fr): chicken mainMeal + egg dinner
-//   threshold (Di): chicken mainMeal + egg dinner
-//   long_run (Sa): hack mainMeal + egg dinner
-//   rest (Mi,So): egg mainMeal + hack dinner
+// Build weekday-keyed slots with v1.2 recipe assignment:
+//   strength_run (Mo,Do,Fr): chicken mainMeal + egg dinner (no rice)
+//   threshold (Di): chicken mainMeal + egg+chicken+rice dinner (Lösung C)
+//   long_run (Sa): hack mainMeal + egg+rice+brokkoli dinner
+//   rest (Mi,So): egg mainMeal (no rice) + chicken+rice+brokkoli dinner
 
 const slotsMap: Record<number, MealSlots> = buildWeekdaySlotsMap(INITIAL_TARGETS);
 
@@ -47,11 +47,11 @@ describe("extractDayNeeds", () => {
     expect(need.chickenG).toBe(0);
   });
 
-  it("Sunday (rest): egg mainMeal + hack dinner", () => {
+  it("Sunday (rest): egg mainMeal (no rice) + chicken dinner (v1.2)", () => {
     const need = extractDayNeeds(slotsMap[0]!);
     expect(need.eggCount).toBeGreaterThan(0);
-    expect(need.hackG).toBeGreaterThan(0); // dinner has hack
-    expect(need.chickenG).toBe(0);
+    expect(need.chickenG).toBeGreaterThan(0); // v1.2: chicken dinner instead of hack
+    expect(need.hackG).toBe(0);
   });
 
   it("extracts rice grams (mainMeal only, dinner has no rice)", () => {
@@ -136,12 +136,12 @@ describe("v2 recipe assignment per weekday", () => {
     expect(need.chickenG).toBe(0);
   });
 
-  it("rest days (Wed, Sun) have eggs + hack", () => {
+  it("rest days (Wed, Sun) have eggs + chicken (v1.2: Hähnchen statt Hack)", () => {
     for (const wd of [0, 3]) {
       const need = extractDayNeeds(slotsMap[wd]!);
       expect(need.eggCount).toBeGreaterThan(0);
-      expect(need.hackG).toBeGreaterThan(0);
-      expect(need.chickenG).toBe(0);
+      expect(need.chickenG).toBeGreaterThan(0);
+      expect(need.hackG).toBe(0);
     }
   });
 });
@@ -169,9 +169,10 @@ describe("Shopping Trip 1 (Sun → Mo-Mi)", () => {
     expect(eggs).toBeDefined();
   });
 
-  it("includes hack (Mi rest-day dinner)", () => {
-    const hack = trip.items.find((i) => i.name === "Rinderhack");
-    expect(hack).toBeDefined();
+  it("includes chicken for Mi rest-day dinner (v1.2: Hähnchen statt Hack)", () => {
+    // v1.2: Rest-day dinner is chicken_rice_brokkoli, so all 3 days have chicken
+    const chicken = trip.items.find((i) => i.name === "ja! Hähnchenbrust");
+    expect(chicken).toBeDefined();
   });
 
   it("includes rice (mainMeal recipes have rice)", () => {
