@@ -28,6 +28,7 @@ import type {
   UpcomingSession,
 } from "./types";
 import { getDayType } from "@/lib/nutrition/day-type";
+import { ensureNutritionIntegrity } from "@/lib/nutrition/ensure-integrity";
 import { DEFICIT_KCAL } from "@/lib/nutrition/daily-adjustment";
 import type { DailyAdjustment } from "@/lib/nutrition/types";
 
@@ -675,6 +676,10 @@ async function buildNutrition(userId: string, today: Date): Promise<NutritionSec
   let computedPlans: NutritionSection["computedPlans"];
 
   if (plan) {
+    // Ensure pre-v1.1 plans have DayTypeConfig + ComputedMealSlot rows.
+    // No-op if rows already exist (count-query first, seed only when needed).
+    await ensureNutritionIntegrity(plan.id);
+
     const [dbConfigs, dbSlots] = await Promise.all([
       db.dayTypeConfig.findMany({ where: { planId: plan.id } }),
       db.computedMealSlot.findMany({ where: { planId: plan.id } }),
