@@ -97,6 +97,26 @@ export async function seedDayTypeConfigs(planId: string): Promise<void> {
 }
 
 /**
+ * Force-reseed ALL DayTypeConfigs from code constants.
+ * Overwrites every field — use after deploying new config values (e.g. v1.2
+ * calorie targets, recipe assignments, budget ratios). Returns the list of
+ * dayTypes that were updated.
+ */
+export async function forceReseedDayTypeConfigs(planId: string): Promise<string[]> {
+  const updated: string[] = [];
+  for (const config of DAY_TYPE_CONFIGS) {
+    const data = engineConfigToDbData(planId, config);
+    await db.dayTypeConfig.upsert({
+      where: { planId_dayType: { planId, dayType: config.dayType } },
+      create: data,
+      update: data, // overwrite everything
+    });
+    updated.push(config.dayType);
+  }
+  return updated;
+}
+
+/**
  * Seed only missing DayTypeConfigs (for integrity repair).
  * Existing rows are preserved.
  */

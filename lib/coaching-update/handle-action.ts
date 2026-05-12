@@ -11,7 +11,7 @@ import { cascadeNutritionUpdate } from "@/lib/nutrition/cascade";
 import { ATHLETE_WEIGHT_KG } from "@/lib/nutrition/day-type-configs";
 import type { DayTypeTargets } from "@/lib/nutrition/day-type";
 import { RECIPE_TEMPLATES } from "@/lib/nutrition/recipe-templates";
-import { dbConfigToEngineConfig, seedDayTypeConfigs } from "@/lib/nutrition/seed-day-type-configs";
+import { dbConfigToEngineConfig, seedDayTypeConfigs, forceReseedDayTypeConfigs } from "@/lib/nutrition/seed-day-type-configs";
 import { buildSlotsForTargets, templateDayPlan } from "@/lib/nutrition/template";
 import type { DayType, DayTypeConfig } from "@/lib/nutrition/types";
 
@@ -97,6 +97,8 @@ const ToggleFlexDessertSchema = z.object({
 const AdjustDeficitSchema = z.object({
   deficit: z.number().int().min(0).max(1500),
 });
+
+const ForceReseedSchema = z.object({}).strict();
 
 const SEED_DAY_TYPES: DayType[] = ["strength_run", "threshold", "long_run", "rest"];
 
@@ -663,6 +665,54 @@ export async function handleCoachingAction(
       const log = await db.coachingLog.create({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         data: { userId, action, data: { oldDeficit, newDeficit } as any, reason },
+      });
+      return { success: true, logId: log.id, action };
+    }
+
+    case "forceReseed": {
+      const parsed = ForceReseedSchema.safeParse(data ?? {});
+      if (!parsed.success) {
+        return { success: false, status: 400, error: "invalid_data", details: parsed.error.flatten() };
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const plan: any = await db.mealPlan.findFirst({
+        where: { userId, status: "active" },
+        select: { id: true },
+      });
+      if (!plan) return { success: false, status: 404, error: "no_active_meal_plan" };
+
+      // Overwrite all DayTypeConfig rows with code constants
+      const updated = await forceReseedDayTypeConfigs(plan.id);
+
+      // Backward-compat: also refresh DayPlan rows with new targets + slots
+      for (const dayType of SEED_DAY_TYPES) {
+        const template = templateDayPlan(dayType);
+        await db.dayPlan.updateMany({
+          where: { mealPlanId: plan.id, dayType },
+          data: {
+            tdeeEstimate: template.tdeeEstimate,
+            calorieTarget: template.calorieTarget,
+            proteinG: template.proteinG,
+            carbsG: template.carbsG,
+            fatG: template.fatG,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            slots: template.slots as any,
+          },
+        });
+      }
+
+      // Cascade: recompute all ComputedMealSlots from fresh configs
+      const cascadeResult = await cascadeNutritionUpdate(plan.id, "seed", reason);
+
+      const log = await db.coachingLog.create({
+        data: {
+          userId,
+          action,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          data: { planId: plan.id, updatedDayTypes: updated, cascadeSuccess: cascadeResult.success, cascadeErrors: cascadeResult.errors } as any,
+          reason,
+        },
       });
       return { success: true, logId: log.id, action };
     }
