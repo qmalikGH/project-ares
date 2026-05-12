@@ -28,6 +28,7 @@ import {
   RECIPES,
 } from "@/lib/nutrition/recipes";
 import { findDayTypeConfig } from "@/lib/nutrition/day-type-configs";
+import { ensureNutritionIntegrity } from "@/lib/nutrition/ensure-integrity";
 import { findRecipeTemplate } from "@/lib/nutrition/recipe-templates";
 import type { DayType, MealSlots, DailyAdjustment } from "@/lib/nutrition/types";
 
@@ -116,6 +117,15 @@ export async function GET() {
     activePlan = null;
   }
 
+  // 1b. Integrity check — auto-repair missing DayTypeConfigs / ComputedMealSlots
+  try {
+    if (activePlan) {
+      await ensureNutritionIntegrity(activePlan.id);
+    }
+  } catch {
+    // Integrity check failure is non-fatal — proceed with what we have
+  }
+
   // 2. Today's nutrition log (for any persisted adjustment)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let log: any = null;
@@ -136,6 +146,19 @@ export async function GET() {
   // Build per-dayType targets map from DayPlans, then compute weekday-keyed
   // slots (each weekday gets the correct recipe from the rotation).
   let weekdaySlots: Record<number, MealSlots>;
+
+  // v1.1: Load DB-backed configs and computed slots
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let dbDayTypeConfigs: any[] = [];
+  try {
+    if (activePlan) {
+      dbDayTypeConfigs = await db.dayTypeConfig.findMany({
+        where: { planId: activePlan.id },
+      });
+    }
+  } catch {
+    dbDayTypeConfigs = [];
+  }
 
   if (activePlan && activePlan.dayPlans?.length) {
     // Extract targets per dayType from stored DayPlans
@@ -189,6 +212,13 @@ export async function GET() {
   const next = nextTripForDate(today, weekdaySlotsMap);
 
   // 4. 7-day overview from today
+  // Build a DB config lookup for recipe names (prefer DB over code constants)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const dbConfigByDayType: Record<string, any> = {};
+  for (const c of dbDayTypeConfigs) {
+    dbConfigByDayType[c.dayType] = c;
+  }
+
   const weekOverview: NutritionTodayResponse["weekOverview"] = [];
   for (let i = 0; i < 7; i++) {
     const d = new Date(today.getTime() + i * 86400000);
@@ -196,10 +226,22 @@ export async function GET() {
     const recipeKey = WEEKLY_RECIPE_BY_WEEKDAY[w];
     const dt = getDayType(d);
 
-    // v2: look up per-dayType recipe assignment for mainMeal and dinner
-    const dtConfig = findDayTypeConfig(dt);
-    const mainMealTemplate = findRecipeTemplate(dtConfig.variableSlots.mainMeal.recipeId);
-    const dinnerTemplate = findRecipeTemplate(dtConfig.variableSlots.dinner.recipeId);
+    // Prefer DB config for recipe names, fall back to code constants
+    let mainMealName: string;
+    let dinnerName: string;
+    const dbCfg = dbConfigByDayType[dt];
+    if (dbCfg) {
+      const mmTemplate = findRecipeTemplate(dbCfg.mainMealRecipeId);
+      const dTemplate = findRecipeTemplate(dbCfg.dinnerRecipeId);
+      mainMealName = mmTemplate.name;
+      dinnerName = dTemplate.name;
+    } else {
+      const dtConfig = findDayTypeConfig(dt);
+      const mmTemplate = findRecipeTemplate(dtConfig.variableSlots.mainMeal.recipeId);
+      const dTemplate = findRecipeTemplate(dtConfig.variableSlots.dinner.recipeId);
+      mainMealName = mmTemplate.name;
+      dinnerName = dTemplate.name;
+    }
 
     weekOverview.push({
       date: d.toISOString().slice(0, 10),
@@ -207,8 +249,8 @@ export async function GET() {
       dayType: dt,
       recipeKey,
       recipeName: RECIPES[recipeKey].name,
-      mainMealRecipeName: mainMealTemplate.name,
-      dinnerRecipeName: dinnerTemplate.name,
+      mainMealRecipeName: mainMealName,
+      dinnerRecipeName: dinnerName,
       isCookDay: COOK_DAYS_WEEKDAY.includes(w),
     });
   }

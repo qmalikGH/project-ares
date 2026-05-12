@@ -546,9 +546,11 @@ model MealPlan {
   calibrationStatus String    @default("pending") // "pending" | "collecting" | "calibrated"
   calibratedAt      DateTime?
 
-  dayPlans  DayPlan[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  dayPlans       DayPlan[]
+  dayTypeConfigs DayTypeConfig[]
+  computedSlots  ComputedMealSlot[]
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([userId, status])
 }
@@ -604,4 +606,48 @@ model DailyNutritionLog {
   createdAt DateTime @default(now())
 
   @@unique([userId, date])
+}
+
+// DayTypeConfig — one row per (MealPlan × dayType). Persists the nutrition
+// engine config that was previously a code constant. After initial seed from
+// DAY_TYPE_CONFIGS, the DB is the source of truth. RecipeTemplates stay in code.
+model DayTypeConfig {
+  id                 String   @id @default(cuid())
+  planId             String
+  plan               MealPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  dayType            String   // "strength_run" | "threshold" | "long_run" | "rest"
+  calorieTarget      Int
+  proteinG           Int
+  carbsG             Int
+  fatG               Int
+  fixedSlots         Json     // FixedSlotDef structure (stable, rarely edited)
+  mainMealRecipeId   String   // → RecipeTemplate.id (code constant)
+  mainMealRatio      Float    // e.g. 0.55
+  dinnerRecipeId     String   // → RecipeTemplate.id
+  dinnerRatio        Float    // e.g. 0.45
+  flexDessertEnabled Boolean  @default(true)
+  updatedAt          DateTime @updatedAt
+
+  @@unique([planId, dayType])
+}
+
+// ComputedMealSlot — pre-computed slot data written by cascadeNutritionUpdate().
+// Never edited directly — only deleted + re-created in a transaction by the cascade.
+model ComputedMealSlot {
+  id           String   @id @default(cuid())
+  planId       String
+  plan         MealPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  dayType      String
+  slotName     String   // "morning" | "preTraining" | "mainMeal" | "dinner" | ...
+  recipeId     String?
+  recipeName   String?
+  items        Json     // ScaledComponent[] or FixedSlotItem[]
+  totalKcal    Float
+  totalProtein Float
+  totalCarbs   Float
+  totalFat     Float
+  totalCost    Float
+  computedAt   DateTime @default(now())
+
+  @@unique([planId, dayType, slotName])
 }

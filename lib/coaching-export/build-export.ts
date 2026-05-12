@@ -5,6 +5,7 @@ import { getEffectiveVdot } from "@/lib/db/queries/settings";
 import { ExecutedSessionSchema } from "@/lib/coach-engine/types";
 import type { PhaseConfig, SessionPlan } from "@/lib/coach-engine/types";
 import { DAY_TYPE_BY_WEEKDAY } from "@/lib/nutrition/day-type";
+import { RECIPE_TEMPLATES } from "@/lib/nutrition/recipe-templates";
 import type {
   CoachingExport,
   PeriodizationSection,
@@ -668,7 +669,81 @@ async function buildNutrition(userId: string, today: Date): Promise<NutritionSec
     };
   });
 
-  return { activePlan, todayPlan, last7DaysLog, weeklyBudget };
+  // v1.1: Load DayTypeConfigs + ComputedMealSlots from DB
+  let dayTypeConfigs: NutritionSection["dayTypeConfigs"];
+  let recipeTemplatesSummary: NutritionSection["recipeTemplates"];
+  let computedPlans: NutritionSection["computedPlans"];
+
+  if (plan) {
+    const [dbConfigs, dbSlots] = await Promise.all([
+      db.dayTypeConfig.findMany({ where: { planId: plan.id } }),
+      db.computedMealSlot.findMany({ where: { planId: plan.id } }),
+    ]);
+
+    if (dbConfigs.length > 0) {
+      dayTypeConfigs = dbConfigs.map((c) => ({
+        dayType: c.dayType,
+        calorieTarget: c.calorieTarget,
+        proteinG: c.proteinG,
+        carbsG: c.carbsG,
+        fatG: c.fatG,
+        mainMealRecipeId: c.mainMealRecipeId,
+        mainMealRatio: c.mainMealRatio,
+        dinnerRecipeId: c.dinnerRecipeId,
+        dinnerRatio: c.dinnerRatio,
+        flexDessertEnabled: c.flexDessertEnabled,
+      }));
+
+      recipeTemplatesSummary = RECIPE_TEMPLATES.map((r) => ({ id: r.id, name: r.name }));
+    }
+
+    if (dbSlots.length > 0) {
+      const byDayType: Record<string, typeof dbSlots> = {};
+      for (const slot of dbSlots) {
+        (byDayType[slot.dayType] ??= []).push(slot);
+      }
+
+      computedPlans = {};
+      for (const [dt, slots] of Object.entries(byDayType)) {
+        const slotsMap: Record<string, unknown> = {};
+        let kcal = 0, protein = 0, carbs = 0, fat = 0, cost = 0;
+        for (const s of slots) {
+          slotsMap[s.slotName] = {
+            recipeId: s.recipeId,
+            recipeName: s.recipeName,
+            items: s.items,
+            totalKcal: s.totalKcal,
+            totalProtein: s.totalProtein,
+          };
+          kcal += s.totalKcal;
+          protein += s.totalProtein;
+          carbs += s.totalCarbs;
+          fat += s.totalFat;
+          cost += s.totalCost;
+        }
+        computedPlans[dt] = {
+          slots: slotsMap,
+          totals: {
+            kcal: Math.round(kcal),
+            protein: Math.round(protein),
+            carbs: Math.round(carbs),
+            fat: Math.round(fat),
+            cost: Math.round(cost * 100) / 100,
+          },
+        };
+      }
+    }
+  }
+
+  return {
+    activePlan,
+    todayPlan,
+    last7DaysLog,
+    weeklyBudget,
+    dayTypeConfigs,
+    recipeTemplates: recipeTemplatesSummary,
+    computedPlans,
+  };
 }
 
 // ── Main export ──────────────────────────────────────────────────────────

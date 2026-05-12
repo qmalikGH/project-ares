@@ -39,9 +39,6 @@ export interface NutritionSection {
     proteinG: number;
     carbsG: number;
     fatG: number;
-    // Slots are exposed as a free-form object — schema lives in
-    // lib/nutrition/types.ts MealSlots, but we pass-through to keep the
-    // export decoupled from the nutrition module shape.
     slots: unknown;
     adjustment: unknown | null;
   } | null;
@@ -50,6 +47,24 @@ export interface NutritionSection {
     planned: number;
     perDay: number;
   } | null;
+  // v1.1: DB-backed config + computed slot data
+  dayTypeConfigs?: Array<{
+    dayType: string;
+    calorieTarget: number;
+    proteinG: number;
+    carbsG: number;
+    fatG: number;
+    mainMealRecipeId: string;
+    mainMealRatio: number;
+    dinnerRecipeId: string;
+    dinnerRatio: number;
+    flexDessertEnabled: boolean;
+  }>;
+  recipeTemplates?: Array<{ id: string; name: string }>;
+  computedPlans?: Record<string, {
+    slots: Record<string, unknown>;
+    totals: { kcal: number; protein: number; carbs: number; fat: number; cost: number };
+  }>;
 }
 
 // ── Calories (Sprint v0.16 Phase A2.5) ─────────────────────────────────────

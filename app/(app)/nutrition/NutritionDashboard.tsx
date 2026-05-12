@@ -42,6 +42,8 @@ interface NutritionTodayResponse {
     dayType: DayType;
     recipeKey: string;
     recipeName: string;
+    mainMealRecipeName?: string;
+    dinnerRecipeName?: string;
     isCookDay: boolean;
   }[];
   weekdaySlots: Record<number, MealSlots>;
@@ -260,7 +262,7 @@ function TodayView({ data, accent }: TodayViewProps) {
         })}
       </section>
 
-      {/* Totals */}
+      {/* Day Summary — target comparison with color coding */}
       <section className="rounded-lg border border-[var(--color-border)] bg-white/[0.02] p-4">
         <h2 className="mb-3 font-mono text-xs uppercase tracking-wider text-[var(--color-foreground-tertiary)]">
           Tages-Summe (geplant)
@@ -272,9 +274,10 @@ function TodayView({ data, accent }: TodayViewProps) {
           <Stat label="Fat" value={`${totals.fat}`} unit="g" />
           <Stat label="Kosten" value={`${totals.costEur.toFixed(2)}`} unit="€" />
         </div>
-        <div className="mt-3 font-mono text-xs text-[var(--color-foreground-tertiary)]">
-          Diff zu Ziel: {totals.kcal - dayPlan.calorieTarget > 0 ? "+" : ""}
-          {totals.kcal - dayPlan.calorieTarget} kcal
+        <div className="mt-3 space-y-1">
+          <SummaryRow label="Kalorien" value={totals.kcal} target={dayPlan.calorieTarget} unit="kcal" tolerance={30} />
+          <SummaryRow label="Protein" value={totals.protein} target={dayPlan.proteinG} unit="g" tolerance={10} />
+          <SummaryRow label="Kosten" value={totals.costEur} target={15} unit="€" tolerance={1} />
         </div>
       </section>
     </div>
@@ -324,8 +327,13 @@ function SlotCard({ label, slot, adjusted, flexible }: SlotCardProps) {
           </li>
         ))}
       </ul>
-      {slot.recipe && (
-        <div className="mt-2 font-mono text-[11px] text-[var(--color-foreground-tertiary)]">Rezept: {slot.recipe}</div>
+      {(slot.recipeName ?? slot.recipe) && (
+        <div className="mt-2 inline-flex items-center gap-1.5 rounded-[4px] bg-[rgba(255,255,255,0.06)] px-2 py-1">
+          <Utensils className="h-3 w-3 text-[var(--color-foreground-tertiary)]" />
+          <span className="font-mono text-[11px] font-medium text-[var(--color-foreground-secondary)]">
+            {slot.recipeName ?? slot.recipe}
+          </span>
+        </div>
       )}
       {slot.alternatives && slot.alternatives.length > 0 && (
         <div className="mt-2 border-t border-[var(--color-border)] pt-2">
@@ -369,6 +377,39 @@ function Stat({ label, value, unit, accent }: { label: string; value: string; un
         </span>
         {unit && <span className="font-mono text-xs text-[var(--color-foreground-tertiary)]">{unit}</span>}
       </div>
+    </div>
+  );
+}
+
+// ── Summary row — target comparison with color coding ───────────────────
+
+function SummaryRow({
+  label,
+  value,
+  target,
+  unit,
+  tolerance,
+}: {
+  label: string;
+  value: number;
+  target: number;
+  unit: string;
+  tolerance: number;
+}) {
+  const diff = value - target;
+  const withinTolerance = Math.abs(diff) <= tolerance;
+  const colorClass = withinTolerance
+    ? "text-emerald-400"
+    : "text-red-400";
+
+  return (
+    <div className="flex items-center justify-between font-mono text-xs">
+      <span className="text-[var(--color-foreground-tertiary)]">{label}</span>
+      <span className={colorClass}>
+        {unit === "€" ? value.toFixed(2) : Math.round(value)} / {unit === "€" ? target.toFixed(2) : target} {unit}
+        {" "}
+        ({diff > 0 ? "+" : ""}{unit === "€" ? diff.toFixed(2) : Math.round(diff)})
+      </span>
     </div>
   );
 }
@@ -490,7 +531,12 @@ function WeekView({ weekOverview, todayDate, weekdaySlots, slotLabels }: WeekVie
               </div>
               <div className="flex items-center gap-3">
                 <div className="text-right">
-                  <div className="text-sm">{d.recipeName}</div>
+                  <div className="text-sm">{d.mainMealRecipeName ?? d.recipeName}</div>
+                  {d.dinnerRecipeName && d.dinnerRecipeName !== d.mainMealRecipeName && (
+                    <div className="font-mono text-[11px] text-[var(--color-foreground-tertiary)]">
+                      + {d.dinnerRecipeName}
+                    </div>
+                  )}
                   {d.isCookDay && (
                     <div className="mt-0.5 inline-flex items-center gap-1 rounded-[3px] bg-[rgba(255,255,255,0.08)] px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.05em] text-[var(--color-foreground-secondary)]">
                       <ChefHat className="h-3 w-3" /> Kochtag

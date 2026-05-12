@@ -95,3 +95,17 @@ export const SLOT_PRESENCE: Record<DayType, SlotPresence> = Object.fromEntries(
     },
   ]),
 ) as Record<DayType, SlotPresence>;
+
+// ── Named-day schedule (shared by export, UI, shopping) ─────────────────
+// Single source of truth for weekday-name → DayType mapping.
+// Import this instead of duplicating the schedule in multiple places.
+
+export const DAY_TYPE_SCHEDULE: Record<string, DayType> = {
+  Monday: "strength_run",
+  Tuesday: "threshold",
+  Wednesday: "rest",
+  Thursday: "strength_run",
+  Friday: "strength_run",
+  Saturday: "long_run",
+  Sunday: "rest",
+};

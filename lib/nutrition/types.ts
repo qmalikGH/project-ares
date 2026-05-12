@@ -19,13 +19,9 @@ export interface MealItem {
 
 export interface MealSlot {
   items: MealItem[];
-  // Optional: alternative items the user may swap in (e.g. snack rotation)
   alternatives?: (MealItem & { maxPerWeek?: number })[];
-  // Optional: recipe key for the main meal / dinner — references RECIPES in
-  // lib/nutrition/recipes.ts. Engine uses this to resolve cooking instructions.
   recipe?: string;
-  // True if this slot is the primary "flex lever" for next-day adjustment
-  // (post-meal dessert / Skyr is the canonical example).
+  recipeName?: string;
   flexible?: boolean;
 }
 

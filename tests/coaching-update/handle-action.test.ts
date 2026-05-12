@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const userSettingsUpsert = vi.hoisted(() => vi.fn());
+const userSettingsFindUnique = vi.hoisted(() => vi.fn());
 const coachingLogCreate = vi.hoisted(() => vi.fn());
 const mealPlanFindFirst = vi.hoisted(() => vi.fn());
+const mealPlanFindUnique = vi.hoisted(() => vi.fn());
 const mealPlanCreate = vi.hoisted(() => vi.fn());
 const dayPlanFindUnique = vi.hoisted(() => vi.fn());
 const dayPlanFindMany = vi.hoisted(() => vi.fn());
@@ -12,13 +14,22 @@ const dayPlanUpdateMany = vi.hoisted(() => vi.fn());
 const dailyNutritionLogFindUnique = vi.hoisted(() => vi.fn());
 const dailyNutritionLogUpdate = vi.hoisted(() => vi.fn());
 const dailyNutritionLogCreate = vi.hoisted(() => vi.fn());
+const dayTypeConfigFindMany = vi.hoisted(() => vi.fn());
+const dayTypeConfigFindUnique = vi.hoisted(() => vi.fn());
+const dayTypeConfigUpdate = vi.hoisted(() => vi.fn());
+const dayTypeConfigUpsert = vi.hoisted(() => vi.fn());
+const dayTypeConfigCreate = vi.hoisted(() => vi.fn());
+const computedMealSlotDeleteMany = vi.hoisted(() => vi.fn());
+const computedMealSlotCreateMany = vi.hoisted(() => vi.fn());
+const computedMealSlotFindMany = vi.hoisted(() => vi.fn());
+const transactionMock = vi.hoisted(() => vi.fn());
 const calibrateMealPlanMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/db/client", () => ({
   db: {
-    userSettings: { upsert: userSettingsUpsert },
+    userSettings: { upsert: userSettingsUpsert, findUnique: userSettingsFindUnique },
     coachingLog: { create: coachingLogCreate },
-    mealPlan: { findFirst: mealPlanFindFirst, create: mealPlanCreate },
+    mealPlan: { findFirst: mealPlanFindFirst, findUnique: mealPlanFindUnique, create: mealPlanCreate },
     dayPlan: {
       findUnique: dayPlanFindUnique,
       findMany: dayPlanFindMany,
@@ -31,6 +42,19 @@ vi.mock("@/lib/db/client", () => ({
       update: dailyNutritionLogUpdate,
       create: dailyNutritionLogCreate,
     },
+    dayTypeConfig: {
+      findMany: dayTypeConfigFindMany,
+      findUnique: dayTypeConfigFindUnique,
+      update: dayTypeConfigUpdate,
+      upsert: dayTypeConfigUpsert,
+      create: dayTypeConfigCreate,
+    },
+    computedMealSlot: {
+      deleteMany: computedMealSlotDeleteMany,
+      createMany: computedMealSlotCreateMany,
+      findMany: computedMealSlotFindMany,
+    },
+    $transaction: transactionMock,
   },
 }));
 
@@ -291,6 +315,18 @@ describe("handleCoachingAction — updateCalorieTargets (Phase B9)", () => {
     mealPlanFindFirst.mockResolvedValue({ id: "plan-1", deficitKcal: 500 });
     dayPlanFindMany.mockResolvedValue([{ id: "dp-rest-1" }]);
     dayPlanUpdate.mockResolvedValue({});
+    dayTypeConfigUpdate.mockResolvedValue({});
+    // Dry-run needs valid DayTypeConfigs from DB
+    dayTypeConfigFindMany.mockResolvedValue([
+      { dayType: "strength_run", calorieTarget: 2500, proteinG: 190, carbsG: 278, fatG: 70, fixedSlots: { morning: { items: [{ name: "HEJ", kcal: 200, protein: 20, carbs: 18, fat: 7, cost: 1.87 }, { name: "Whey", kcal: 120, protein: 25, carbs: 2, fat: 1, cost: 0.5 }] }, preTraining: { items: [{ name: "Beet", kcal: 80, protein: 0, carbs: 18, fat: 0, cost: 0.5 }, { name: "Ginger", kcal: 70, protein: 0, carbs: 17, fat: 0, cost: 0.3 }, { name: "Collagen", kcal: 55, protein: 14, carbs: 0, fat: 0, cost: 0.4 }] }, afternoonSnack: { items: [{ name: "Carrots", kcal: 70, protein: 1, carbs: 14, fat: 0, cost: 0.4 }, { name: "Hummus", kcal: 200, protein: 7, carbs: 10, fat: 15, cost: 1.0 }] }, eveningSnack: { items: [{ name: "HEJ", kcal: 200, protein: 20, carbs: 18, fat: 7, cost: 1.87 }] }, flexDessert: { enabled: true, items: [{ name: "Skyr", kcal: 130, protein: 20, carbs: 14, fat: 0, cost: 1.19 }] } }, mainMealRecipeId: "chicken_rice_asia", mainMealRatio: 0.55, dinnerRecipeId: "egg_asia_norice", dinnerRatio: 0.45, flexDessertEnabled: true },
+      { dayType: "threshold", calorieTarget: 2939, proteinG: 190, carbsG: 350, fatG: 70, fixedSlots: { morning: { items: [{ name: "HEJ", kcal: 200, protein: 20, carbs: 18, fat: 7, cost: 1.87 }, { name: "Whey", kcal: 120, protein: 25, carbs: 2, fat: 1, cost: 0.5 }] }, preTraining: { items: [{ name: "Beet", kcal: 80, protein: 0, carbs: 18, fat: 0, cost: 0.5 }, { name: "Ginger", kcal: 70, protein: 0, carbs: 17, fat: 0, cost: 0.3 }, { name: "Collagen", kcal: 55, protein: 14, carbs: 0, fat: 0, cost: 0.4 }] }, afternoonSnack: { items: [{ name: "Carrots", kcal: 70, protein: 1, carbs: 14, fat: 0, cost: 0.4 }, { name: "Hummus", kcal: 200, protein: 7, carbs: 10, fat: 15, cost: 1.0 }] }, eveningSnack: { items: [{ name: "HEJ", kcal: 200, protein: 20, carbs: 18, fat: 7, cost: 1.87 }] }, flexDessert: { enabled: true, items: [{ name: "Skyr", kcal: 130, protein: 20, carbs: 14, fat: 0, cost: 1.19 }] } }, mainMealRecipeId: "chicken_rice_asia", mainMealRatio: 0.65, dinnerRecipeId: "egg_asia_norice", dinnerRatio: 0.35, flexDessertEnabled: true },
+      { dayType: "long_run", calorieTarget: 3168, proteinG: 190, carbsG: 380, fatG: 70, fixedSlots: { morning: { items: [{ name: "HEJ", kcal: 200, protein: 20, carbs: 18, fat: 7, cost: 1.87 }, { name: "Whey", kcal: 120, protein: 25, carbs: 2, fat: 1, cost: 0.5 }] }, preTraining: { items: [{ name: "Beet", kcal: 80, protein: 0, carbs: 18, fat: 0, cost: 0.5 }, { name: "Ginger", kcal: 70, protein: 0, carbs: 17, fat: 0, cost: 0.3 }, { name: "Collagen", kcal: 55, protein: 14, carbs: 0, fat: 0, cost: 0.4 }] }, afternoonSnack: { items: [{ name: "Carrots", kcal: 70, protein: 1, carbs: 14, fat: 0, cost: 0.4 }, { name: "Hummus", kcal: 200, protein: 7, carbs: 10, fat: 15, cost: 1.0 }] }, eveningSnack: { items: [{ name: "HEJ", kcal: 200, protein: 20, carbs: 18, fat: 7, cost: 1.87 }] }, flexDessert: { enabled: true, items: [{ name: "Skyr", kcal: 130, protein: 20, carbs: 14, fat: 0, cost: 1.19 }] } }, mainMealRecipeId: "hack_rice_brokkoli", mainMealRatio: 0.65, dinnerRecipeId: "egg_brokkoli_norice", dinnerRatio: 0.35, flexDessertEnabled: true },
+      { dayType: "rest", calorieTarget: 2400, proteinG: 190, carbsG: 220, fatG: 70, fixedSlots: { morning: { items: [{ name: "HEJ", kcal: 200, protein: 20, carbs: 18, fat: 7, cost: 1.87 }, { name: "Whey", kcal: 120, protein: 25, carbs: 2, fat: 1, cost: 0.5 }] }, preTraining: null, afternoonSnack: { items: [{ name: "Carrots", kcal: 70, protein: 1, carbs: 14, fat: 0, cost: 0.4 }, { name: "Hummus", kcal: 200, protein: 7, carbs: 10, fat: 15, cost: 1.0 }] }, eveningSnack: { items: [{ name: "HEJ", kcal: 200, protein: 20, carbs: 18, fat: 7, cost: 1.87 }] }, flexDessert: { enabled: true, items: [{ name: "Skyr", kcal: 130, protein: 20, carbs: 14, fat: 0, cost: 1.19 }] } }, mainMealRecipeId: "egg_rice_asia", mainMealRatio: 0.58, dinnerRecipeId: "hack_brokkoli_norice", dinnerRatio: 0.42, flexDessertEnabled: true },
+    ]);
+    userSettingsFindUnique.mockResolvedValue({ currentWeightKg: 92, targetWeightKg: 92 });
+    // Cascade mocks (for post-dry-run cascade call)
+    mealPlanFindUnique.mockResolvedValue({ userId: USER_ID });
+    transactionMock.mockResolvedValue([]);
   });
 
   it("updates DayPlan macros + slots for the given dayType", async () => {
@@ -299,10 +335,10 @@ describe("handleCoachingAction — updateCalorieTargets (Phase B9)", () => {
       "updateCalorieTargets",
       {
         dayType: "rest",
-        calorieTarget: 1700,
-        proteinG: 190,
-        carbsG: 78,
-        fatG: 70,
+        calorieTarget: 2600,
+        proteinG: 195,
+        carbsG: 240,
+        fatG: 75,
       },
       "Switching rest day target post-calibration",
     );
@@ -316,26 +352,27 @@ describe("handleCoachingAction — updateCalorieTargets (Phase B9)", () => {
       expect.objectContaining({
         where: { id: "dp-rest-1" },
         data: expect.objectContaining({
-          calorieTarget: 1700,
-          proteinG: 190,
-          carbsG: 78,
-          fatG: 70,
+          calorieTarget: 2600,
+          proteinG: 195,
+          carbsG: 240,
+          fatG: 75,
           slots: expect.any(Object),
         }),
       }),
     );
   });
 
-  it("returns 404 when DayPlan does not exist", async () => {
+  it("succeeds even when no DayPlan rows exist (backward-compat update is no-op)", async () => {
     dayPlanFindMany.mockResolvedValue([]);
     const result = await handleCoachingAction(
       USER_ID,
       "updateCalorieTargets",
-      { dayType: "rest", calorieTarget: 1700, proteinG: 190, carbsG: 78, fatG: 70 },
+      { dayType: "rest", calorieTarget: 2600, proteinG: 195, carbsG: 240, fatG: 75 },
       "test",
     );
-    expect(result.success).toBe(false);
-    if (!result.success) expect(result.error).toBe("day_plan_not_found");
+    expect(result.success).toBe(true);
+    expect(dayPlanUpdate).not.toHaveBeenCalled();
+    expect(dayTypeConfigUpdate).toHaveBeenCalled();
   });
 });
 
@@ -426,6 +463,21 @@ describe("handleCoachingAction — seedMealPlan", () => {
     dayPlanCreate.mockImplementation(async ({ data }: { data: { dayType: string } }) => ({
       id: `dp-${data.dayType}`,
     }));
+    // seedDayTypeConfigs calls db.dayTypeConfig.upsert per day-type
+    dayTypeConfigUpsert.mockResolvedValue({});
+    // cascadeNutritionUpdate needs: mealPlan.findUnique, dayTypeConfig.findMany,
+    // userSettings.findUnique, $transaction
+    mealPlanFindUnique.mockResolvedValue({ userId: USER_ID });
+    dayTypeConfigFindMany.mockResolvedValue([
+      { dayType: "strength_run", calorieTarget: 2500, proteinG: 190, carbsG: 278, fatG: 70, fixedSlots: { morning: { items: [{ name: "HEJ", kcal: 200, protein: 20, carbs: 18, fat: 7, cost: 1.87 }, { name: "Whey", kcal: 120, protein: 25, carbs: 2, fat: 1, cost: 0.5 }] }, preTraining: { items: [{ name: "Beet", kcal: 80, protein: 0, carbs: 18, fat: 0, cost: 0.5 }, { name: "Ginger", kcal: 70, protein: 0, carbs: 17, fat: 0, cost: 0.3 }, { name: "Collagen", kcal: 55, protein: 14, carbs: 0, fat: 0, cost: 0.4 }] }, afternoonSnack: { items: [{ name: "Carrots", kcal: 70, protein: 1, carbs: 14, fat: 0, cost: 0.4 }, { name: "Hummus", kcal: 200, protein: 7, carbs: 10, fat: 15, cost: 1.0 }] }, eveningSnack: { items: [{ name: "HEJ", kcal: 200, protein: 20, carbs: 18, fat: 7, cost: 1.87 }] }, flexDessert: { enabled: true, items: [{ name: "Skyr", kcal: 130, protein: 20, carbs: 14, fat: 0, cost: 1.19 }] } }, mainMealRecipeId: "chicken_rice_asia", mainMealRatio: 0.55, dinnerRecipeId: "egg_asia_norice", dinnerRatio: 0.45, flexDessertEnabled: true },
+      { dayType: "threshold", calorieTarget: 2939, proteinG: 190, carbsG: 350, fatG: 70, fixedSlots: { morning: { items: [{ name: "HEJ", kcal: 200, protein: 20, carbs: 18, fat: 7, cost: 1.87 }, { name: "Whey", kcal: 120, protein: 25, carbs: 2, fat: 1, cost: 0.5 }] }, preTraining: { items: [{ name: "Beet", kcal: 80, protein: 0, carbs: 18, fat: 0, cost: 0.5 }, { name: "Ginger", kcal: 70, protein: 0, carbs: 17, fat: 0, cost: 0.3 }, { name: "Collagen", kcal: 55, protein: 14, carbs: 0, fat: 0, cost: 0.4 }] }, afternoonSnack: { items: [{ name: "Carrots", kcal: 70, protein: 1, carbs: 14, fat: 0, cost: 0.4 }, { name: "Hummus", kcal: 200, protein: 7, carbs: 10, fat: 15, cost: 1.0 }] }, eveningSnack: { items: [{ name: "HEJ", kcal: 200, protein: 20, carbs: 18, fat: 7, cost: 1.87 }] }, flexDessert: { enabled: true, items: [{ name: "Skyr", kcal: 130, protein: 20, carbs: 14, fat: 0, cost: 1.19 }] } }, mainMealRecipeId: "chicken_rice_asia", mainMealRatio: 0.65, dinnerRecipeId: "egg_asia_norice", dinnerRatio: 0.35, flexDessertEnabled: true },
+      { dayType: "long_run", calorieTarget: 3168, proteinG: 190, carbsG: 380, fatG: 70, fixedSlots: { morning: { items: [{ name: "HEJ", kcal: 200, protein: 20, carbs: 18, fat: 7, cost: 1.87 }, { name: "Whey", kcal: 120, protein: 25, carbs: 2, fat: 1, cost: 0.5 }] }, preTraining: { items: [{ name: "Beet", kcal: 80, protein: 0, carbs: 18, fat: 0, cost: 0.5 }, { name: "Ginger", kcal: 70, protein: 0, carbs: 17, fat: 0, cost: 0.3 }, { name: "Collagen", kcal: 55, protein: 14, carbs: 0, fat: 0, cost: 0.4 }] }, afternoonSnack: { items: [{ name: "Carrots", kcal: 70, protein: 1, carbs: 14, fat: 0, cost: 0.4 }, { name: "Hummus", kcal: 200, protein: 7, carbs: 10, fat: 15, cost: 1.0 }] }, eveningSnack: { items: [{ name: "HEJ", kcal: 200, protein: 20, carbs: 18, fat: 7, cost: 1.87 }] }, flexDessert: { enabled: true, items: [{ name: "Skyr", kcal: 130, protein: 20, carbs: 14, fat: 0, cost: 1.19 }] } }, mainMealRecipeId: "hack_rice_brokkoli", mainMealRatio: 0.65, dinnerRecipeId: "egg_brokkoli_norice", dinnerRatio: 0.35, flexDessertEnabled: true },
+      { dayType: "rest", calorieTarget: 2400, proteinG: 190, carbsG: 220, fatG: 70, fixedSlots: { morning: { items: [{ name: "HEJ", kcal: 200, protein: 20, carbs: 18, fat: 7, cost: 1.87 }, { name: "Whey", kcal: 120, protein: 25, carbs: 2, fat: 1, cost: 0.5 }] }, preTraining: null, afternoonSnack: { items: [{ name: "Carrots", kcal: 70, protein: 1, carbs: 14, fat: 0, cost: 0.4 }, { name: "Hummus", kcal: 200, protein: 7, carbs: 10, fat: 15, cost: 1.0 }] }, eveningSnack: { items: [{ name: "HEJ", kcal: 200, protein: 20, carbs: 18, fat: 7, cost: 1.87 }] }, flexDessert: { enabled: true, items: [{ name: "Skyr", kcal: 130, protein: 20, carbs: 14, fat: 0, cost: 1.19 }] } }, mainMealRecipeId: "egg_rice_asia", mainMealRatio: 0.58, dinnerRecipeId: "hack_brokkoli_norice", dinnerRatio: 0.42, flexDessertEnabled: true },
+    ]);
+    userSettingsFindUnique.mockResolvedValue({ currentWeightKg: 92, targetWeightKg: 92 });
+    transactionMock.mockResolvedValue([]);
+    computedMealSlotDeleteMany.mockResolvedValue({ count: 0 });
+    computedMealSlotCreateMany.mockResolvedValue({ count: 28 });
   });
 
   it("creates a MealPlan + 4 DayPlans when none exists", async () => {
@@ -434,7 +486,8 @@ describe("handleCoachingAction — seedMealPlan", () => {
     expect(result.success).toBe(true);
     expect(mealPlanCreate).toHaveBeenCalledTimes(1);
     expect(dayPlanCreate).toHaveBeenCalledTimes(4);
-    expect(coachingLogCreate).toHaveBeenCalledTimes(1);
+    // 2 calls: 1 from the cascade's $transaction array + 1 from the handler
+    expect(coachingLogCreate).toHaveBeenCalledTimes(2);
   });
 
   it("seeds Block 1 Standard with the canonical defaults", async () => {

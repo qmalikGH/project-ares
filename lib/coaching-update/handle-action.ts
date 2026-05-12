@@ -5,10 +5,15 @@
 import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { dayKey } from "@/lib/db/queries/sensors";
+import { buildAllDayPlans } from "@/lib/nutrition/build-all-day-plans";
 import { calibrateMealPlan } from "@/lib/nutrition/calibration";
+import { cascadeNutritionUpdate } from "@/lib/nutrition/cascade";
+import { ATHLETE_WEIGHT_KG } from "@/lib/nutrition/day-type-configs";
 import type { DayTypeTargets } from "@/lib/nutrition/day-type";
+import { RECIPE_TEMPLATES } from "@/lib/nutrition/recipe-templates";
+import { dbConfigToEngineConfig, seedDayTypeConfigs } from "@/lib/nutrition/seed-day-type-configs";
 import { buildSlotsForTargets, templateDayPlan } from "@/lib/nutrition/template";
-import type { DayType } from "@/lib/nutrition/types";
+import type { DayType, DayTypeConfig } from "@/lib/nutrition/types";
 
 const TherapyPhaseSchema = z.object({
   phase: z.enum(["REACTIVE", "DISREPAIR", "REMODELING", "SPORT_SPECIFIC"]),
@@ -69,6 +74,24 @@ const AdjustDaySlotSchema = z.object({
 });
 
 const SeedMealPlanSchema = z.object({}).strict();
+
+// ── v1.1 action schemas ─────────────────────────────────────────────────
+
+const SwapRecipeSchema = z.object({
+  dayType: DayTypeEnum,
+  slot: z.enum(["mainMeal", "dinner"]),
+  newRecipeId: z.string().min(1).max(50),
+});
+
+const AdjustBudgetRatioSchema = z.object({
+  dayType: DayTypeEnum,
+  mainMealRatio: z.number().min(0.3).max(0.7),
+});
+
+const ToggleFlexDessertSchema = z.object({
+  dayType: DayTypeEnum,
+  enabled: z.boolean(),
+});
 
 const SEED_DAY_TYPES: DayType[] = ["strength_run", "threshold", "long_run", "rest"];
 
@@ -204,7 +227,37 @@ export async function handleCoachingAction(
       });
       if (!plan) return { success: false, status: 404, error: "no_active_meal_plan" };
 
-      // Build full targets and cascade into slots (protein-first, carbs fill rest)
+      // Dry-run: load all configs, apply change, validate
+      const dryRunResult = await dryRunConfigChange(plan.id, userId, (configs) => {
+        const idx = configs.findIndex((c) => c.dayType === parsed.data.dayType);
+        if (idx === -1) return `DayTypeConfig not found for ${parsed.data.dayType}`;
+        configs[idx] = {
+          ...configs[idx],
+          calorieTarget: parsed.data.calorieTarget,
+          macroTargets: {
+            proteinG: parsed.data.proteinG,
+            carbsG: parsed.data.carbsG,
+            fatG: parsed.data.fatG,
+          },
+        };
+        return null;
+      });
+      if (!dryRunResult.ok) {
+        return { success: false, status: 422, error: "dry_run_failed", details: dryRunResult.errors };
+      }
+
+      // Apply: update DayTypeConfig in DB
+      await db.dayTypeConfig.update({
+        where: { planId_dayType: { planId: plan.id, dayType: parsed.data.dayType } },
+        data: {
+          calorieTarget: parsed.data.calorieTarget,
+          proteinG: parsed.data.proteinG,
+          carbsG: parsed.data.carbsG,
+          fatG: parsed.data.fatG,
+        },
+      });
+
+      // Backward-compat: also update DayPlan targets
       const tdeeEstimate = parsed.data.calorieTarget + (plan.deficitKcal ?? 500);
       const targets: DayTypeTargets = {
         tdeeEstimate,
@@ -214,14 +267,10 @@ export async function handleCoachingAction(
         fatG: parsed.data.fatG,
       };
       const slots = buildSlotsForTargets(parsed.data.dayType as DayType, targets);
-
       const dayPlans = await db.dayPlan.findMany({
         where: { mealPlanId: plan.id, dayType: parsed.data.dayType },
         select: { id: true },
       });
-      if (dayPlans.length === 0) {
-        return { success: false, status: 404, error: "day_plan_not_found" };
-      }
       for (const dp of dayPlans) {
         await db.dayPlan.update({
           where: { id: dp.id },
@@ -235,6 +284,9 @@ export async function handleCoachingAction(
           },
         });
       }
+
+      // Cascade: recompute all ComputedMealSlots
+      await cascadeNutritionUpdate(plan.id, "config_change", reason);
 
       const log = await db.coachingLog.create({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -363,14 +415,181 @@ export async function handleCoachingAction(
         dayPlanIds.push({ dayType, id: dp.id, calorieTarget: template.calorieTarget });
       }
 
+      // Seed DayTypeConfigs from code constants (idempotent)
+      await seedDayTypeConfigs(plan.id);
+
+      // Cascade: compute all slots from DB configs and persist
+      const cascadeResult = await cascadeNutritionUpdate(plan.id, "seed", reason);
+
       const log = await db.coachingLog.create({
         data: {
           userId,
           action,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          data: { mealPlanId: plan.id, dayPlans: dayPlanIds } as any,
+          data: { mealPlanId: plan.id, dayPlans: dayPlanIds, cascadeSuccess: cascadeResult.success } as any,
           reason,
         },
+      });
+      return { success: true, logId: log.id, action };
+    }
+
+    // ── v1.1 actions ────────────────────────────────────────────────────
+
+    case "swapRecipe": {
+      const parsed = SwapRecipeSchema.safeParse(data);
+      if (!parsed.success) {
+        return { success: false, status: 400, error: "invalid_data", details: parsed.error.flatten() };
+      }
+      const recipeExists = RECIPE_TEMPLATES.some((r) => r.id === parsed.data.newRecipeId);
+      if (!recipeExists) {
+        return { success: false, status: 400, error: "recipe_not_found", details: { recipeId: parsed.data.newRecipeId } };
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const plan: any = await db.mealPlan.findFirst({
+        where: { userId, status: "active" },
+        select: { id: true },
+      });
+      if (!plan) return { success: false, status: 404, error: "no_active_meal_plan" };
+
+      // Pre-check: mainMeal ≠ dinner after swap
+      const existingConfig = await db.dayTypeConfig.findUnique({
+        where: { planId_dayType: { planId: plan.id, dayType: parsed.data.dayType } },
+      });
+      if (!existingConfig) {
+        return { success: false, status: 404, error: "config_not_found" };
+      }
+      const otherRecipeId = parsed.data.slot === "mainMeal"
+        ? existingConfig.dinnerRecipeId
+        : existingConfig.mainMealRecipeId;
+      if (otherRecipeId === parsed.data.newRecipeId) {
+        return { success: false, status: 422, error: "same_recipe", details: "Cannot use same recipe for mainMeal and dinner" };
+      }
+
+      // Dry-run
+      const dryRunResult = await dryRunConfigChange(plan.id, userId, (configs) => {
+        const idx = configs.findIndex((c) => c.dayType === parsed.data.dayType);
+        if (idx === -1) return `DayTypeConfig not found for ${parsed.data.dayType}`;
+        const slot = parsed.data.slot === "mainMeal" ? "mainMeal" : "dinner";
+        configs[idx] = {
+          ...configs[idx],
+          variableSlots: {
+            ...configs[idx].variableSlots,
+            [slot]: { ...configs[idx].variableSlots[slot], recipeId: parsed.data.newRecipeId },
+          },
+        };
+        return null;
+      });
+      if (!dryRunResult.ok) {
+        return { success: false, status: 422, error: "dry_run_failed", details: dryRunResult.errors };
+      }
+
+      // Apply
+      const fieldToUpdate = parsed.data.slot === "mainMeal" ? "mainMealRecipeId" : "dinnerRecipeId";
+      await db.dayTypeConfig.update({
+        where: { planId_dayType: { planId: plan.id, dayType: parsed.data.dayType } },
+        data: { [fieldToUpdate]: parsed.data.newRecipeId },
+      });
+      await cascadeNutritionUpdate(plan.id, "recipe_change", reason);
+
+      const log = await db.coachingLog.create({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        data: { userId, action, data: parsed.data as any, reason },
+      });
+      return { success: true, logId: log.id, action };
+    }
+
+    case "adjustBudgetRatio": {
+      const parsed = AdjustBudgetRatioSchema.safeParse(data);
+      if (!parsed.success) {
+        return { success: false, status: 400, error: "invalid_data", details: parsed.error.flatten() };
+      }
+      const dinnerRatio = +(1.0 - parsed.data.mainMealRatio).toFixed(2);
+      if (Math.abs(parsed.data.mainMealRatio + dinnerRatio - 1.0) > 0.001) {
+        return { success: false, status: 422, error: "ratio_sum_invalid" };
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const plan: any = await db.mealPlan.findFirst({
+        where: { userId, status: "active" },
+        select: { id: true },
+      });
+      if (!plan) return { success: false, status: 404, error: "no_active_meal_plan" };
+
+      // Dry-run
+      const dryRunResult = await dryRunConfigChange(plan.id, userId, (configs) => {
+        const idx = configs.findIndex((c) => c.dayType === parsed.data.dayType);
+        if (idx === -1) return `DayTypeConfig not found for ${parsed.data.dayType}`;
+        configs[idx] = {
+          ...configs[idx],
+          variableSlots: {
+            mainMeal: { ...configs[idx].variableSlots.mainMeal, budgetRatio: parsed.data.mainMealRatio },
+            dinner: { ...configs[idx].variableSlots.dinner, budgetRatio: dinnerRatio },
+          },
+        };
+        return null;
+      });
+      if (!dryRunResult.ok) {
+        return { success: false, status: 422, error: "dry_run_failed", details: dryRunResult.errors };
+      }
+
+      // Apply
+      await db.dayTypeConfig.update({
+        where: { planId_dayType: { planId: plan.id, dayType: parsed.data.dayType } },
+        data: { mainMealRatio: parsed.data.mainMealRatio, dinnerRatio },
+      });
+      await cascadeNutritionUpdate(plan.id, "config_change", reason);
+
+      const log = await db.coachingLog.create({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        data: { userId, action, data: { ...parsed.data, dinnerRatio } as any, reason },
+      });
+      return { success: true, logId: log.id, action };
+    }
+
+    case "toggleFlexDessert": {
+      const parsed = ToggleFlexDessertSchema.safeParse(data);
+      if (!parsed.success) {
+        return { success: false, status: 400, error: "invalid_data", details: parsed.error.flatten() };
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const plan: any = await db.mealPlan.findFirst({
+        where: { userId, status: "active" },
+        select: { id: true },
+      });
+      if (!plan) return { success: false, status: 404, error: "no_active_meal_plan" };
+
+      // Dry-run
+      const dryRunResult = await dryRunConfigChange(plan.id, userId, (configs) => {
+        const idx = configs.findIndex((c) => c.dayType === parsed.data.dayType);
+        if (idx === -1) return `DayTypeConfig not found for ${parsed.data.dayType}`;
+        const current = configs[idx];
+        configs[idx] = {
+          ...current,
+          fixedSlots: {
+            ...current.fixedSlots,
+            flexDessert: current.fixedSlots.flexDessert
+              ? { ...current.fixedSlots.flexDessert, enabled: parsed.data.enabled }
+              : parsed.data.enabled ? { enabled: true, items: [] } : null,
+          },
+        };
+        return null;
+      });
+      if (!dryRunResult.ok) {
+        return { success: false, status: 422, error: "dry_run_failed", details: dryRunResult.errors };
+      }
+
+      // Apply
+      await db.dayTypeConfig.update({
+        where: { planId_dayType: { planId: plan.id, dayType: parsed.data.dayType } },
+        data: { flexDessertEnabled: parsed.data.enabled },
+      });
+      await cascadeNutritionUpdate(plan.id, "config_change", reason);
+
+      const log = await db.coachingLog.create({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        data: { userId, action, data: parsed.data as any, reason },
       });
       return { success: true, logId: log.id, action };
     }
@@ -378,4 +597,37 @@ export async function handleCoachingAction(
     default:
       return { success: false, status: 400, error: "unknown_action", details: { action } };
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Dry-run helper — validates config change via pure engine before DB write
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function dryRunConfigChange(
+  planId: string,
+  userId: string,
+  mutate: (configs: DayTypeConfig[]) => string | null,
+): Promise<{ ok: true } | { ok: false; errors: string[] }> {
+  const dbConfigs = await db.dayTypeConfig.findMany({ where: { planId } });
+  if (dbConfigs.length === 0) {
+    return { ok: false, errors: ["No DayTypeConfigs found — run seedMealPlan first"] };
+  }
+
+  const configs = dbConfigs.map(dbConfigToEngineConfig);
+  const mutateError = mutate(configs);
+  if (mutateError) {
+    return { ok: false, errors: [mutateError] };
+  }
+
+  const settings = await db.userSettings.findUnique({
+    where: { userId },
+    select: { currentWeightKg: true, targetWeightKg: true },
+  });
+  const weight = settings?.currentWeightKg ?? settings?.targetWeightKg ?? ATHLETE_WEIGHT_KG;
+
+  const result = buildAllDayPlans(configs, RECIPE_TEMPLATES, weight);
+  if (result.hasErrors) {
+    return { ok: false, errors: result.allErrors };
+  }
+  return { ok: true };
 }

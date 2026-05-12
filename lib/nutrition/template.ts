@@ -22,8 +22,8 @@ import { findDayTypeConfig, DAY_TYPE_CONFIGS } from "./day-type-configs";
 import { scaleRecipe } from "./scale-recipe";
 import { findRecipeTemplate, RECIPE_TEMPLATES } from "./recipe-templates";
 import type { DayTypeTargets } from "./day-type";
-import type { DayType, MealItem, MealSlot, MealSlots } from "./types";
-import type { ScaledRecipe, DayTypeConfig } from "./types";
+import type { DayType, MealItem, MealSlot, MealSlots, FixedSlotItem } from "./types";
+import type { ScaledRecipe, ComputedDayPlan, DayTypeConfig } from "./types";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // §1 — Fixed slot definitions (portions never change with calorie target)
@@ -90,7 +90,7 @@ function scaledRecipeToMealSlot(scaled: ScaledRecipe): MealSlot {
     });
   }
 
-  return { recipe: scaled.recipeId, items };
+  return { recipe: scaled.recipeId, recipeName: scaled.recipeName, items };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
