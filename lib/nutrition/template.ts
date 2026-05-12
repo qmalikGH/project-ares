@@ -31,7 +31,7 @@ import type { ScaledRecipe, ComputedDayPlan, DayTypeConfig } from "./types";
 
 const morning: MealSlot = {
   items: [
-    { name: "HEJ Protein Bar", kcal: 200, protein: 20, carbs: 18, fat: 7, costEur: 1.87 },
+    { name: "HEJ Protein Bar", kcal: 200, protein: 13, carbs: 18, fat: 7, costEur: 1.87 },
     { name: "Whey Shake 30g + Creatine", kcal: 120, protein: 25, carbs: 2, fat: 1, costEur: 0.5 },
   ],
 };
@@ -57,7 +57,7 @@ const afternoonSnack: MealSlot = {
 };
 
 const eveningSnack: MealSlot = {
-  items: [{ name: "HEJ Protein Bar", kcal: 200, protein: 20, carbs: 18, fat: 7, costEur: 1.87 }],
+  items: [{ name: "HEJ Protein Bar", kcal: 200, protein: 13, carbs: 18, fat: 7, costEur: 1.87 }],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════

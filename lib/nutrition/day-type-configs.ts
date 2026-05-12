@@ -11,7 +11,7 @@ import type { DayTypeConfig, FixedSlotItem } from "./types";
 // ═══════════════════════════════════════════════════════════════════════════
 
 const HEJ_BAR: FixedSlotItem = {
-  name: "HEJ Protein Bar", kcal: 200, protein: 20, carbs: 18, fat: 7, cost: 1.87,
+  name: "HEJ Protein Bar", kcal: 200, protein: 13, carbs: 18, fat: 7, cost: 1.87,
 };
 
 const WHEY_CREATINE: FixedSlotItem = {
@@ -121,9 +121,10 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
     },
     variableSlots: {
       // Rest day: egg mainMeal (with rice) + hack dinner (no rice).
-      // 58:42 ratio keeps hack dinner well within protein budget.
-      mainMeal: { recipeId: "egg_rice_asia", budgetRatio: 0.58 },
-      dinner: { recipeId: "hack_brokkoli_norice", budgetRatio: 0.42 },
+      // 50:50 split — equal portions, no training bias. Dinner needs
+      // ≥0.49 to reach 325g beef (discrete 25g steps) for 184g protein.
+      mainMeal: { recipeId: "egg_rice_asia", budgetRatio: 0.50 },
+      dinner: { recipeId: "hack_brokkoli_norice", budgetRatio: 0.50 },
     },
   },
 ];
