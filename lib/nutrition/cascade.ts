@@ -20,7 +20,7 @@ import { RECIPE_TEMPLATES } from "./recipe-templates";
 import { dbConfigToEngineConfig } from "./seed-day-type-configs";
 import type { ComputedDayPlan, FixedSlotItem } from "./types";
 
-export type CascadeTrigger = "config_change" | "recipe_change" | "calibration" | "manual" | "seed";
+export type CascadeTrigger = "config_change" | "recipe_change" | "calibration" | "manual" | "seed" | "weight_change";
 
 export interface CascadeResult {
   success: boolean;

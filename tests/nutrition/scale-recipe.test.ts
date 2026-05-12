@@ -170,4 +170,71 @@ describe("scaleRecipe", () => {
     expect(eggs!.name).toContain("Eier");
     expect(eggs!.name).toContain("Stück");
   });
+
+  // ── v1.3: Multi-protein (Strategy B: Fixed Secondary + Flexible Primary) ──
+
+  describe("egg_chicken_rice_asia (multi-protein)", () => {
+    const template = findRecipeTemplate("egg_chicken_rice_asia");
+
+    it("returns BOTH protein components in output", () => {
+      const result = scaleRecipe(template, 657);
+      const eggs = result.components.find((c) => c.ingredientId === "eggs");
+      const chicken = result.components.find((c) => c.ingredientId === "chicken_breast");
+      expect(eggs).toBeDefined();
+      expect(chicken).toBeDefined();
+    });
+
+    it("chicken (secondary) is at minimumAmount 75g", () => {
+      const result = scaleRecipe(template, 657);
+      const chicken = result.components.find((c) => c.ingredientId === "chicken_breast");
+      expect(chicken!.amount).toBe(75);
+    });
+
+    it("eggs (primary) scale flexibly with remaining budget", () => {
+      const low = scaleRecipe(template, 500);
+      const high = scaleRecipe(template, 800);
+      const lowEggs = low.components.find((c) => c.ingredientId === "eggs")!.amount;
+      const highEggs = high.components.find((c) => c.ingredientId === "eggs")!.amount;
+      expect(highEggs).toBeGreaterThan(lowEggs);
+    });
+
+    it("threshold dinner (657 kcal): protein >= 40g", () => {
+      // Sprint v1.3 Rechenprobe: 657 kcal → ~47g protein
+      const result = scaleRecipe(template, 657);
+      expect(result.totals.protein).toBeGreaterThanOrEqual(40);
+    });
+
+    it("total kcal within 50 of target", () => {
+      const result = scaleRecipe(template, 657);
+      expect(Math.abs(result.totals.kcal - 657)).toBeLessThanOrEqual(50);
+    });
+
+    it("rice and vegetable are also present", () => {
+      const result = scaleRecipe(template, 657);
+      expect(result.components.find((c) => c.ingredientId === "rice_dry")).toBeDefined();
+      expect(result.components.find((c) => c.ingredientId === "tk_asia_gemuse")).toBeDefined();
+    });
+
+    it("is deterministic across budgets", () => {
+      for (const budget of [500, 600, 700, 800]) {
+        const a = scaleRecipe(template, budget);
+        const b = scaleRecipe(template, budget);
+        expect(a).toEqual(b);
+      }
+    });
+  });
+
+  // ── v1.3: Regression — single-protein recipes unaffected ──
+
+  it("single-protein recipes still produce valid results", () => {
+    const singleProteinTemplates = RECIPE_TEMPLATES.filter(
+      (t) => t.components.filter((c) => c.role === "protein").length === 1,
+    );
+    expect(singleProteinTemplates.length).toBeGreaterThanOrEqual(8);
+    for (const t of singleProteinTemplates) {
+      const result = scaleRecipe(t, 700);
+      expect(result.components.length).toBeGreaterThan(0);
+      expect(result.totals.kcal).toBeGreaterThan(0);
+    }
+  });
 });

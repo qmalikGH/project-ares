@@ -16,7 +16,8 @@ export interface AdherenceCounts {
 }
 
 export function computeAdherenceScore(c: AdherenceCounts): number {
-  const total = c.completed + c.modified + c.skipped + c.pending;
+  // v1.3: Exclude pending (future planned sessions) from denominator
+  const total = c.completed + c.modified + c.skipped;
   if (total === 0) return 0;
   return Math.round(((c.completed + c.modified) / total) * 100);
 }

@@ -7,6 +7,8 @@
 // Algorithm:
 //   1. Subtract sauce kcal (fixed)
 //   2. Set vegetable to minimumAmount (fixed — micros, not calorie filler)
+//   2b. Multi-protein (Strategy B): secondary proteins at minimumAmount,
+//       subtract their kcal; primary protein scales with remainder
 //   3. If recipe has carb component: protein 60%, carbs 40% of remaining
 //   4. If no carb component (dinner): 100% → protein
 //   5. Round to stepSize, clamp to [min, max]
@@ -90,11 +92,13 @@ export function scaleRecipe(template: RecipeTemplate, targetKcal: number): Scale
   const componentBudget = targetKcal - sauceKcal;
 
   // 3. Find components by role
-  const proteinComp = template.components.find((c) => c.role === "protein");
+  // v1.3: .filter() for multi-protein support (e.g. egg_chicken_rice_asia)
+  const proteinComps = template.components.filter((c) => c.role === "protein");
+  const proteinComp = proteinComps[0]; // Primary protein (first in template)
   const carbComp = template.components.find((c) => c.role === "carb");
   const vegComp = template.components.find((c) => c.role === "vegetable");
 
-  if (!proteinComp) {
+  if (proteinComps.length === 0) {
     throw new Error(`Recipe "${template.id}" has no protein component`);
   }
 
@@ -113,6 +117,24 @@ export function scaleRecipe(template: RecipeTemplate, targetKcal: number): Scale
     );
   }
 
+  // 5b. Strategy B: Multi-protein — secondary proteins at fixed minimumAmount.
+  //     Primary (index 0) scales flexibly with the remaining budget.
+  //     When only 1 protein component exists, this is a no-op (identical to v1.2).
+  const secondaryComponents: ScaledComponent[] = [];
+  let secondaryKcal = 0;
+
+  if (proteinComps.length > 1) {
+    for (let i = 1; i < proteinComps.length; i++) {
+      const sec = proteinComps[i];
+      const secAmount = sec.minimumAmount; // Fixed (e.g. chicken 75g from batch)
+      secondaryComponents.push(computeComponentMacros(sec, secAmount));
+      secondaryKcal += secAmount * sec.kcalPerUnit;
+    }
+  }
+
+  // Budget available for primary protein (+ carbs)
+  const primaryRemaining = remaining - secondaryKcal;
+
   // 6. Waterfall allocation: protein FIRST, then remaining → carbs,
   //    then any leftover → scale vegetables UP from minimum.
   //    This prevents kcal loss when protein hits its max cap.
@@ -122,7 +144,7 @@ export function scaleRecipe(template: RecipeTemplate, targetKcal: number): Scale
 
   if (carbComp) {
     // MainMeal recipe (has rice): protein gets 60% of budget as STARTING POINT
-    const idealProteinAmount = (remaining * 0.6) / proteinComp.kcalPerUnit;
+    const idealProteinAmount = (primaryRemaining * 0.6) / proteinComp.kcalPerUnit;
 
     // Round and clamp protein
     proteinAmount = clamp(
@@ -135,7 +157,7 @@ export function scaleRecipe(template: RecipeTemplate, targetKcal: number): Scale
     const actualProteinKcal = proteinAmount * proteinComp.kcalPerUnit;
 
     // ALL remaining kcal after protein → carbs (waterfall, no kcal lost)
-    const carbBudget = remaining - actualProteinKcal;
+    const carbBudget = primaryRemaining - actualProteinKcal;
     carbAmount = clamp(
       roundToStep(carbBudget / carbComp.kcalPerUnit, carbComp.stepSize),
       carbComp.minimumAmount,
@@ -145,7 +167,7 @@ export function scaleRecipe(template: RecipeTemplate, targetKcal: number): Scale
     // If carbs also hit their max, scale vegetables up to absorb remainder
     if (vegComp) {
       const usedKcal = proteinAmount * proteinComp.kcalPerUnit + carbAmount * carbComp.kcalPerUnit;
-      const vegBudget = remaining - usedKcal;
+      const vegBudget = primaryRemaining - usedKcal;
       if (vegBudget > vegKcal) {
         actualVegAmount = clamp(
           roundToStep(vegBudget / vegComp.kcalPerUnit, vegComp.stepSize),
@@ -157,7 +179,7 @@ export function scaleRecipe(template: RecipeTemplate, targetKcal: number): Scale
   } else {
     // Dinner recipe (no rice): 100% → protein
     proteinAmount = clamp(
-      roundToStep(remaining / proteinComp.kcalPerUnit, proteinComp.stepSize),
+      roundToStep(primaryRemaining / proteinComp.kcalPerUnit, proteinComp.stepSize),
       proteinComp.minimumAmount,
       proteinComp.maximumAmount,
     );
@@ -166,7 +188,7 @@ export function scaleRecipe(template: RecipeTemplate, targetKcal: number): Scale
     // If protein hits max, scale vegetables up to absorb remainder
     if (vegComp) {
       const actualProteinKcal = proteinAmount * proteinComp.kcalPerUnit;
-      const vegBudget = remaining - actualProteinKcal;
+      const vegBudget = primaryRemaining - actualProteinKcal;
       if (vegBudget > vegKcal) {
         actualVegAmount = clamp(
           roundToStep(vegBudget / vegComp.kcalPerUnit, vegComp.stepSize),
@@ -180,7 +202,7 @@ export function scaleRecipe(template: RecipeTemplate, targetKcal: number): Scale
   // 8. Validate: check that minimum portions don't exceed budget
   const minProteinKcal = proteinComp.minimumAmount * proteinComp.kcalPerUnit;
   const minCarbKcal = carbComp ? carbComp.minimumAmount * carbComp.kcalPerUnit : 0;
-  const minTotalKcal = minProteinKcal + minCarbKcal + vegKcal + sauceKcal;
+  const minTotalKcal = minProteinKcal + minCarbKcal + vegKcal + sauceKcal + secondaryKcal;
 
   if (minTotalKcal > targetKcal * 1.5) {
     throw new Error(
@@ -193,6 +215,8 @@ export function scaleRecipe(template: RecipeTemplate, targetKcal: number): Scale
   // 9. Build scaled components
   const scaledComponents: ScaledComponent[] = [];
   scaledComponents.push(computeComponentMacros(proteinComp, proteinAmount));
+  // Secondary protein components (Strategy B: fixed at minimumAmount)
+  scaledComponents.push(...secondaryComponents);
   if (carbComp && carbAmount > 0) {
     scaledComponents.push(computeComponentMacros(carbComp, carbAmount));
   }

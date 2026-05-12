@@ -111,8 +111,11 @@ describe("No portion below minimumAmount", () => {
   for (const config of DAY_TYPE_CONFIGS) {
     it(`${config.dayType}: all portions ≥ minimumAmount`, () => {
       const plan = computeDayPlan(config, recipes, weight);
-      for (const comp of [...plan.mainMeal.components, ...plan.dinner.components]) {
-        for (const tmpl of recipes) {
+      // Check each slot against its OWN recipe template (not all templates)
+      for (const slotData of [plan.mainMeal, plan.dinner]) {
+        const tmpl = recipes.find((r) => r.id === slotData.recipeId);
+        if (!tmpl) continue;
+        for (const comp of slotData.components) {
           const tmplComp = tmpl.components.find((tc) => tc.ingredientId === comp.ingredientId);
           if (tmplComp) {
             expect(comp.amount, `${comp.name} in ${config.dayType}`).toBeGreaterThanOrEqual(

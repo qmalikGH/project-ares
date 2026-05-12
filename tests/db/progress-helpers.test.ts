@@ -37,6 +37,17 @@ describe("computeAdherenceScore", () => {
       computeAdherenceScore({ completed: 0, modified: 0, skipped: 5, pending: 0 }),
     ).toBe(0);
   });
+  it("pending sessions are excluded from denominator", () => {
+    // v1.3: 5 done out of 6 past = 83%, NOT 5/9 = 56%
+    expect(
+      computeAdherenceScore({ completed: 4, modified: 1, skipped: 1, pending: 3 }),
+    ).toBe(83);
+  });
+  it("returns 0 when only pending sessions exist", () => {
+    expect(
+      computeAdherenceScore({ completed: 0, modified: 0, skipped: 0, pending: 5 }),
+    ).toBe(0);
+  });
 });
 
 describe("computeWeightedTID", () => {

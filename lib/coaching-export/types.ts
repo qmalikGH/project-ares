@@ -288,4 +288,14 @@ export interface AthleteSection {
   restDays: string[];
   preferredLongRunDay: string;
   therapyPhase: string | null;
+  // v1.3: Weight trend + strength ratios
+  weightTrend?: {
+    last7dAvg: number | null;
+    last28dAvg: number | null;
+    weeklyChangeKg: number | null;
+  };
+  strengthRatios?: Record<string, {
+    current: number;
+    target: number;
+  }>;
 }

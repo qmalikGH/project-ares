@@ -91,14 +91,14 @@ describe("computeDayPlan — all day types valid", () => {
       });
 
       it("no component below minimum amount", () => {
-        for (const comp of [...plan.mainMeal.components, ...plan.dinner.components]) {
-          // Find the template component to check its minimum
-          const allTemplates = [...recipes];
-          for (const tmpl of allTemplates) {
+        // Check each slot against its OWN recipe template (not all templates)
+        for (const [slot, slotData] of [["mainMeal", plan.mainMeal], ["dinner", plan.dinner]] as const) {
+          const tmpl = recipes.find((r) => r.id === slotData.recipeId);
+          if (!tmpl) continue;
+          for (const comp of slotData.components) {
             const tmplComp = tmpl.components.find((tc) => tc.ingredientId === comp.ingredientId);
             if (tmplComp) {
-              expect(comp.amount).toBeGreaterThanOrEqual(tmplComp.minimumAmount);
-              break;
+              expect(comp.amount, `${comp.ingredientId} in ${slot}`).toBeGreaterThanOrEqual(tmplComp.minimumAmount);
             }
           }
         }

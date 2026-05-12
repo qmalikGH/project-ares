@@ -340,7 +340,8 @@ async function buildTrainingHistory(userId: string, today: Date): Promise<Traini
     };
   });
 
-  const total = completedCount + skippedCount + plannedCount;
+  // v1.3: Exclude future planned sessions from compliance denominator
+  const total = completedCount + skippedCount;
 
   const weeklyRunKm = Array.from(runVolByWeek.entries())
     .sort(([a], [b]) => a.localeCompare(b))
@@ -600,10 +601,73 @@ async function buildAthlete(userId: string): Promise<AthleteSection> {
       preferredLongRunDay: true,
       timezone: true,
       therapyPhaseOverride: true,
+      exerciseMaxEstimates: true,
     },
   });
 
   const isoDayName = (d: number) => ISO_DAY_NAMES[(d - 1) % 7] ?? `Day ${d}`;
+
+  // ── v1.3: Weight trend from DailySensorData ──
+  const weights28d = await db.dailySensorData.findMany({
+    where: {
+      userId,
+      bodyWeightKg: { not: null },
+      date: { gte: new Date(Date.now() - 28 * 86400000) },
+    },
+    orderBy: { date: "desc" },
+    select: { bodyWeightKg: true, date: true },
+  });
+
+  let weightTrend: AthleteSection["weightTrend"] = undefined;
+  if (weights28d.length > 0) {
+    const now = Date.now();
+    const last7 = weights28d.filter((w) => w.date.getTime() >= now - 7 * 86400000);
+    const avg7 = last7.length > 0
+      ? Math.round((last7.reduce((s, w) => s + w.bodyWeightKg!, 0) / last7.length) * 10) / 10
+      : null;
+    const avg28 = Math.round(
+      (weights28d.reduce((s, w) => s + w.bodyWeightKg!, 0) / weights28d.length) * 10,
+    ) / 10;
+
+    // Weekly change: compare oldest vs newest 7d average
+    let weeklyChangeKg: number | null = null;
+    if (weights28d.length >= 7) {
+      const oldest7 = weights28d.slice(-7);
+      const oldAvg = oldest7.reduce((s, w) => s + w.bodyWeightKg!, 0) / oldest7.length;
+      const newestDate = weights28d[0].date.getTime();
+      const oldestDate = oldest7[oldest7.length - 1].date.getTime();
+      const weeks = (newestDate - oldestDate) / (7 * 86400000);
+      if (weeks > 0) {
+        weeklyChangeKg = Math.round((((avg7 ?? avg28) - oldAvg) / weeks) * 10) / 10;
+      }
+    }
+
+    weightTrend = { last7dAvg: avg7, last28dAvg: avg28, weeklyChangeKg };
+  }
+
+  // ── v1.3: Strength ratios (×BW) from 1RM estimates ──
+  let strengthRatios: AthleteSection["strengthRatios"] = undefined;
+  const currentWeight = settings?.currentWeightKg;
+  if (currentWeight && settings?.exerciseMaxEstimates) {
+    const estimates = settings.exerciseMaxEstimates as Record<string, number>;
+    const targets: Record<string, number> = {
+      "Hex Bar Deadlift": 2.0,
+      "Bench Press": 1.0,
+      "Squat": 1.5,
+    };
+    strengthRatios = {};
+    for (const [exercise, target] of Object.entries(targets)) {
+      const current1RM = estimates[exercise];
+      if (current1RM) {
+        strengthRatios[exercise] = {
+          current: Math.round((current1RM / currentWeight) * 100) / 100,
+          target,
+        };
+      }
+    }
+    // Only include if at least one ratio was computed
+    if (Object.keys(strengthRatios).length === 0) strengthRatios = undefined;
+  }
 
   return {
     weightKg: settings?.currentWeightKg ?? null,
@@ -612,6 +676,8 @@ async function buildAthlete(userId: string): Promise<AthleteSection> {
     restDays: (settings?.forcedRestDays ?? []).map(isoDayName),
     preferredLongRunDay: isoDayName(settings?.preferredLongRunDay ?? 6),
     therapyPhase: settings?.therapyPhaseOverride ?? null,
+    weightTrend,
+    strengthRatios,
   };
 }
 

@@ -79,6 +79,29 @@ export async function POST(req: Request) {
         where: { userId },
         data: { currentWeightKg: currentAvg, currentWeightUpdatedAt: new Date() },
       });
+
+      // ── v1.3: Protein cascade when weight changes ≥2g protein ──
+      const newProteinMin = Math.ceil(currentAvg * 2.0);
+      const activePlan = await db.mealPlan.findFirst({
+        where: { userId, status: "active" },
+        include: { dayTypeConfigs: { select: { proteinG: true }, take: 1 } },
+      });
+
+      if (activePlan && activePlan.dayTypeConfigs.length > 0) {
+        const currentProteinG = activePlan.dayTypeConfigs[0].proteinG;
+        if (Math.abs(newProteinMin - currentProteinG) >= 2) {
+          await db.dayTypeConfig.updateMany({
+            where: { planId: activePlan.id },
+            data: { proteinG: newProteinMin },
+          });
+          const { cascadeNutritionUpdate } = await import("@/lib/nutrition/cascade");
+          await cascadeNutritionUpdate(
+            activePlan.id,
+            "weight_change",
+            `Weight ${currentAvg}kg → proteinG ${newProteinMin}g (was ${currentProteinG}g)`,
+          );
+        }
+      }
     }
 
     // ── Weight loss rate check (≥14 days of data) ──
