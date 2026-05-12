@@ -26,7 +26,7 @@ const CHICKEN_RICE_ASIA: RecipeTemplate = {
       fatPerUnit: 0.01,
       costPerUnit: 0.0092, // €9.20/kg
       minimumAmount: 100,
-      maximumAmount: 400,
+      maximumAmount: 200, // v1.3: was 400 — cap to shift protein to dinner, free budget → rice
       stepSize: 25,
     },
     {
@@ -290,7 +290,7 @@ const EGG_CHICKEN_RICE_ASIA: RecipeTemplate = {
       carbsPerUnit: 0,
       fatPerUnit: 0.01,
       costPerUnit: 0.0092,
-      minimumAmount: 75,
+      minimumAmount: 125, // v1.3: was 75 — ensure dinner gets meaningful chicken portion
       maximumAmount: 150,
       stepSize: 25,
     },

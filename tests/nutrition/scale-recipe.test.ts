@@ -184,10 +184,10 @@ describe("scaleRecipe", () => {
       expect(chicken).toBeDefined();
     });
 
-    it("chicken (secondary) is at minimumAmount 75g", () => {
+    it("chicken (secondary) is at minimumAmount 125g", () => {
       const result = scaleRecipe(template, 657);
       const chicken = result.components.find((c) => c.ingredientId === "chicken_breast");
-      expect(chicken!.amount).toBe(75);
+      expect(chicken!.amount).toBe(125);
     });
 
     it("eggs (primary) scale flexibly with remaining budget", () => {

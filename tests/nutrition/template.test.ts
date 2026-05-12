@@ -268,10 +268,10 @@ describe("SLOT_LABELS", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("buildSlotsForTargets — calibration cascade", () => {
-  // Calibrated target must stay within component maximums.
-  // strength_run max achievable ≈ 3111 kcal (chicken 400g + rice 200g + 8 eggs).
-  // Use 3050 to test "higher → larger" without hitting the ceiling.
-  const CALIBRATED_STRENGTH: DayTypeTargets = {
+  // Use long_run for calibrated tests: hack_rice_brokkoli has high ceiling
+  // (hack max 350g + rice 200g → ~4000 kcal max). strength_run's chicken
+  // max 200g limits the ceiling to ~2885 kcal, too tight for "higher" tests.
+  const CALIBRATED_LONG_RUN: DayTypeTargets = {
     tdeeEstimate: 3550,
     calorieTarget: 3050,
     proteinG: 190,
@@ -280,15 +280,15 @@ describe("buildSlotsForTargets — calibration cascade", () => {
   };
 
   it("slot sum tracks custom calorieTarget within tolerance", () => {
-    const slots = buildSlotsForTargets("strength_run", CALIBRATED_STRENGTH);
+    const slots = buildSlotsForTargets("long_run", CALIBRATED_LONG_RUN);
     const totals = sumSlotMacros(slots);
-    const diff = Math.abs(totals.kcal - CALIBRATED_STRENGTH.calorieTarget);
+    const diff = Math.abs(totals.kcal - CALIBRATED_LONG_RUN.calorieTarget);
     expect(diff).toBeLessThanOrEqual(CALORIE_TOLERANCE);
   });
 
   it("higher target → larger portions than default", () => {
-    const defaultSlots = templateSlotsForDayType("strength_run");
-    const calibratedSlots = buildSlotsForTargets("strength_run", CALIBRATED_STRENGTH);
+    const defaultSlots = templateSlotsForDayType("long_run");
+    const calibratedSlots = buildSlotsForTargets("long_run", CALIBRATED_LONG_RUN);
     const defaultKcal = sumSlotMacros(defaultSlots).kcal;
     const calibratedKcal = sumSlotMacros(calibratedSlots).kcal;
     expect(calibratedKcal).toBeGreaterThan(defaultKcal + 100);
@@ -302,13 +302,13 @@ describe("buildSlotsForTargets — calibration cascade", () => {
       carbsG: 130,
       fatG: 70,
     };
-    const defaultSlots = templateSlotsForDayType("strength_run");
-    const lowSlots = buildSlotsForTargets("strength_run", lowTargets);
+    const defaultSlots = templateSlotsForDayType("long_run");
+    const lowSlots = buildSlotsForTargets("long_run", lowTargets);
     expect(sumSlotMacros(lowSlots).kcal).toBeLessThan(sumSlotMacros(defaultSlots).kcal - 300);
   });
 
   it("templateDayPlan with override uses custom targets", () => {
-    const plan = templateDayPlan("strength_run", CALIBRATED_STRENGTH);
+    const plan = templateDayPlan("long_run", CALIBRATED_LONG_RUN);
     expect(plan.calorieTarget).toBe(3050);
     expect(plan.tdeeEstimate).toBe(3550);
     const totals = sumSlotMacros(plan.slots);
@@ -316,8 +316,8 @@ describe("buildSlotsForTargets — calibration cascade", () => {
   });
 
   it("is deterministic with custom targets", () => {
-    const a = buildSlotsForTargets("strength_run", CALIBRATED_STRENGTH);
-    const b = buildSlotsForTargets("strength_run", CALIBRATED_STRENGTH);
+    const a = buildSlotsForTargets("long_run", CALIBRATED_LONG_RUN);
+    const b = buildSlotsForTargets("long_run", CALIBRATED_LONG_RUN);
     expect(a).toEqual(b);
   });
 });
