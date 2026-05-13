@@ -24,6 +24,20 @@ export type ExerciseShape = {
   isWarmup?: boolean;
 };
 
+export type RunInterval = {
+  repeats: number;
+  durationMin?: number;
+  distanceM?: number;
+  paceTarget?: { from: string; to: string };
+  restMin?: number;
+};
+
+export type RunStructure = {
+  warmupMin?: number;
+  workIntervals?: RunInterval[];
+  cooldownMin?: number;
+};
+
 export type SessionShape = {
   date: string | Date;
   type: string;
@@ -33,13 +47,11 @@ export type SessionShape = {
   rpeTarget?: number;
   exercises?: ExerciseShape[];
   notes?: string;
-  // Sprint v0.7: HR-First control
   hrTarget?: { from: number; to: number };
   controlMethod?: "hr_first" | "pace_first";
-  // Sprint v0.11: human-readable polarized zone label
   zoneLabel?: string;
-  // Sprint v0.13: Pre-run activation block (run-only days)
   preRunActivation?: ExerciseShape[];
+  structure?: RunStructure;
 };
 
 export type FinalSessionShape = SessionShape & {
