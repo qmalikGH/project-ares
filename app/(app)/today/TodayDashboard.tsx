@@ -338,8 +338,12 @@ function SessionHeroCard({
 
   return (
     <div
-      className="flex flex-col gap-4 pl-4 border-l-[3px]"
-      style={{ borderLeftColor: stripeColor }}
+      className="flex flex-col gap-4 pl-4 border-l-[3px] rounded-sm"
+      style={{
+        borderLeftColor: stripeColor,
+        background: `linear-gradient(90deg, ${stripeColor}14, transparent 75%)`,
+        padding: "28px 24px 28px calc(24px + 3px)",
+      }}
     >
       {/* Title row: session label · status · modulated badge */}
       <div className="flex items-start justify-between gap-4">
@@ -1025,28 +1029,35 @@ export default function TodayDashboard() {
   // its baseline className; variants override via scoped CSS variables.
   const dashboardInner = (
     <>
-      {/* Header — uppercase weekday · mono day-month */}
+      {/* Header — appbar style: title + block context */}
       <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          <span className="uppercase">{weekdayLong}</span>
-          <span className="text-[var(--color-foreground-tertiary)]"> · </span>
-          <span className="num">{dayMonth}</span>
+        <h1 className="text-lg font-semibold tracking-tight">
+          Heute
         </h1>
-        {today.status === "READY" && (
-          <p className="text-[var(--color-foreground-tertiary)] text-xs uppercase tracking-wider">
-            Block {today.week.blockNumber} · W{today.week.weekNumber}{" "}
-            {prettyPhase(today.week.phaseName)}
-            {!shouldShowKneePill(today.sensorOutputs, today.finalSession.type) && (
+        <div className="flex items-center gap-2">
+          <span className="text-[var(--color-foreground-muted)] text-[10px] uppercase tracking-[0.14em] font-semibold" style={{ fontFamily: "var(--font-geist-mono), monospace" }}>
+            <span className="num">{dayMonth}</span>
+            {today.status === "READY" && (
               <>
-                {" · Knie "}
-                <span className="num">
-                  {today.sensorOutputs.limitations.kneeScoreToday}
-                </span>
-                /10
+                {" · Block "}
+                <span className="num">{today.week.blockNumber}</span>
+                {" · W"}
+                <span className="num">{today.week.weekNumber}</span>
+                {" · "}
+                {prettyPhase(today.week.phaseName)}
+                {!shouldShowKneePill(today.sensorOutputs, today.finalSession.type) && (
+                  <>
+                    {" · Knie "}
+                    <span className="num">
+                      {today.sensorOutputs.limitations.kneeScoreToday}
+                    </span>
+                    /10
+                  </>
+                )}
               </>
             )}
-          </p>
-        )}
+          </span>
+        </div>
       </header>
 
       <hr className="rule mt-4 mb-6" />
@@ -1076,7 +1087,7 @@ export default function TodayDashboard() {
         <MorningRitual onSubmitted={refresh} plannedSession={today.plannedSession} />
       )}
 
-      {/* Ready: full dashboard, separated by rule lines */}
+      {/* Ready: full dashboard — hero first, recovery below (redesign v2) */}
       {today.status === "READY" && (
         <>
           {today.week.weekNumber >= 17 && !today.macrocycleEvaluated && (
@@ -1098,12 +1109,7 @@ export default function TodayDashboard() {
             </div>
           )}
 
-          <RecoveryStrip
-            outputs={today.sensorOutputs}
-            sessionType={today.finalSession.type}
-          />
-          <hr className="rule my-6" />
-
+          {/* Session hero — moved above recovery (redesign v2 hierarchy) */}
           {(today.finalSessions?.length ?? 0) > 1 ? (
             <TwoADaySection
               finalSessions={today.finalSessions!}
@@ -1143,6 +1149,14 @@ export default function TodayDashboard() {
               />
             </>
           )}
+
+          <hr className="rule my-6" />
+
+          {/* Recovery strip — demoted below hero (redesign v2) */}
+          <RecoveryStrip
+            outputs={today.sensorOutputs}
+            sessionType={today.finalSession.type}
+          />
 
           <hr className="rule my-6" />
 

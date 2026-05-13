@@ -10,12 +10,16 @@
 // - Service worker registration (production only) for app-shell offline cache
 // - IOSInstallHint nudges first-time iPhone visitors to add to home screen
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Settings } from "lucide-react";
 import { FloatingNav } from "./FloatingNav";
 import { GarminSyncIndicator } from "./GarminSyncIndicator";
 import { IOSInstallHint } from "./IOSInstallHint";
 import { NotificationsBell } from "./NotificationsBell";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+
   useEffect(() => {
     if (
       typeof window === "undefined" ||
@@ -54,18 +58,36 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         >
           <GarminSyncIndicator compact />
           <NotificationsBell />
+          <button
+            type="button"
+            onClick={() => router.push("/settings")}
+            aria-label="Settings"
+            className="flex h-8 w-8 items-center justify-center rounded-full transition-colors"
+            style={{ color: "var(--color-foreground-secondary)" }}
+            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.06)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = ""; }}
+          >
+            <Settings className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
       <div
-        // Mobile cluster sits inside the safe-area too, otherwise the bell
-        // and Garmin indicator hide behind the notch / status bar.
         className="fixed right-4 z-40 flex items-center gap-2 sm:hidden"
         style={{ top: "max(env(safe-area-inset-top, 0px), 0.5rem)" }}
         aria-label="Status"
       >
         <GarminSyncIndicator compact />
         <NotificationsBell />
+        <button
+          type="button"
+          onClick={() => router.push("/settings")}
+          aria-label="Settings"
+          className="flex h-7 w-7 items-center justify-center rounded-full"
+          style={{ color: "var(--color-foreground-secondary)" }}
+        >
+          <Settings className="h-4 w-4" />
+        </button>
       </div>
 
       {/* Page content — max-width box on desktop, full-width on mobile */}

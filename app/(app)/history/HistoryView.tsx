@@ -10,6 +10,7 @@ import {
   type SessionShape,
 } from "@/components/training/shared";
 import { StatsSubNav } from "@/components/layout/StatsSubNav";
+import { getSessionColor } from "@/lib/ui/session-colors";
 
 type WorkoutItem = {
   id: string;
@@ -80,9 +81,9 @@ export default function HistoryView() {
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-8">
       <StatsSubNav />
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">History</h1>
-        <p className="text-sm text-muted-foreground">
-          Alle absolvierten Workouts mit Filter und Detail-Expand.
+        <h1 className="text-lg font-semibold tracking-tight">Historie</h1>
+        <p className="text-[10px] uppercase tracking-[0.14em] font-semibold text-[var(--color-foreground-muted)]" style={{ fontFamily: "var(--font-geist-mono), monospace" }}>
+          <span className="num">{data.quickStats.thisWeekSessions}</span> Sessions · <span className="num">{data.quickStats.thisWeekRunMin}</span> min Lauf diese Woche
         </p>
       </header>
 
@@ -159,31 +160,27 @@ function QuickStats({
   stats: HistoryResponse["quickStats"];
 }) {
   return (
-    <Card>
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">
-        Diese Woche
-      </p>
-      <div className="mt-1 grid grid-cols-3 gap-3 text-sm">
-        <div>
-          <div className="num-lg">
-            {stats.thisWeekSessions}
+    <div className="grid grid-cols-3 gap-2">
+      {[
+        { label: "SESSIONS", value: String(stats.thisWeekSessions), unit: "" },
+        { label: "LAUF", value: String(stats.thisWeekRunMin), unit: "min" },
+        { label: "STRENGTH", value: String(stats.thisWeekStrengthCount), unit: "" },
+      ].map((s) => (
+        <div
+          key={s.label}
+          className="flex flex-col gap-1 py-3 pl-3"
+          style={{ borderLeft: "2px solid var(--color-rule)" }}
+        >
+          <span className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[var(--color-foreground-muted)]" style={{ fontFamily: "var(--font-geist-mono), monospace" }}>
+            {s.label}
+          </span>
+          <div className="flex items-baseline gap-1">
+            <span className="num" style={{ fontSize: 22 }}>{s.value}</span>
+            {s.unit && <span className="text-[11px] text-[var(--color-foreground-muted)]">{s.unit}</span>}
           </div>
-          <div className="text-xs text-muted-foreground">Sessions abgeschlossen</div>
         </div>
-        <div>
-          <div className="num-lg">
-            {stats.thisWeekRunMin}
-          </div>
-          <div className="text-xs text-muted-foreground">Minuten Lauf</div>
-        </div>
-        <div>
-          <div className="num-lg">
-            {stats.thisWeekStrengthCount}
-          </div>
-          <div className="text-xs text-muted-foreground">Strength-Sessions</div>
-        </div>
-      </div>
-    </Card>
+      ))}
+    </div>
   );
 }
 
@@ -293,38 +290,50 @@ function WorkoutRow({
       ? "text-red-600 dark:text-red-400"
       : "text-muted-foreground";
 
+  const sessionColor = getSessionColor(workout.type);
+
   return (
     <li>
       <button
         onClick={onToggle}
-        className="w-full text-left flex items-start gap-3 py-3 px-1 hover:bg-accent/30 -mx-1 rounded transition-colors"
+        className="w-full text-left flex items-start gap-3 py-4 px-1 hover:bg-accent/30 -mx-1 rounded transition-colors"
+        style={{ borderLeft: `3px solid ${sessionColor.color}`, paddingLeft: 12 }}
       >
-        <span className={`text-lg w-6 text-center ${statusColor}`}>{statusIcon}</span>
         <div className="flex-1 min-w-0">
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-sm font-medium">
+          <div className="flex items-baseline justify-between gap-2 mb-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.18em]" style={{ color: sessionColor.color, fontFamily: "var(--font-geist-mono), monospace" }}>
               {SESSION_LABEL[workout.type] ?? workout.type}
             </span>
-            <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+            <span className="text-[9px] text-[var(--color-foreground-muted)] uppercase tracking-[0.08em]" style={{ fontFamily: "var(--font-geist-mono), monospace" }}>
               {date.toLocaleDateString("de-DE", { day: "numeric", month: "short" })} · {relative}
             </span>
           </div>
-          <div className="text-xs text-muted-foreground mt-0.5">
-            {workout.rpe != null && `RPE ${workout.rpe}`}
-            {workout.durationActualMin != null && (
-              <span> · {workout.durationActualMin}min</span>
+          <div className="flex items-baseline justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="text-[15px] font-medium">
+                {SESSION_LABEL[workout.type] ?? workout.type}
+              </div>
+              <div className="text-[11px] text-[var(--color-foreground-muted)] mt-1" style={{ fontFamily: "var(--font-geist-mono), monospace", letterSpacing: "0.04em" }}>
+                {workout.durationActualMin != null && <>{workout.durationActualMin}min</>}
+                {workout.rpe != null && <> · RPE {workout.rpe}</>}
+                {workout.modulationApplied &&
+                  workout.modulations &&
+                  workout.modulations.length > 0 && (
+                    <span className="text-[var(--color-warning)]">
+                      {" "}· ↻ {workout.modulations.length} Mod.
+                    </span>
+                  )}
+              </div>
+            </div>
+            {workout.rpe != null && (
+              <div className="text-right flex-shrink-0">
+                <div className="text-[9px] text-[var(--color-foreground-muted)] uppercase tracking-[0.18em]" style={{ fontFamily: "var(--font-geist-mono), monospace" }}>
+                  RPE <span className="num" style={{ color: workout.rpe >= 8 ? "var(--color-destructive)" : workout.rpe >= 6 ? "var(--color-warning)" : "var(--color-success)" }}>{workout.rpe}</span>
+                </div>
+              </div>
             )}
-            {workout.modulationApplied &&
-              workout.modulations &&
-              workout.modulations.length > 0 && (
-                <span className="ml-2 text-yellow-700 dark:text-yellow-300">
-                  ↻ {workout.modulations.length} Modulation
-                  {workout.modulations.length > 1 ? "en" : ""}
-                </span>
-              )}
           </div>
         </div>
-        <span className="text-muted-foreground text-xs">{expanded ? "▼" : "▶"}</span>
       </button>
 
       {expanded && <WorkoutDetail workout={workout} />}

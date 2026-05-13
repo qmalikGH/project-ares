@@ -160,15 +160,15 @@ export function PlanCalendar({
 
   return (
     <div className="flex flex-col flex-1">
-      {/* Header */}
+      {/* Header — appbar style */}
       <div className="flex items-center justify-between px-4 py-3">
         <div>
           <h2 className="text-lg font-semibold tracking-tight">
             {format(firstDayCurrentMonth, "MMMM yyyy", { locale: de })}
           </h2>
           {blockInfo && (
-            <p className="text-[var(--color-foreground-tertiary)] text-xs mt-0.5 uppercase tracking-wider">
-              Block {blockInfo.blockNumber} · W{blockInfo.weekNumber} ·{" "}
+            <p className="text-[var(--color-foreground-muted)] text-[10px] mt-0.5 uppercase tracking-[0.14em] font-semibold" style={{ fontFamily: "var(--font-geist-mono), monospace" }}>
+              Block <span className="num">{blockInfo.blockNumber}</span> · W<span className="num">{blockInfo.weekNumber}</span> ·{" "}
               {blockInfo.phaseName.replace(/_/g, " ").toLowerCase()}
             </p>
           )}

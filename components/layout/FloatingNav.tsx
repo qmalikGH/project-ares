@@ -8,11 +8,11 @@
 import { usePathname, useRouter } from "next/navigation";
 import {
   CalendarDays,
+  Clock,
   Home,
-  Settings,
   Target,
-  TrendingUp,
   Utensils,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -25,10 +25,10 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { href: "/today", label: "Heute", icon: Home },
   { href: "/week", label: "Plan", icon: CalendarDays },
+  { href: "/progress", label: "Block", icon: Zap },
   { href: "/nutrition", label: "Nutrition", icon: Utensils },
   { href: "/goals", label: "Ziele", icon: Target },
-  { href: "/progress", label: "Fortschritt", icon: TrendingUp },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/history", label: "Historie", icon: Clock },
 ];
 
 const NAV_ACCENT = "#7DD3FC";

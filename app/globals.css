@@ -83,6 +83,22 @@
   --radius-lg: 0.5rem;
 }
 
+/* ============================================================================
+   Spacing System — density-responsive gaps
+   ============================================================================ */
+:root {
+  --gap-1: 4px;
+  --gap-2: 8px;
+  --gap-3: 12px;
+  --gap-4: 16px;
+  --gap-5: 24px;
+  --gap-6: 32px;
+  --gap-7: 48px;
+  --pad-screen: 24px;
+}
+[data-density="compact"]  { --gap-5: 16px; --gap-6: 20px; --gap-7: 28px; --pad-screen: 18px; }
+[data-density="spacious"] { --gap-5: 32px; --gap-6: 48px; --gap-7: 72px; --pad-screen: 28px; }
+
 /* Shadcn legacy `.dark` mappings — keep these so any component still using
    bare `--background`/`--foreground`/etc resolves to the v0.11 palette. */
 .dark {
@@ -159,10 +175,11 @@
 .num-hero {
   font-family: var(--font-geist-mono), "SF Mono", monospace;
   font-variant-numeric: tabular-nums;
-  font-size: 3.5rem;
+  font-size: 4.5rem;
   line-height: 1;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .num-lg {
@@ -172,6 +189,7 @@
   line-height: 1.1;
   letter-spacing: -0.02em;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .num-md {
@@ -209,11 +227,6 @@
 .today-dashboard .flex.flex-wrap.gap-2 .num-md {
   font-size: 0.95rem;
 }
-.today-dashboard .num-hero {
-  font-size: 5.5rem;
-  line-height: 0.9;
-  letter-spacing: -0.04em;
-}
 .today-dashboard .border-l-\[3px\] {
   padding-top: 32px;
   padding-bottom: 32px;
@@ -240,14 +253,368 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 8px;
+  padding: 3px 8px;
   border-radius: 3px;
-  font-size: 0.6875rem;
+  font-family: var(--font-geist-mono), "SF Mono", monospace;
+  font-size: 10.5px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   line-height: 1.4;
+  background: rgba(255,255,255,0.06);
+  color: var(--color-foreground-secondary);
+  white-space: nowrap;
 }
+
+/* ============================================================================
+   Direction C: Label — mono uppercase micro text
+   ============================================================================ */
+.label {
+  font-family: var(--font-geist-mono), "SF Mono", monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-foreground-muted);
+}
+.label-strong { color: var(--color-foreground-secondary); }
+
+/* ============================================================================
+   Direction C: Stripe — left-border accent (design prototype variant)
+   ============================================================================ */
+.stripe {
+  border-left: 3px solid transparent;
+  padding-left: 16px;
+}
+
+/* ============================================================================
+   Direction C: Buttons
+   ============================================================================ */
+.btn-primary {
+  width: 100%;
+  height: 52px;
+  border-radius: 9999px;
+  background: var(--color-nav-accent);
+  color: var(--color-background);
+  border: 0;
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  box-shadow: 0 4px 24px -4px rgba(125,211,252,0.4);
+  transition: transform 150ms cubic-bezier(0.16,1,0.3,1);
+}
+.btn-primary:active { transform: scale(0.98); }
+
+.btn-default {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: var(--color-foreground);
+  color: var(--color-background);
+  border: 0;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.4);
+}
+
+.btn-ghost {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-foreground);
+  border: 0;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn-ghost:hover { background: rgba(255,255,255,0.04); }
+
+.btn-outline {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-foreground-secondary);
+  border: 1px solid var(--color-border);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* ============================================================================
+   Direction C: Appbar — screen header with title + actions
+   ============================================================================ */
+.appbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px var(--pad-screen) 10px;
+}
+.appbar .left { display: flex; align-items: center; gap: 10px; }
+.appbar h1 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.appbar .sub {
+  font-family: var(--font-geist-mono), "SF Mono", monospace;
+  font-size: 10px;
+  color: var(--color-foreground-muted);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.appbar .right { display: flex; gap: 8px; align-items: center; }
+.appbar .icon-btn {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.04);
+  border: 0;
+  color: var(--color-foreground-secondary);
+  cursor: pointer;
+}
+
+/* ============================================================================
+   Direction C: Hero Treatments (Today screen)
+   ============================================================================ */
+.hero-stripe {
+  padding: 28px var(--pad-screen);
+  padding-left: calc(var(--pad-screen) + 3px);
+  border-left: 3px solid var(--color-session-easy);
+  background: linear-gradient(90deg, var(--color-session-easy-bg), transparent 75%);
+}
+
+.hero-spread {
+  padding: 36px var(--pad-screen) 32px;
+  position: relative;
+}
+.hero-spread::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 100%;
+  background: radial-gradient(ellipse at top left, var(--color-session-easy-bg), transparent 60%);
+  pointer-events: none;
+}
+
+.hero-card {
+  margin: 16px var(--pad-screen) 0;
+  padding: 22px;
+  border-radius: 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  position: relative;
+  overflow: hidden;
+}
+.hero-card::after {
+  content: "";
+  position: absolute;
+  right: -60px; top: -60px;
+  width: 220px; height: 220px;
+  border-radius: 999px;
+  background: var(--color-session-easy-bg);
+  filter: blur(10px);
+  pointer-events: none;
+}
+
+.metric { display: flex; align-items: baseline; gap: 12px; }
+.metric .num-hero { position: relative; z-index: 2; }
+.metric .unit { color: var(--color-foreground-tertiary); font-size: 14px; }
+.metric-sub { color: var(--color-foreground-tertiary); font-size: 13px; margin-top: 4px; }
+
+/* ============================================================================
+   Direction C: Recovery Strip — 3-column readiness/HRV/sleep
+   ============================================================================ */
+.recovery {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 0 var(--pad-screen);
+}
+.recovery .cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-left: 2px solid var(--rec-tone, var(--color-border));
+  background: var(--rec-bg, rgba(255,255,255,0.025));
+  border-radius: 4px;
+}
+.recovery .cell .label { margin: 0; }
+.recovery .cell .v { font-size: 18px; }
+
+/* ============================================================================
+   Direction C: Section Header + Row Layout
+   ============================================================================ */
+.section-h {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 var(--pad-screen);
+}
+.section-h .more {
+  font-family: var(--font-geist-mono), "SF Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-foreground-muted);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px var(--pad-screen);
+}
+.row + .row { border-top: 1px solid var(--color-rule); }
+.row .lead {
+  width: 38px;
+  font-family: var(--font-geist-mono), "SF Mono", monospace;
+  font-size: 12px;
+  color: var(--color-foreground-tertiary);
+  letter-spacing: 0.05em;
+}
+.row .body { flex: 1; min-width: 0; }
+.row .body .t { font-size: 14px; }
+.row .body .s {
+  font-family: var(--font-geist-mono), "SF Mono", monospace;
+  font-size: 11px;
+  color: var(--color-foreground-muted);
+  letter-spacing: 0.05em;
+  margin-top: 2px;
+}
+.row .end {
+  color: var(--color-foreground-tertiary);
+  font-family: var(--font-geist-mono), "SF Mono", monospace;
+  font-size: 12px;
+}
+
+/* ============================================================================
+   Direction C: Exercise List (set logger)
+   ============================================================================ */
+.exer {
+  padding: 14px var(--pad-screen);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 6px 14px;
+}
+.exer + .exer { border-top: 1px solid var(--color-rule); }
+.exer .name { font-size: 14px; font-weight: 500; }
+.exer .meta {
+  font-family: var(--font-geist-mono), "SF Mono", monospace;
+  font-size: 11px;
+  color: var(--color-foreground-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.exer .load {
+  font-family: var(--font-geist-mono), "SF Mono", monospace;
+  font-size: 17px;
+}
+.exer .load small {
+  color: var(--color-foreground-muted);
+  font-size: 12px;
+  margin-left: 4px;
+}
+
+/* ============================================================================
+   Direction C: Week Strip (mini 7-day context bar)
+   ============================================================================ */
+.weekstrip {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  padding: 0 var(--pad-screen);
+}
+.weekstrip .d {
+  position: relative;
+  border-radius: 6px;
+  padding: 8px 4px 6px;
+  text-align: center;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid transparent;
+}
+.weekstrip .d.is-today {
+  background: rgba(212,168,83,0.06);
+  border-color: rgba(212,168,83,0.3);
+}
+.weekstrip .d .dn {
+  font-family: var(--font-geist-mono), "SF Mono", monospace;
+  font-size: 9px;
+  color: var(--color-foreground-muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.weekstrip .d .dnum {
+  font-family: var(--font-geist-mono), "SF Mono", monospace;
+  font-size: 14px;
+  margin-top: 2px;
+}
+.weekstrip .d .tick {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--tk, var(--color-rule));
+  margin-top: 8px;
+}
+.weekstrip .d.is-rest .tick { background: var(--color-rule); }
+
+/* ============================================================================
+   Direction C: Coach Line (AI coach inline message)
+   ============================================================================ */
+.coach {
+  display: flex;
+  gap: 12px;
+  padding: 14px var(--pad-screen);
+  align-items: flex-start;
+}
+.coach .avatar {
+  width: 28px; height: 28px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: rgba(212,168,83,0.12);
+  color: var(--color-accent-amber);
+  font-family: var(--font-geist-mono), "SF Mono", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.coach .msg {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--color-foreground-secondary);
+}
+.coach .msg em {
+  font-style: normal;
+  color: var(--color-accent-amber);
+}
+.coach .link {
+  display: inline-block;
+  margin-top: 8px;
+  font-family: var(--font-geist-mono), "SF Mono", monospace;
+  font-size: 10.5px;
+  color: var(--color-nav-accent);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ============================================================================
+   Direction C: CTA Area (sticky action button above nav)
+   ============================================================================ */
+.cta-area {
+  position: fixed;
+  left: 0; right: 0;
+  bottom: 80px;
+  z-index: 50;
+  padding: 0 var(--pad-screen);
+  pointer-events: none;
+}
+.cta-area > * { pointer-events: auto; }
 
 /* ============================================================================
    Bottom Nav — Direction C: no pill, no glass. Sharp.
