@@ -368,6 +368,7 @@ function SessionHeroCard({
   const status = workoutState?.status;
 
   const stripeColor = isRest ? "var(--color-session-easy)" : color.color;
+  const stripeBg = isRest ? "var(--color-session-easy-bg)" : color.bg;
   const titleColor = isRest ? "var(--color-session-easy)" : color.color;
 
   const zoneChipText = final.zoneLabel
@@ -381,7 +382,7 @@ function SessionHeroCard({
       className="hero-stripe flex flex-col gap-3"
       style={{
         borderLeftColor: stripeColor,
-        background: `linear-gradient(90deg, ${stripeColor}14, transparent 75%)`,
+        background: `linear-gradient(90deg, color-mix(in srgb, ${stripeColor} 18%, transparent), transparent 70%)`,
       }}
     >
       {/* Title row: session label left, zone chip right */}
