@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  Card,
   ExerciseList,
   SESSION_LABEL,
   type ExerciseShape,
@@ -78,13 +77,13 @@ export default function HistoryView() {
     return <p className="mx-auto max-w-3xl px-6 py-8 text-muted-foreground">Lade…</p>;
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-8">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6" style={{ paddingTop: 48, paddingBottom: 112 }}>
       <StatsSubNav />
       <header>
-        <h1 className="text-lg font-semibold tracking-tight">Historie</h1>
-        <p className="text-[10px] uppercase tracking-[0.14em] font-semibold text-[var(--color-foreground-muted)]" style={{ fontFamily: "var(--font-geist-mono), monospace" }}>
+        <h1 style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-0.01em", margin: 0 }}>Historie</h1>
+        <div className="label" style={{ marginTop: 4, opacity: 0.7 }}>
           <span className="num">{data.quickStats.thisWeekSessions}</span> Sessions · <span className="num">{data.quickStats.thisWeekRunMin}</span> min Lauf diese Woche
-        </p>
+        </div>
       </header>
 
       <QuickStats stats={data.quickStats} />
@@ -103,38 +102,34 @@ export default function HistoryView() {
       />
 
       {data.workouts.length === 0 ? (
-        <Card>
-          <p className="text-muted-foreground">
-            Keine Workouts gefunden.
-            {(typeFilter !== "all" || statusFilter !== "all") && (
-              <button
-                onClick={() => {
-                  setTypeFilter("all");
-                  setStatusFilter("all");
-                  setPage(1);
-                }}
-                className="ml-2 text-primary hover:underline"
-              >
-                Filter zurücksetzen
-              </button>
-            )}
-          </p>
-        </Card>
+        <p className="text-[var(--color-foreground-muted)]">
+          Keine Workouts gefunden.
+          {(typeFilter !== "all" || statusFilter !== "all") && (
+            <button
+              onClick={() => {
+                setTypeFilter("all");
+                setStatusFilter("all");
+                setPage(1);
+              }}
+              className="ml-2 text-[var(--color-nav-accent)] hover:underline"
+            >
+              Filter zurücksetzen
+            </button>
+          )}
+        </p>
       ) : (
-        <Card>
-          <ul className="divide-y">
-            {data.workouts.map((w) => (
-              <WorkoutRow
-                key={w.id}
-                workout={w}
-                expanded={expandedId === w.id}
-                onToggle={() =>
-                  setExpandedId((id) => (id === w.id ? null : w.id))
-                }
-              />
-            ))}
-          </ul>
-        </Card>
+        <ul className="flex flex-col">
+          {data.workouts.map((w) => (
+            <WorkoutRow
+              key={w.id}
+              workout={w}
+              expanded={expandedId === w.id}
+              onToggle={() =>
+                setExpandedId((id) => (id === w.id ? null : w.id))
+              }
+            />
+          ))}
+        </ul>
       )}
 
       {data.pagination.totalPages > 1 && (
@@ -211,44 +206,34 @@ function FilterBar({
   ];
 
   return (
-    <div className="flex flex-wrap gap-3">
-      <div>
-        <p className="text-xs text-muted-foreground mb-1">Typ</p>
-        <div className="inline-flex rounded-md border">
-          {typeOptions.map((o) => (
-            <button
-              key={o.v}
-              onClick={() => onTypeChange(o.v)}
-              className={`px-3 py-1 text-sm transition-colors ${
-                typeFilter === o.v
-                  ? "bg-card font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <p className="text-xs text-muted-foreground mb-1">Status</p>
-        <div className="inline-flex rounded-md border">
-          {statusOptions.map((o) => (
-            <button
-              key={o.v}
-              onClick={() => onStatusChange(o.v)}
-              className={`px-3 py-1 text-sm transition-colors ${
-                statusFilter === o.v
-                  ? "bg-card font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-      </div>
+    <div className="flex flex-wrap gap-2">
+      {typeOptions.map((o) => (
+        <button
+          key={o.v}
+          onClick={() => onTypeChange(o.v)}
+          className="chip"
+          style={typeFilter === o.v
+            ? { background: "rgba(255,255,255,0.12)", color: "var(--color-foreground)" }
+            : undefined
+          }
+        >
+          {o.label}
+        </button>
+      ))}
+      <span style={{ width: 1, background: "var(--color-rule)", margin: "0 4px" }} />
+      {statusOptions.map((o) => (
+        <button
+          key={o.v}
+          onClick={() => onStatusChange(o.v)}
+          className="chip"
+          style={statusFilter === o.v
+            ? { background: "rgba(255,255,255,0.12)", color: "var(--color-foreground)" }
+            : undefined
+          }
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -293,10 +278,10 @@ function WorkoutRow({
   const sessionColor = getSessionColor(workout.type);
 
   return (
-    <li>
+    <li style={{ borderBottom: "1px solid var(--color-rule)" }}>
       <button
         onClick={onToggle}
-        className="w-full text-left flex items-start gap-3 py-4 px-1 hover:bg-accent/30 -mx-1 rounded transition-colors"
+        className="w-full text-left flex items-start gap-3 py-4 hover:bg-white/[0.02] transition-colors"
         style={{ borderLeft: `3px solid ${sessionColor.color}`, paddingLeft: 12 }}
       >
         <div className="flex-1 min-w-0">
@@ -308,30 +293,18 @@ function WorkoutRow({
               {date.toLocaleDateString("de-DE", { day: "numeric", month: "short" })} · {relative}
             </span>
           </div>
-          <div className="flex items-baseline justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <div className="text-[15px] font-medium">
-                {SESSION_LABEL[workout.type] ?? workout.type}
-              </div>
-              <div className="text-[11px] text-[var(--color-foreground-muted)] mt-1" style={{ fontFamily: "var(--font-geist-mono), monospace", letterSpacing: "0.04em" }}>
-                {workout.durationActualMin != null && <>{workout.durationActualMin}min</>}
-                {workout.rpe != null && <> · RPE {workout.rpe}</>}
-                {workout.modulationApplied &&
-                  workout.modulations &&
-                  workout.modulations.length > 0 && (
-                    <span className="text-[var(--color-warning)]">
-                      {" "}· ↻ {workout.modulations.length} Mod.
-                    </span>
-                  )}
-              </div>
-            </div>
-            {workout.rpe != null && (
-              <div className="text-right flex-shrink-0">
-                <div className="text-[9px] text-[var(--color-foreground-muted)] uppercase tracking-[0.18em]" style={{ fontFamily: "var(--font-geist-mono), monospace" }}>
-                  RPE <span className="num" style={{ color: workout.rpe >= 8 ? "var(--color-destructive)" : workout.rpe >= 6 ? "var(--color-warning)" : "var(--color-success)" }}>{workout.rpe}</span>
-                </div>
-              </div>
-            )}
+          <div className="flex items-baseline gap-3 mt-1">
+            <span className="num text-[11px] text-[var(--color-foreground-muted)]">
+              {workout.durationActualMin != null && <>{workout.durationActualMin}min</>}
+              {workout.rpe != null && <> · RPE {workout.rpe}</>}
+              {workout.modulationApplied &&
+                workout.modulations &&
+                workout.modulations.length > 0 && (
+                  <span className="text-[var(--color-warning)]">
+                    {" "}· ↻ {workout.modulations.length} Mod.
+                  </span>
+                )}
+            </span>
           </div>
         </div>
       </button>

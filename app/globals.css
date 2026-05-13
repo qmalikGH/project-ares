@@ -217,19 +217,12 @@
   margin-top: 40px;
   margin-bottom: 40px;
 }
-.today-dashboard .flex.flex-wrap.gap-2 {
-  gap: 6px;
-}
-.today-dashboard .flex.flex-wrap.gap-2 > div {
-  padding: 10px 12px;
-  opacity: 0.92;
-}
-.today-dashboard .flex.flex-wrap.gap-2 .num-md {
-  font-size: 0.95rem;
-}
-.today-dashboard .border-l-\[3px\] {
-  padding-top: 32px;
-  padding-bottom: 32px;
+.today-dashboard .recovery,
+.today-dashboard .weekstrip,
+.today-dashboard .section-h,
+.today-dashboard .coach {
+  padding-left: 0;
+  padding-right: 0;
 }
 
 /* ============================================================================

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
 import { CompletionFlow } from "@/components/workout/CompletionFlow";
 import {
   SESSION_LABEL,
@@ -186,25 +185,21 @@ function RecoveryMetric({
 }) {
   return (
     <div
-      className="flex flex-1 min-w-[100px] flex-col gap-1 rounded-md px-3.5 py-3 border-l-2"
+      className="cell"
       style={{
-        backgroundColor: bgTint ?? "rgba(255,255,255,0.03)",
-        borderLeftColor: toneColor ?? "var(--color-border)",
-      }}
+        "--rec-tone": toneColor ?? "var(--color-border)",
+        "--rec-bg": bgTint ?? "rgba(255,255,255,0.025)",
+      } as React.CSSProperties}
     >
-      <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--color-foreground-muted)]">
-        {label}
-      </span>
+      <span className="label">{label}</span>
       <span
-        className="num-md leading-none"
+        className="v num"
         style={toneColor ? { color: toneColor } : undefined}
       >
         {value}
       </span>
       {sub && (
-        <span className="text-[10px] uppercase tracking-wider text-[var(--color-foreground-tertiary)]">
-          {sub}
-        </span>
+        <span className="label" style={{ opacity: 0.7 }}>{sub}</span>
       )}
     </div>
   );
@@ -268,7 +263,7 @@ function RecoveryStrip({
     : "GREEN";
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="recovery">
       <RecoveryMetric
         label="Readiness"
         value={String(outputs.readiness.score)}
@@ -287,13 +282,21 @@ function RecoveryStrip({
         toneColor={bandToToneColor(acwr.band)}
         bgTint={bandToBgTint(acwr.band)}
       />
-      {showKnee && (
+      {showKnee ? (
         <RecoveryMetric
           label="Knee"
           value={String(outputs.limitations.kneeScoreToday)}
           sub={outputs.limitations.therapyPhase}
           toneColor={bandToToneColor(kneeKey)}
           bgTint={bandToBgTint(kneeKey)}
+        />
+      ) : (
+        <RecoveryMetric
+          label="HRV"
+          value={outputs.readiness.components.hrv != null ? String(Math.round(outputs.readiness.components.hrv)) : "—"}
+          sub={outputs.readiness.trend7d}
+          toneColor={bandToToneColor(outputs.readiness.band)}
+          bgTint={bandToBgTint(outputs.readiness.band)}
         />
       )}
     </div>
@@ -846,14 +849,14 @@ function MorningRitual({
 
       {err && <p className="mt-4 text-sm text-red-400">{err}</p>}
 
-      <Button
+      <button
         onClick={submit}
         disabled={submitting}
-        size="lg"
-        className="mt-6 w-full"
+        className="btn-primary mt-6"
+        style={{ opacity: submitting ? 0.6 : 1 }}
       >
         {submitting ? "Berechne…" : "Session berechnen"}
-      </Button>
+      </button>
     </section>
   );
 }
@@ -940,9 +943,9 @@ function ActionsZone({
 
   return (
     <div>
-      <Button onClick={start} disabled={busy} size="lg" className="w-full">
+      <button onClick={start} disabled={busy} className="btn-primary" style={{ opacity: busy ? 0.6 : 1 }}>
         {busy ? "Starte…" : "Session starten"}
-      </Button>
+      </button>
       {err && (
         <p className="mt-2 text-sm text-[var(--color-destructive)]">{err}</p>
       )}
@@ -1029,38 +1032,27 @@ export default function TodayDashboard() {
   // its baseline className; variants override via scoped CSS variables.
   const dashboardInner = (
     <>
-      {/* Header — appbar style: title + block context */}
-      <header className="flex flex-col gap-1">
-        <h1 className="text-lg font-semibold tracking-tight">
-          Heute
-        </h1>
-        <div className="flex items-center gap-2">
-          <span className="text-[var(--color-foreground-muted)] text-[10px] uppercase tracking-[0.14em] font-semibold" style={{ fontFamily: "var(--font-geist-mono), monospace" }}>
-            <span className="num">{dayMonth}</span>
-            {today.status === "READY" && (
-              <>
-                {" · Block "}
-                <span className="num">{today.week.blockNumber}</span>
-                {" · W"}
-                <span className="num">{today.week.weekNumber}</span>
-                {" · "}
-                {prettyPhase(today.week.phaseName)}
-                {!shouldShowKneePill(today.sensorOutputs, today.finalSession.type) && (
-                  <>
-                    {" · Knie "}
-                    <span className="num">
-                      {today.sensorOutputs.limitations.kneeScoreToday}
-                    </span>
-                    /10
-                  </>
-                )}
-              </>
-            )}
-          </span>
+      {/* Appbar — design prototype pattern */}
+      <div className="appbar" style={{ padding: 0 }}>
+        <div className="left">
+          <div>
+            <h1 style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-0.01em", margin: 0 }}>Heute</h1>
+            <div className="sub">
+              <span className="num">{dayMonth}</span>
+              {today.status === "READY" && (
+                <>
+                  {" · Block "}
+                  <span className="num">{today.week.blockNumber}</span>
+                  {" · W"}
+                  <span className="num">{today.week.weekNumber}</span>
+                  {" · "}
+                  {prettyPhase(today.week.phaseName)}
+                </>
+              )}
+            </div>
+          </div>
         </div>
-      </header>
-
-      <hr className="rule mt-4 mb-6" />
+      </div>
 
       {/* Empty states */}
       {today.status === "NO_ACTIVE_PLAN" && (
@@ -1087,13 +1079,13 @@ export default function TodayDashboard() {
         <MorningRitual onSubmitted={refresh} plannedSession={today.plannedSession} />
       )}
 
-      {/* Ready: full dashboard — hero first, recovery below (redesign v2) */}
+      {/* Ready: full dashboard — design prototype hierarchy */}
       {today.status === "READY" && (
         <>
           {today.week.weekNumber >= 17 && !today.macrocycleEvaluated && (
             <div className="mb-6 flex items-center justify-between rounded-lg border-l-4 border-[var(--color-session-calibration)] bg-[var(--color-session-calibration)]/8 px-4 py-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--color-session-calibration)]">
+                <p className="label" style={{ color: "var(--color-session-calibration)" }}>
                   Makrozyklus abgeschlossen
                 </p>
                 <p className="mt-0.5 text-xs text-[var(--color-foreground-secondary)]">
@@ -1109,7 +1101,7 @@ export default function TodayDashboard() {
             </div>
           )}
 
-          {/* Session hero — moved above recovery (redesign v2 hierarchy) */}
+          {/* Session hero — stripe treatment */}
           {(today.finalSessions?.length ?? 0) > 1 ? (
             <TwoADaySection
               finalSessions={today.finalSessions!}
@@ -1130,7 +1122,7 @@ export default function TodayDashboard() {
                 workoutState={workoutMap[today.finalSession.type] ?? null}
                 currentWeightKg={today.currentWeightKg}
               />
-              <hr className="rule my-6" />
+              <div style={{ height: 28 }} />
               <ActionsZone
                 onChanged={() => {
                   refresh();
@@ -1150,22 +1142,40 @@ export default function TodayDashboard() {
             </>
           )}
 
-          <hr className="rule my-6" />
+          <div style={{ height: 28 }} />
 
-          {/* Recovery strip — demoted below hero (redesign v2) */}
+          {/* Recovery section */}
+          <div className="section-h">
+            <span className="label">Recovery</span>
+          </div>
+          <div style={{ height: 10 }} />
           <RecoveryStrip
             outputs={today.sensorOutputs}
             sessionType={today.finalSession.type}
           />
 
-          <hr className="rule my-6" />
+          <div style={{ height: 28 }} />
 
-          <Link
-            href="/coach"
-            className="block py-3 text-sm uppercase tracking-[0.2em] font-semibold text-[var(--color-foreground-tertiary)] hover:text-[var(--color-foreground-secondary)] transition-colors"
-          >
-            Workout anpassen →
-          </Link>
+          {/* Coach line */}
+          <hr className="rule" />
+          <div className="coach">
+            <div className="avatar">A</div>
+            <div>
+              <p className="msg" style={{ margin: 0 }}>
+                {today.sensorOutputs.load.band === "HIGH" ? (
+                  <>ACWR erhöht. Heute moderate Intensität halten.</>
+                ) : today.sensorOutputs.readiness.band === "RED" || today.sensorOutputs.readiness.band === "DANGER" ? (
+                  <>Readiness niedrig. Überlege ob heute leichter trainiert wird.</>
+                ) : (
+                  <>Alles im grünen Bereich. Session wie geplant.</>
+                )}
+              </p>
+              <Link href="/coach" className="link">
+                Anpassen →
+              </Link>
+            </div>
+          </div>
+          <hr className="rule" />
         </>
       )}
     </>
