@@ -29,7 +29,7 @@ import {
   getOrCreateUserSettings,
 } from "@/lib/db/queries/settings";
 import { regenerateFutureSessionPaces } from "@/lib/db/queries/regenerate";
-import { createNotification } from "@/lib/notifications/create";
+import { createNotification, createNotificationIfNew } from "@/lib/notifications/create";
 import { getRecentRunSummaries } from "@/lib/garmin/profile";
 import { calibrateVdotFromRuns } from "@/lib/coach-engine/vdot-calculator";
 
@@ -369,17 +369,17 @@ export async function POST(req: Request) {
       const settings = await getOrCreateUserSettings(userId);
       if (settings.hrMax && settings.hrRest) {
         const recentRuns = await getRecentRunSummaries(60);
-        const last7 = recentRuns.slice(-7);
-        if (last7.length >= 3) {
+        const lastN = recentRuns.slice(-14);
+        if (lastN.length >= 5) {
           const recal = calibrateVdotFromRuns(
-            last7,
+            lastN,
             settings.hrMax,
             settings.hrRest,
           );
           const currentVdot = await getEffectiveVdot(userId);
           if (
             !recal.insufficient_data &&
-            Math.abs(recal.finalVdot - currentVdot) >= 1
+            Math.abs(recal.finalVdot - currentVdot) >= 2
           ) {
             const prefs = settings.notificationPrefs as
               | { vdotCalibrated?: boolean }
@@ -388,14 +388,17 @@ export async function POST(req: Request) {
               const methodSummary = recal.estimates
                 .map((e) => `${e.method}=${e.vdot}`)
                 .join(", ");
-              await createNotification({
-                userId,
-                type: "VDOT_CALIBRATED",
-                title: `VDOT-Update vorgeschlagen: ${currentVdot} → ${recal.finalVdot}`,
-                message: `Aus den letzten ${last7.length} Runs (rolling window): ${methodSummary}. Konfidenz: ${recal.confidence}, Range ${recal.range.min}-${recal.range.max}. Übernimm in Settings.`,
-                severity: "INFO",
-                actionUrl: `/settings?vdotPrefill=${recal.finalVdot}`,
-              });
+              await createNotificationIfNew(
+                {
+                  userId,
+                  type: "VDOT_CALIBRATED",
+                  title: `VDOT-Update vorgeschlagen: ${currentVdot} → ${recal.finalVdot}`,
+                  message: `Aus den letzten ${lastN.length} Runs (rolling window): ${methodSummary}. Konfidenz: ${recal.confidence}, Range ${recal.range.min}-${recal.range.max}. Übernimm in Settings.`,
+                  severity: "INFO",
+                  actionUrl: `/settings?vdotPrefill=${recal.finalVdot}`,
+                },
+                10080,
+              );
             }
             recalibration = {
               suggested: true,

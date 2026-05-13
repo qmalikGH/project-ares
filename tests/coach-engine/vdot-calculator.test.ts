@@ -93,9 +93,9 @@ describe("calibrateVdotFromRuns — insufficient data", () => {
 describe("calibrateVdotFromRuns — Q's real 90-day window", () => {
   const result = calibrateVdotFromRuns(Q_RUNS, Q_HR_MAX, Q_HR_REST);
 
-  it("produces all three method estimates", () => {
+  it("produces HRC and linear_regression (Daniels excluded at sub-max)", () => {
     const methods = result.estimates.map((e) => e.method).sort();
-    expect(methods).toEqual(["daniels_riegel", "hrc", "linear_regression"]);
+    expect(methods).toEqual(["hrc", "linear_regression"]);
   });
 
   it("HRC method matches diagnostic-script output (VDOT 42-43, n=14 high-HR runs)", () => {
@@ -116,14 +116,21 @@ describe("calibrateVdotFromRuns — Q's real 90-day window", () => {
     expect(lr!.vdot).toBeLessThanOrEqual(60);
   });
 
-  it("Daniels-Riegel method applies HR correction when hardest is sub-max", () => {
+  it("Daniels-Riegel excluded when hardest run is sub-max (<88% HRmax)", () => {
     const dr = result.estimates.find((e) => e.method === "daniels_riegel");
+    expect(dr).toBeUndefined();
+  });
+
+  it("Daniels-Riegel included when hardest run reaches 88%+ HRmax", () => {
+    const highEffortRuns: RunSummary[] = [
+      r("2026-04-01", 5000, 1500, 185, 200), // 185/205 = 90.2%
+      r("2026-04-03", 4000, 1200, 170, 190),
+      r("2026-04-05", 3000, 900, 160, 180),
+    ];
+    const res = calibrateVdotFromRuns(highEffortRuns, Q_HR_MAX, Q_HR_REST);
+    const dr = res.estimates.find((e) => e.method === "daniels_riegel");
     expect(dr).toBeDefined();
-    expect(dr!.basis).toMatch(/HRmax/);
-    if (dr!.rawValue) {
-      // Always corrected ≤ raw (effort below 90% HRmax → discount)
-      expect(dr!.vdot).toBeLessThanOrEqual(dr!.rawValue);
-    }
+    expect(dr!.confidence).not.toBe("low");
   });
 
   it("final VDOT is calibrated (not zero, in physiological range)", () => {

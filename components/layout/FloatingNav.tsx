@@ -9,7 +9,6 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   CalendarDays,
   Home,
-  MessageCircle,
   Settings,
   Target,
   TrendingUp,
@@ -29,7 +28,6 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/nutrition", label: "Nutrition", icon: Utensils },
   { href: "/goals", label: "Ziele", icon: Target },
   { href: "/progress", label: "Fortschritt", icon: TrendingUp },
-  { href: "/coach", label: "Coach", icon: MessageCircle },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

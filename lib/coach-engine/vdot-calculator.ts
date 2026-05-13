@@ -39,6 +39,7 @@ export interface VdotCalibrationResult {
 const MIN_RUNS_FOR_CALIBRATION = 2;
 const SUSTAINED_RUN_MIN_SEC = 300; // 5min — minimum effort to extrapolate via Riegel
 const RIEGEL_EXPONENT = 1.06;
+const DANIELS_MIN_HR_RATIO = 0.88;
 
 /**
  * Compute VDOT from a window of RunSummary records.
@@ -78,30 +79,30 @@ export function calibrateVdotFromRuns(
   }
 
   // Method 2: Daniels Riegel + HR correction
+  // Only useful when the hardest run reached near-threshold effort (≥88% HRmax).
+  // Below that, the Riegel extrapolation error compounds with the HR correction,
+  // producing estimates 10-15 VDOT points below reality.
   const sustained = runs.filter((r) => r.durationSec >= SUSTAINED_RUN_MIN_SEC);
   if (sustained.length > 0) {
     const hardest = sustained.reduce((max, r) =>
       r.avgHr / hrMax > max.avgHr / hrMax ? r : max,
     );
-    const eq5kSec = hardest.durationSec * Math.pow(5000 / hardest.distanceM, RIEGEL_EXPONENT);
-    const rawVdot = vdotFrom5kSec(eq5kSec);
     const hrRatio = hardest.avgHr / hrMax;
+    if (hrRatio >= DANIELS_MIN_HR_RATIO) {
+      const eq5kSec = hardest.durationSec * Math.pow(5000 / hardest.distanceM, RIEGEL_EXPONENT);
+      const rawVdot = vdotFrom5kSec(eq5kSec);
 
-    // Sub-max effort → discount: Garmin's Firstbeat suggests 5k race-effort
-    // sustains ~93–96% HRmax. If the hardest sample was below that, the runner
-    // had reserve, so the Riegel extrapolation overstates ability.
-    let correctedVdot = rawVdot;
-    if (hrRatio < 0.85) correctedVdot = Math.round(rawVdot * 0.85);
-    else if (hrRatio < 0.9) correctedVdot = Math.round(rawVdot * 0.9);
+      let correctedVdot = rawVdot;
+      if (hrRatio < 0.9) correctedVdot = Math.round(rawVdot * 0.9);
 
-    estimates.push({
-      method: "daniels_riegel",
-      vdot: correctedVdot,
-      confidence:
-        hrRatio > 0.92 ? "high" : hrRatio > 0.85 ? "medium" : "low",
-      basis: `hardest run @ ${(hrRatio * 100).toFixed(0)}% HRmax, raw VDOT=${rawVdot}, corrected=${correctedVdot}`,
-      rawValue: rawVdot,
-    });
+      estimates.push({
+        method: "daniels_riegel",
+        vdot: correctedVdot,
+        confidence: hrRatio > 0.92 ? "high" : "medium",
+        basis: `hardest run @ ${(hrRatio * 100).toFixed(0)}% HRmax, raw VDOT=${rawVdot}, corrected=${correctedVdot}`,
+        rawValue: rawVdot,
+      });
+    }
   }
 
   // Method 3: Linear regression HR vs pace
