@@ -77,7 +77,7 @@ export default function HistoryView() {
     return <p className="mx-auto max-w-3xl px-6 py-8 text-muted-foreground">Lade…</p>;
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6" style={{ paddingTop: 48, paddingBottom: 112 }}>
+    <div className="flex w-full flex-col gap-6 px-6" style={{ paddingTop: 24, paddingBottom: 100 }}>
       <StatsSubNav />
       <header>
         <h1 style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-0.01em", margin: 0 }}>Historie</h1>

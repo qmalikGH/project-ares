@@ -35,13 +35,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      // Top: respect iOS safe-area-inset (notch + status bar). iPhone 11 has
-      // ~44px reserved at the top when viewportFit:cover is set; without this
-      // padding the page header sits right under the clock. `max(safe, 1rem)`
-      // keeps a minimum gap on devices without a notch.
-      // Bottom: room for the floating nav pill + safe-area inset on iPhones
-      // with a home indicator.
-      className="min-h-screen pt-[max(env(safe-area-inset-top,0px),0.5rem)] pb-[calc(7rem+env(safe-area-inset-bottom,0px))] sm:pt-24 sm:pb-8"
+      className="min-h-screen pt-[max(env(safe-area-inset-top,0px),0.5rem)] pb-[calc(7rem+env(safe-area-inset-bottom,0px))]"
     >
       {/* Status / notifications cluster — bottom-left on mobile (next to nav),
           top-right on desktop. Glass pill, subtle. */}
@@ -90,8 +84,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </button>
       </div>
 
-      {/* Page content — max-width box on desktop, full-width on mobile */}
-      <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-lg">
         {children}
       </div>
 

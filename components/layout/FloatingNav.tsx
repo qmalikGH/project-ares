@@ -49,9 +49,9 @@ export function FloatingNav() {
       role="navigation"
       aria-label="Hauptnavigation"
       className={cn(
-        // Position: bottom on mobile, top-center on desktop
+        // Position: always bottom-center (design prototype)
         "fixed left-1/2 z-50 -translate-x-1/2",
-        "bottom-6 sm:top-6 sm:bottom-auto",
+        "bottom-6",
         // Sizing
         "px-2 py-2",
         // Glass pill

@@ -210,12 +210,12 @@
    stat-tile chain — refactor those tiles, refactor here.
    ============================================================================ */
 .today-dashboard {
-  padding-top: 48px;
-  padding-bottom: 112px;
+  padding-top: 24px;
+  padding-bottom: 100px;
 }
 .today-dashboard .rule {
-  margin-top: 40px;
-  margin-bottom: 40px;
+  margin-top: 16px;
+  margin-bottom: 16px;
 }
 .today-dashboard .recovery,
 .today-dashboard .weekstrip,

@@ -593,7 +593,7 @@ function TwoADaySection({
           <div key={i} className="flex flex-col">
             {isLater && (
               <>
-                <div style={{ height: 28 }} />
+                <div style={{ height: 20 }} />
                 <div className="section-h">
                   <span className="label">Heute Später</span>
                 </div>
@@ -844,11 +844,7 @@ function ActionsZone({
   const [err, setErr] = useState<string | null>(null);
 
   if (sessionType === "rest") {
-    return (
-      <p className="py-2 text-center text-sm text-[var(--text-tertiary)]">
-        Heute Ruhetag.
-      </p>
-    );
+    return null;
   }
 
   async function start() {
@@ -1085,14 +1081,14 @@ export default function TodayDashboard() {
             </>
           )}
 
-          <div style={{ height: 28 }} />
+          <div style={{ height: 20 }} />
 
           {/* WeekStrip */}
           <WeekStrip />
 
           {/* Secondary session for single-session days shows below weekstrip */}
 
-          <div style={{ height: 28 }} />
+          <div style={{ height: 20 }} />
 
           {/* CTA: Session starten */}
           {(() => {
@@ -1115,7 +1111,7 @@ export default function TodayDashboard() {
             return null;
           })()}
 
-          <div style={{ height: 28 }} />
+          <div style={{ height: 20 }} />
 
           {/* Recovery section */}
           <div className="section-h">
@@ -1127,7 +1123,7 @@ export default function TodayDashboard() {
             sessionType={today.finalSession.type}
           />
 
-          <div style={{ height: 28 }} />
+          <div style={{ height: 20 }} />
 
           {/* Coach line */}
           <hr className="rule" />
