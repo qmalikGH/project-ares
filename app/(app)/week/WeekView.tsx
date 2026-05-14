@@ -35,7 +35,9 @@ function BlockVerlauf({ blockInfo, progress }: {
   progress: ProgressResponse | null;
 }) {
   const weeksTotal = progress?.blockStatus?.weeksTotal ?? 4;
-  const currentWeek = blockInfo?.weekNumber ?? progress?.blockStatus?.weekInBlock ?? 1;
+  // progress.weekInBlock is the true week-within-block (computed from phase start);
+  // blockInfo.weekNumber is the macrocycle-global week (1-20) — wrong for this display.
+  const currentWeek = progress?.blockStatus?.weekInBlock ?? 1;
 
   if (!blockInfo && !progress?.blockStatus) return null;
 
