@@ -7,7 +7,7 @@ import { userToday } from "@/lib/date";
 import {
   getAdherenceStats,
   getBlockStatus,
-  getBlockWeeks,
+  getAllBlockWeeks,
   getGarminBasedTIDDistribution,
   getGoalProgress,
   getHrBasedTIDDistribution,
@@ -52,7 +52,7 @@ export async function GET() {
 
   // Block-detail data (phase tabs + per-week summaries)
   const phases = macro ? getPhasesSummary(macro) : null;
-  const blockWeeks = macro ? getBlockWeeks(macro, today) : null;
+  const allBlockWeeks = macro ? getAllBlockWeeks(macro, today) : null;
 
   if (!goal) {
     return NextResponse.json({ status: "NO_ACTIVE_GOAL" }, { status: 200 });
@@ -76,6 +76,6 @@ export async function GET() {
     paceDrift,
     effectiveVdot,
     phases,
-    blockWeeks,
+    allBlockWeeks,
   });
 }

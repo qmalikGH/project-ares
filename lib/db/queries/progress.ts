@@ -382,44 +382,44 @@ export interface BlockWeekSummary {
   isCurrent: boolean;
 }
 
-export function getBlockWeeks(
+/** Returns weeks for ALL blocks in the macrocycle, keyed by blockNumber. */
+export function getAllBlockWeeks(
   macro: LoadedMacro,
   today: Date,
-): BlockWeekSummary[] {
+): Record<number, BlockWeekSummary[]> {
   const today0 = dayKey(today);
-  const currentPhase = macro.phases.find(
-    (p) =>
-      dayKey(p.startDate).getTime() <= today0.getTime() &&
-      today0.getTime() < dayKey(p.plannedEndDate).getTime(),
-  );
-  if (!currentPhase) return [];
+  const result: Record<number, BlockWeekSummary[]> = {};
 
-  const sorted = [...currentPhase.weeklyPlans].sort(
-    (a, b) => a.startDate.getTime() - b.startDate.getTime(),
-  );
-
-  return sorted.map((wp, idx) => {
-    const sessions = (wp.plannedSessions as SessionPlan[] | null) ?? [];
-    const totalKm = Math.round(
-      sessions.reduce((sum, s) => sum + estimateKmFromSession(s), 0),
+  for (const phase of macro.phases) {
+    const sorted = [...phase.weeklyPlans].sort(
+      (a, b) => a.startDate.getTime() - b.startDate.getTime(),
     );
-    const totalMin = sessions.reduce(
-      (sum, s) => sum + (s.durationMin ?? 0),
-      0,
-    );
-    const isCurrent =
-      dayKey(wp.startDate).getTime() <= today0.getTime() &&
-      today0.getTime() < dayKey(wp.endDate).getTime() + 86400000;
 
-    return {
-      weekNumber: idx + 1,
-      title: generateWeekTitle(sessions, idx, sorted.length),
-      description: generateWeekDescription(sessions),
-      totalKm,
-      totalMin,
-      isCurrent,
-    };
-  });
+    result[phase.blockNumber] = sorted.map((wp, idx) => {
+      const sessions = (wp.plannedSessions as SessionPlan[] | null) ?? [];
+      const totalKm = Math.round(
+        sessions.reduce((sum, s) => sum + estimateKmFromSession(s), 0),
+      );
+      const totalMin = sessions.reduce(
+        (sum, s) => sum + (s.durationMin ?? 0),
+        0,
+      );
+      const isCurrent =
+        dayKey(wp.startDate).getTime() <= today0.getTime() &&
+        today0.getTime() < dayKey(wp.endDate).getTime() + 86400000;
+
+      return {
+        weekNumber: idx + 1,
+        title: generateWeekTitle(sessions, idx, sorted.length),
+        description: generateWeekDescription(sessions),
+        totalKm,
+        totalMin,
+        isCurrent,
+      };
+    });
+  }
+
+  return result;
 }
 
 // ============================================

@@ -37,7 +37,7 @@ interface ProgressResponse {
     blockEndDatePlanned: string;
   };
   phases?: PhaseSummary[];
-  blockWeeks?: BlockWeekSummary[];
+  allBlockWeeks?: Record<number, BlockWeekSummary[]>;
 }
 
 export default function WeekView() {
@@ -118,11 +118,11 @@ export default function WeekView() {
         <div className="px-6 py-6 label">Lade Plan…</div>
       )}
 
-      {/* Block Detail — phase tabs + week summaries */}
-      {progress?.blockStatus && progress?.blockWeeks && progress?.phases && (
+      {/* Block Detail — clickable phase tabs + volume chart + week summaries */}
+      {progress?.blockStatus && progress?.allBlockWeeks && progress?.phases && (
         <BlockDetail
           blockStatus={progress.blockStatus}
-          blockWeeks={progress.blockWeeks}
+          allBlockWeeks={progress.allBlockWeeks}
           phases={progress.phases}
         />
       )}
