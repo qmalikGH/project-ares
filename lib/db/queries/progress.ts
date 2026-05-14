@@ -204,7 +204,12 @@ export async function getBlockStatus(
 ): Promise<BlockStatus | null> {
   const macro = await db.macrocycle.findFirst({
     where: { userId, status: "active" },
-    include: { phases: { orderBy: { blockNumber: "asc" } } },
+    include: {
+      phases: {
+        orderBy: { blockNumber: "asc" },
+        include: { weeklyPlans: true },
+      },
+    },
     orderBy: { createdAt: "desc" },
   });
   if (!macro) return null;
@@ -217,11 +222,30 @@ export async function getBlockStatus(
   );
   if (!currentPhase) return null;
 
-  const weekInBlock =
-    Math.floor(
-      (today0.getTime() - dayKey(currentPhase.startDate).getTime()) /
-        (7 * 86400000),
-    ) + 1;
+  // Find which WeeklyPlan covers today (resilient to illness gaps)
+  const currentWp = currentPhase.weeklyPlans
+    .filter(
+      (wp) =>
+        dayKey(wp.startDate).getTime() <= today0.getTime() &&
+        today0.getTime() < dayKey(wp.endDate).getTime() + 86400000,
+    )
+    .sort((a, b) => a.startDate.getTime() - b.startDate.getTime())[0];
+
+  let weekInBlock: number;
+  if (currentWp) {
+    // Position of this plan among all plans in the block, sorted by date
+    const sorted = [...currentPhase.weeklyPlans].sort(
+      (a, b) => a.startDate.getTime() - b.startDate.getTime(),
+    );
+    weekInBlock = sorted.findIndex((wp) => wp.id === currentWp.id) + 1;
+  } else {
+    // Fallback: date-diff if between plans (gap week / illness)
+    weekInBlock =
+      Math.floor(
+        (today0.getTime() - dayKey(currentPhase.startDate).getTime()) /
+          (7 * 86400000),
+      ) + 1;
+  }
   const daysToBlockReview = Math.max(
     0,
     Math.floor(
