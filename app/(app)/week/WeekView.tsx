@@ -107,6 +107,7 @@ export default function WeekView() {
       <PlanCalendar
         days={days}
         blockInfo={blockInfo ?? undefined}
+        weekInBlock={progress?.blockStatus?.weekInBlock}
         onMonthChange={loadRange}
         onDayClick={(date) => {
           router.push(`/day/${format(date, "yyyy-MM-dd")}`);

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
 
@@ -58,27 +59,43 @@ export function BlockDetail({
       <hr className="rule" style={{ margin: "0 0 20px 0" }} />
 
       {/* Block Header */}
-      <div style={{ marginBottom: 16 }}>
-        <div
-          style={{
-            fontSize: 15,
-            fontWeight: 600,
-            letterSpacing: "-0.01em",
-          }}
-        >
-          Block {blockStatus.currentBlockNumber} ·{" "}
-          {currentPhase?.shortLabel ?? blockStatus.currentPhaseName}
+      <div
+        style={{
+          marginBottom: 16,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+        }}
+      >
+        <div>
+          <div
+            style={{
+              fontSize: 15,
+              fontWeight: 600,
+              letterSpacing: "-0.01em",
+            }}
+          >
+            Block {blockStatus.currentBlockNumber} ·{" "}
+            {currentPhase?.shortLabel ?? blockStatus.currentPhaseName}
+          </div>
+          <div
+            className="label"
+            style={{ marginTop: 4, opacity: 0.5 }}
+          >
+            {formatDateRange(
+              blockStatus.blockStartDate,
+              blockStatus.blockEndDatePlanned,
+            )}{" "}
+            · {blockStatus.weeksTotal} Wochen
+          </div>
         </div>
-        <div
+        <Link
+          href="/progress"
           className="label"
-          style={{ marginTop: 4, opacity: 0.5 }}
+          style={{ opacity: 0.5, paddingTop: 4 }}
         >
-          {formatDateRange(
-            blockStatus.blockStartDate,
-            blockStatus.blockEndDatePlanned,
-          )}{" "}
-          · {blockStatus.weeksTotal} Wochen
-        </div>
+          Stats →
+        </Link>
       </div>
 
       {/* Phase Tabs */}

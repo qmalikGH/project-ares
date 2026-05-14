@@ -38,6 +38,8 @@ interface PlanCalendarProps {
     weekNumber: number;
     phaseName: string;
   } | null;
+  /** Correct week-in-block from progress API (overrides blockInfo.weekNumber). */
+  weekInBlock?: number;
   /** Called when the user taps a day cell. */
   onDayClick: (date: Date) => void;
   /** Called when the visible month changes — parent should refetch. */
@@ -116,6 +118,7 @@ function dayLabel(sessions: SessionPlan[]): string {
 export function PlanCalendar({
   days,
   blockInfo,
+  weekInBlock,
   onDayClick,
   onMonthChange,
 }: PlanCalendarProps) {
@@ -168,7 +171,7 @@ export function PlanCalendar({
           </h2>
           {blockInfo && (
             <p className="text-[var(--color-foreground-muted)] text-[10px] mt-0.5 uppercase tracking-[0.14em] font-semibold" style={{ fontFamily: "var(--font-geist-mono), monospace" }}>
-              Block <span className="num">{blockInfo.blockNumber}</span> · W<span className="num">{blockInfo.weekNumber}</span> ·{" "}
+              Block <span className="num">{blockInfo.blockNumber}</span> · W<span className="num">{weekInBlock ?? blockInfo.weekNumber}</span> ·{" "}
               {blockInfo.phaseName.replace(/_/g, " ").toLowerCase()}
             </p>
           )}
