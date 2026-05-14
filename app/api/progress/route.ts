@@ -7,18 +7,24 @@ import { userToday } from "@/lib/date";
 import {
   getAdherenceStats,
   getBlockStatus,
+  getBlockWeeks,
   getGarminBasedTIDDistribution,
   getGoalProgress,
   getHrBasedTIDDistribution,
   getPaceDriftStatus,
+  getPhasesSummary,
   getTIDDistribution,
   getVdotHistory,
+  loadActiveMacrocycle,
 } from "@/lib/db/queries/progress";
 import { getEffectiveVdot } from "@/lib/db/queries/settings";
 
 export async function GET() {
   const userId = await getCurrentUserId();
   const today = userToday();
+
+  // Load macrocycle once, reuse for block-related queries
+  const macro = await loadActiveMacrocycle(userId);
 
   const [
     goal,
@@ -34,7 +40,7 @@ export async function GET() {
   ] = await Promise.all([
     getGoalProgress(userId, today),
     getVdotHistory(userId),
-    getBlockStatus(userId, today),
+    getBlockStatus(userId, today, macro),
     getAdherenceStats(userId, "this_week", today),
     getAdherenceStats(userId, "this_block", today),
     getTIDDistribution(userId, "this_block", today),
@@ -43,6 +49,10 @@ export async function GET() {
     getPaceDriftStatus(userId, 7),
     getEffectiveVdot(userId),
   ]);
+
+  // Block-detail data (phase tabs + per-week summaries)
+  const phases = macro ? getPhasesSummary(macro) : null;
+  const blockWeeks = macro ? getBlockWeeks(macro, today) : null;
 
   if (!goal) {
     return NextResponse.json({ status: "NO_ACTIVE_GOAL" }, { status: 200 });
@@ -65,5 +75,7 @@ export async function GET() {
     tidGarmin: tidGarminBlock,
     paceDrift,
     effectiveVdot,
+    phases,
+    blockWeeks,
   });
 }

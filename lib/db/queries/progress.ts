@@ -198,20 +198,28 @@ const BLOCK_REVIEW_TYPES: Record<number, string> = {
   5: "5k Time Trial #1 (W18) und #2 (W20)",
 };
 
-export async function getBlockStatus(
-  userId: string,
-  today: Date,
-): Promise<BlockStatus | null> {
-  const macro = await db.macrocycle.findFirst({
+// Shared macro loader — one DB call, reused by getBlockStatus / getBlockWeeks / getPhasesSummary
+export async function loadActiveMacrocycle(userId: string) {
+  return db.macrocycle.findFirst({
     where: { userId, status: "active" },
     include: {
       phases: {
         orderBy: { blockNumber: "asc" },
-        include: { weeklyPlans: true },
+        include: { weeklyPlans: { orderBy: { startDate: "asc" } } },
       },
     },
     orderBy: { createdAt: "desc" },
   });
+}
+
+type LoadedMacro = NonNullable<Awaited<ReturnType<typeof loadActiveMacrocycle>>>;
+
+export async function getBlockStatus(
+  userId: string,
+  today: Date,
+  preloadedMacro?: LoadedMacro | null,
+): Promise<BlockStatus | null> {
+  const macro = preloadedMacro ?? (await loadActiveMacrocycle(userId));
   if (!macro) return null;
 
   const today0 = dayKey(today);
@@ -269,6 +277,149 @@ export async function getBlockStatus(
     blocksTotal: macro.phases.length,
     blocksCompleted,
   };
+}
+
+// ============================================
+// Phase Summary (for block-detail phase tabs)
+// ============================================
+const PHASE_SHORT_LABELS: Record<string, string> = {
+  ACCUMULATION_AEROBIC_BASE: "BASE",
+  ACCUMULATION_THRESHOLD_INTRO: "BUILD",
+  TRANSMUTATION_THRESHOLD: "THRESHOLD",
+  TRANSMUTATION_VO2MAX: "VO2MAX",
+  REALIZATION_PEAK_PERFORMANCE: "PEAK",
+};
+
+export interface PhaseSummary {
+  blockNumber: number;
+  name: string;
+  shortLabel: string;
+  status: string;
+  startDate: string;
+  endDate: string;
+  durationWeeks: number;
+}
+
+export function getPhasesSummary(macro: LoadedMacro): PhaseSummary[] {
+  return macro.phases.map((p) => ({
+    blockNumber: p.blockNumber,
+    name: p.name,
+    shortLabel: PHASE_SHORT_LABELS[p.name] ?? p.name.slice(0, 5),
+    status: p.status,
+    startDate: p.startDate.toISOString().slice(0, 10),
+    endDate: p.plannedEndDate.toISOString().slice(0, 10),
+    durationWeeks: p.durationWeeks,
+  }));
+}
+
+// ============================================
+// Block Weeks (per-week summaries for current block)
+// ============================================
+const RUN_TYPES = new Set([
+  "easy_run", "threshold_run", "tempo_run", "long_run",
+  "vo2max_intervals", "calibration_run", "time_trial_5k", "active_recovery",
+]);
+
+function estimateKmFromSession(s: SessionPlan): number {
+  if (!RUN_TYPES.has(s.type) || !s.durationMin) return 0;
+  if (s.paceTarget?.to) {
+    const avgSec = (paceStringToSec(s.paceTarget.from) + paceStringToSec(s.paceTarget.to)) / 2;
+    if (avgSec > 0) return s.durationMin / (avgSec / 60);
+  }
+  // Fallback: 6:00/km
+  return s.durationMin / 6;
+}
+
+const SESSION_SHORT_LABELS: Record<string, string> = {
+  easy_run: "Easy",
+  threshold_run: "Schwelle",
+  tempo_run: "Tempo",
+  long_run: "Long",
+  vo2max_intervals: "VO2max",
+  calibration_run: "Kalibr.",
+  time_trial_5k: "TT 5k",
+  active_recovery: "Recovery",
+  strength_a: "Kraft",
+  strength_b: "Kraft",
+  strength_c: "Kraft",
+  rest: "Rest",
+};
+
+function generateWeekTitle(
+  sessions: SessionPlan[],
+  weekIdx: number,
+  weeksTotal: number,
+): string {
+  if (weekIdx === weeksTotal - 1) return "Deload";
+  const types = sessions.filter((s) => s.type !== "rest").map((s) => s.type);
+  if (types.includes("time_trial_5k")) return "Time Trial";
+  if (types.includes("vo2max_intervals")) return "VO2max-Intervalle";
+  if (types.includes("threshold_run") && types.includes("tempo_run"))
+    return "LT + Race Pace";
+  if (types.includes("threshold_run")) return "Schwellen-Anker";
+  if (types.includes("tempo_run")) return "Tempo-Fokus";
+  return "Aufbau";
+}
+
+function generateWeekDescription(sessions: SessionPlan[]): string {
+  const counts: Record<string, number> = {};
+  for (const s of sessions) {
+    if (s.type === "rest") continue;
+    const label = SESSION_SHORT_LABELS[s.type] ?? s.type;
+    counts[label] = (counts[label] ?? 0) + 1;
+  }
+  return Object.entries(counts)
+    .map(([label, n]) => `${n}× ${label}`)
+    .join(", ");
+}
+
+export interface BlockWeekSummary {
+  weekNumber: number;
+  title: string;
+  description: string;
+  totalKm: number;
+  totalMin: number;
+  isCurrent: boolean;
+}
+
+export function getBlockWeeks(
+  macro: LoadedMacro,
+  today: Date,
+): BlockWeekSummary[] {
+  const today0 = dayKey(today);
+  const currentPhase = macro.phases.find(
+    (p) =>
+      dayKey(p.startDate).getTime() <= today0.getTime() &&
+      today0.getTime() < dayKey(p.plannedEndDate).getTime(),
+  );
+  if (!currentPhase) return [];
+
+  const sorted = [...currentPhase.weeklyPlans].sort(
+    (a, b) => a.startDate.getTime() - b.startDate.getTime(),
+  );
+
+  return sorted.map((wp, idx) => {
+    const sessions = (wp.plannedSessions as SessionPlan[] | null) ?? [];
+    const totalKm = Math.round(
+      sessions.reduce((sum, s) => sum + estimateKmFromSession(s), 0),
+    );
+    const totalMin = sessions.reduce(
+      (sum, s) => sum + (s.durationMin ?? 0),
+      0,
+    );
+    const isCurrent =
+      dayKey(wp.startDate).getTime() <= today0.getTime() &&
+      today0.getTime() < dayKey(wp.endDate).getTime() + 86400000;
+
+    return {
+      weekNumber: idx + 1,
+      title: generateWeekTitle(sessions, idx, sorted.length),
+      description: generateWeekDescription(sessions),
+      totalKm,
+      totalMin,
+      isCurrent,
+    };
+  });
 }
 
 // ============================================

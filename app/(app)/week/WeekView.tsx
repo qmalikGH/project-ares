@@ -9,6 +9,11 @@ import {
   type PlanCalendarDay,
 } from "@/components/calendar/PlanCalendar";
 import { WeekStrip } from "@/components/training/WeekStrip";
+import {
+  BlockDetail,
+  type PhaseSummary,
+  type BlockWeekSummary,
+} from "@/components/training/BlockDetail";
 import type { SessionPlan } from "@/lib/coach-engine/types";
 
 interface RangeResponse {
@@ -24,65 +29,15 @@ interface RangeResponse {
 interface ProgressResponse {
   blockStatus?: {
     currentBlockNumber: number;
+    currentPhaseName: string;
     weeksTotal: number;
     weekInBlock: number;
     phaseName: string;
+    blockStartDate: string;
+    blockEndDatePlanned: string;
   };
-}
-
-function BlockVerlauf({ blockInfo, progress }: {
-  blockInfo: { blockNumber: number; weekNumber: number; phaseName: string } | null;
-  progress: ProgressResponse | null;
-}) {
-  const weeksTotal = progress?.blockStatus?.weeksTotal ?? 4;
-  // progress.weekInBlock is the true week-within-block (computed from phase start);
-  // blockInfo.weekNumber is the macrocycle-global week (1-20) — wrong for this display.
-  const currentWeek = progress?.blockStatus?.weekInBlock ?? 1;
-
-  if (!blockInfo && !progress?.blockStatus) return null;
-
-  return (
-    <div className="px-6" style={{ paddingTop: 20, paddingBottom: 20 }}>
-      <div className="section-h" style={{ padding: 0 }}>
-        <span className="label">Block-Verlauf</span>
-        <span className="label" style={{ opacity: 0.5 }}>{currentWeek}/{weeksTotal}</span>
-      </div>
-      <div style={{ height: 10 }} />
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: `repeat(${weeksTotal}, 1fr)`,
-          gap: 6,
-        }}
-      >
-        {Array.from({ length: weeksTotal }, (_, i) => {
-          const weekNum = i + 1;
-          const isCurrent = weekNum === currentWeek;
-          return (
-            <div
-              key={weekNum}
-              style={{
-                borderLeft: isCurrent
-                  ? "2px solid var(--color-session-threshold)"
-                  : "2px solid var(--color-rule)",
-                paddingLeft: 8,
-                paddingTop: 6,
-                paddingBottom: 6,
-                background: isCurrent
-                  ? "rgba(212, 168, 83, 0.06)"
-                  : undefined,
-                borderRadius: 4,
-              }}
-            >
-              <div className="label" style={{ margin: 0, opacity: isCurrent ? 1 : 0.5 }}>
-                W{weekNum}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+  phases?: PhaseSummary[];
+  blockWeeks?: BlockWeekSummary[];
 }
 
 export default function WeekView() {
@@ -162,8 +117,14 @@ export default function WeekView() {
         <div className="px-6 py-6 label">Lade Plan…</div>
       )}
 
-      {/* Block-Verlauf */}
-      <BlockVerlauf blockInfo={blockInfo} progress={progress} />
+      {/* Block Detail — phase tabs + week summaries */}
+      {progress?.blockStatus && progress?.blockWeeks && progress?.phases && (
+        <BlockDetail
+          blockStatus={progress.blockStatus}
+          blockWeeks={progress.blockWeeks}
+          phases={progress.phases}
+        />
+      )}
     </div>
   );
 }

@@ -25,7 +25,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { href: "/today", label: "Heute", icon: Home },
   { href: "/week", label: "Plan", icon: CalendarDays },
-  { href: "/progress", label: "Block", icon: Zap },
+  { href: "/progress", label: "Stats", icon: Zap },
   { href: "/nutrition", label: "Nutrition", icon: Utensils },
   { href: "/goals", label: "Ziele", icon: Target },
   { href: "/history", label: "Historie", icon: Clock },
