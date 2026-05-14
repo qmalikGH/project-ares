@@ -1,10 +1,8 @@
 "use client";
 
-// FloatingNav — restored after the v0.11 sharp-bar attempt didn't land.
-// Bottom-positioned on mobile, top-centered on desktop. Glass pill with
-// backdrop-blur. Active tab shows a cyan icon + label inside a cyan-muted
-// bg pill (Lucide icons; the only place in v0.11 where cyan is the accent
-// color — kept inline so the rest of the Direction-C theme stays neutral).
+// FloatingNav — full-width bottom bar (v0.12 redesign).
+// Solid dark background, icon + label stacked, amber accent for active tab.
+// Matches the Direction-C prototype screenshot.
 import { usePathname, useRouter } from "next/navigation";
 import {
   CalendarDays,
@@ -14,7 +12,6 @@ import {
   Utensils,
   Zap,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 interface NavItem {
   href: string;
@@ -23,17 +20,16 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/today", label: "Heute", icon: Home },
-  { href: "/week", label: "Plan", icon: CalendarDays },
-  { href: "/progress", label: "Stats", icon: Zap },
-  { href: "/nutrition", label: "Nutrition", icon: Utensils },
-  { href: "/goals", label: "Ziele", icon: Target },
-  { href: "/history", label: "Historie", icon: Clock },
+  { href: "/today", label: "HEUTE", icon: Home },
+  { href: "/week", label: "PLAN", icon: CalendarDays },
+  { href: "/progress", label: "STATS", icon: Zap },
+  { href: "/nutrition", label: "NUTRITION", icon: Utensils },
+  { href: "/goals", label: "ZIELE", icon: Target },
+  { href: "/history", label: "HISTORIE", icon: Clock },
 ];
 
-const NAV_ACCENT = "#7DD3FC";
-const NAV_ACCENT_MUTED = "rgba(125, 211, 252, 0.12)";
-const NAV_HOVER_BG = "rgba(255, 255, 255, 0.06)";
+const ACTIVE_COLOR = "var(--color-session-threshold)";
+const INACTIVE_COLOR = "var(--color-foreground-muted)";
 
 export function FloatingNav() {
   const pathname = usePathname();
@@ -48,64 +44,69 @@ export function FloatingNav() {
     <nav
       role="navigation"
       aria-label="Hauptnavigation"
-      className={cn(
-        // Position: always bottom-center (design prototype)
-        "fixed left-1/2 z-50 -translate-x-1/2",
-        "bottom-6",
-        // Sizing
-        "px-2 py-2",
-        // Glass pill
-        "rounded-full border",
-        "bg-[rgba(10,10,11,0.7)] backdrop-blur-[20px]",
-        "shadow-[0_8px_32px_-4px_rgba(0,0,0,0.6)]",
-      )}
-      style={{ borderColor: "var(--color-border)" }}
+      style={{
+        position: "fixed",
+        bottom: 0,
+        left: 0,
+        right: 0,
+        zIndex: 50,
+        borderTop: "1px solid var(--color-rule)",
+        background: "var(--color-background)",
+        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+      }}
     >
-      <ul className="flex items-center gap-1">
+      <ul
+        style={{
+          display: "flex",
+          alignItems: "stretch",
+          justifyContent: "space-around",
+          margin: 0,
+          padding: "8px 0 6px",
+          listStyle: "none",
+        }}
+      >
         {NAV_ITEMS.map((item, index) => {
           const isActive = index === activeIndex;
           const Icon = item.icon;
+          const color = isActive ? ACTIVE_COLOR : INACTIVE_COLOR;
+
           return (
-            <li key={item.href}>
+            <li key={item.href} style={{ flex: 1 }}>
               <button
                 type="button"
                 onClick={() => router.push(item.href)}
                 aria-current={isActive ? "page" : undefined}
                 aria-label={item.label}
-                className={cn(
-                  "group relative flex items-center gap-2 rounded-full",
-                  "px-3 py-2 transition-all duration-200",
-                )}
                 style={{
-                  transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
-                  backgroundColor: isActive ? NAV_ACCENT_MUTED : undefined,
-                }}
-                onMouseEnter={(e) => {
-                  if (!isActive) e.currentTarget.style.backgroundColor = NAV_HOVER_BG;
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive) e.currentTarget.style.backgroundColor = "";
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 3,
+                  width: "100%",
+                  padding: "2px 0",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  WebkitTapHighlightColor: "transparent",
+                  transition: "opacity 0.15s",
+                  opacity: isActive ? 1 : 0.7,
                 }}
               >
                 <Icon
-                  className="h-5 w-5 transition-colors duration-200"
-                  style={{
-                    color: isActive
-                      ? NAV_ACCENT
-                      : "var(--color-foreground-tertiary)",
-                  }}
+                  size={20}
+                  strokeWidth={isActive ? 2 : 1.5}
+                  style={{ color, transition: "color 0.15s" }}
                 />
                 <span
-                  className={cn(
-                    "text-xs font-medium tabular-nums transition-all duration-200",
-                    isActive
-                      ? "max-w-[80px] opacity-100"
-                      : "max-w-0 overflow-hidden opacity-0 sm:max-w-[80px] sm:opacity-100",
-                  )}
+                  className="label"
                   style={{
-                    color: isActive
-                      ? NAV_ACCENT
-                      : "var(--color-foreground-secondary)",
+                    margin: 0,
+                    fontSize: 9,
+                    letterSpacing: "0.08em",
+                    fontWeight: isActive ? 600 : 500,
+                    color,
+                    transition: "color 0.15s",
                   }}
                 >
                   {item.label}

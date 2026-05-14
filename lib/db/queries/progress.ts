@@ -356,7 +356,7 @@ function generateWeekTitle(
   if (types.includes("vo2max_intervals")) return "VO2max-Intervalle";
   if (types.includes("threshold_run") && types.includes("tempo_run"))
     return "LT + Race Pace";
-  if (types.includes("threshold_run")) return "Schwellen-Anker";
+  if (types.includes("threshold_run")) return "LT-Anker";
   if (types.includes("tempo_run")) return "Tempo-Fokus";
   return "Aufbau";
 }
