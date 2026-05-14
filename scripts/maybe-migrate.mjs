@@ -19,7 +19,20 @@ const hasDirect = !!process.env.DIRECT_URL;
 
 if (hasDb && hasDirect) {
   console.log("[maybe-migrate] DATABASE_URL + DIRECT_URL present → prisma migrate deploy");
-  execSync("npx prisma migrate deploy", { stdio: "inherit" });
+  const maxRetries = 3;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      execSync("npx prisma migrate deploy", { stdio: "inherit" });
+      break;
+    } catch (err) {
+      if (attempt < maxRetries) {
+        console.log(`[maybe-migrate] attempt ${attempt} failed, retrying in 5s...`);
+        execSync("node -e \"Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,5000)\"");
+      } else {
+        throw err;
+      }
+    }
+  }
 } else {
   const missing = [!hasDb && "DATABASE_URL", !hasDirect && "DIRECT_URL"].filter(Boolean).join(", ");
   console.log(
