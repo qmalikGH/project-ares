@@ -85,11 +85,27 @@ export async function GET() {
 
   const kneeLogs = rowsToKneeLogs(recentRows);
   const currentTherapyPhase = (todayRow.therapyPhase as TherapyPhase | null) ?? "DISREPAIR";
+
+  // Illness-Recovery: load last 21 days of workout statuses for detection
+  const recentWorkouts = await import("@/lib/db/client").then(({ db: d }) =>
+    d.workout.findMany({
+      where: {
+        userId,
+        date: { gte: new Date(dayKey(today).getTime() - 21 * 24 * 60 * 60 * 1000) },
+      },
+      select: { date: true, status: true },
+      orderBy: { date: "desc" },
+    }),
+  );
+  const workoutStatuses = recentWorkouts.map((w) => ({ date: w.date, status: w.status }));
+
   const limitations: LimitationsOutput = computeKneeStatus(
     { morning: todayInputs.userMorning, postSession: todayInputs.userPostSession?.trainingScore },
     kneeLogs,
     currentTherapyPhase,
     null,
+    workoutStatuses,
+    dayKey(today),
   );
 
   // 4. Modulate every session for today (Run + Strength on two-a-day Mondays etc.)

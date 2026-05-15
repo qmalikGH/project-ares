@@ -2,10 +2,11 @@
 // See science_doc.md Kap 9.4 (Decision Tree) & spec 6.7.
 // Pure function. No async. Sequential modulation pipeline:
 //   1. Hard constraints   (knee >= 8, RED+ACWR critical, multi-risk)
-//   2. Readiness-based    (YELLOW/ORANGE/RED bands)
-//   3. Knee-based         (5-7 score range)
-//   4. Load-based         (ACWR > 1.3)
-//   5. Therapy phase      (REACTIVE adds wall-sit, REACTIVE blocks intensity)
+//   2. Illness recovery   (ACSM Return-to-Sport: days 1-3 acute, 4-7 transition)
+//   3. Readiness-based    (YELLOW/ORANGE/RED bands)
+//   4. Knee-based         (5-7 score range)
+//   5. Load-based         (ACWR > 1.3)
+//   6. Therapy phase      (REACTIVE adds wall-sit, REACTIVE blocks intensity)
 
 import type {
   Exercise,
@@ -61,6 +62,18 @@ function removeExercises(exercises: Exercise[] | undefined, names: string[]): Ex
 
 function prependExercise(exercises: Exercise[] | undefined, ex: Exercise): Exercise[] {
   return exercises ? [ex, ...exercises] : [ex];
+}
+
+function reduceSetCount(
+  exercises: Exercise[] | undefined,
+  delta: number,
+  minSets: number,
+): Exercise[] | undefined {
+  if (!exercises) return exercises;
+  return exercises.map((ex) => ({
+    ...ex,
+    sets: Math.max(minSets, (ex.sets ?? 3) + delta),
+  }));
 }
 
 function makeRecoverySession(date: Date, reason: string): FinalSession {
@@ -133,11 +146,50 @@ export function modulateSession(
   }
 
   // ============================================
-  // 2. SOFT CONSTRAINTS — sequential
+  // 2. ILLNESS RECOVERY (ACSM Return-to-Sport)
   // ============================================
   const modulated: SessionPlan = { ...plannedSession };
   if (plannedSession.exercises) modulated.exercises = plannedSession.exercises.map((e) => ({ ...e }));
   const modifications: string[] = [];
+
+  if (limitations.illnessRecoveryDays !== null) {
+    const days = limitations.illnessRecoveryDays;
+
+    if (days <= 3) {
+      // Acute phase: quality → easy, no high-intensity
+      if (isRunSession(modulated) && modulated.type !== "easy_run") {
+        modulated.type = "easy_run";
+        modulated.intensityZone = 1;
+        modulated.paceTarget = undefined;
+        modulated.structure = undefined;
+        modifications.push(`Illness Recovery Tag ${days} — Quality → Easy (ACSM: keine High-Intensity <7d)`);
+      }
+      if (isRunSession(modulated) && modulated.durationMin) {
+        modulated.durationMin = Math.round(modulated.durationMin * 0.7);
+        modifications.push(`Illness Recovery Tag ${days} — Lauf-Volumen 70%`);
+      }
+      if (isStrengthSession(modulated)) {
+        modulated.exercises = applyLoadCap(modulated.exercises, 0.8);
+        modulated.exercises = reduceSetCount(modulated.exercises, -1, 2);
+        modifications.push(`Illness Recovery Tag ${days} — Kraft: Load-Cap 80%, Sets -1`);
+      }
+    } else if (days <= 7) {
+      // Transition phase: quality allowed, volume reduced
+      if (isRunSession(modulated) && modulated.durationMin) {
+        modulated.durationMin = Math.round(modulated.durationMin * 0.8);
+        modifications.push(`Illness Recovery Tag ${days} — Lauf-Volumen 80%`);
+      }
+      if (isStrengthSession(modulated)) {
+        modulated.exercises = applyLoadCap(modulated.exercises, 0.9);
+        modifications.push(`Illness Recovery Tag ${days} — Kraft: Load-Cap 90%`);
+      }
+    }
+    // Days 8-10: no modulation, but illnessRecoveryDays stays in output for UI transparency
+  }
+
+  // ============================================
+  // 3. READINESS-BASED SOFT CONSTRAINTS
+  // ============================================
 
   // Readiness ORANGE: drop intensity, reduce volume
   if (readiness.band === "ORANGE") {
@@ -158,6 +210,9 @@ export function modulateSession(
     modifications.push("Readiness Yellow — Pace auf Marathon statt Threshold");
   }
 
+  // ============================================
+  // 4. KNEE-BASED CONSTRAINTS
+  // ============================================
   // Knee 5-7: load cap + remove plyo on strength, intensity max Z2 on runs
   if (
     limitations.kneeScoreToday >= KNEE_MOD_LOWER &&
@@ -190,6 +245,9 @@ export function modulateSession(
     }
   }
 
+  // ============================================
+  // 5. LOAD-BASED CONSTRAINTS
+  // ============================================
   // Load HIGH (1.3 < ACWR <= 1.5): volume 90%
   if (load.acwrRolling > ACWR_HIGH_LOWER && load.acwrRolling <= ACWR_HIGH_UPPER) {
     if (modulated.durationMin) {
@@ -199,7 +257,7 @@ export function modulateSession(
   }
 
   // ============================================
-  // 3. THERAPY-PHASE ADJUSTMENTS
+  // 6. THERAPY-PHASE ADJUSTMENTS
   // ============================================
   if (limitations.therapyPhase === "REACTIVE") {
     if (isStrengthSession(modulated)) {

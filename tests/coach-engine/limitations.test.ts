@@ -4,6 +4,7 @@ import {
   generateConstraints,
   decideTherapyPhaseTransition,
   computeKneeStatus,
+  computeIllnessRecoveryDays,
 } from "@/lib/coach-engine/limitations";
 import type { KneeLog, UserMorningInputs } from "@/lib/coach-engine/types";
 
@@ -126,5 +127,82 @@ describe("computeKneeStatus", () => {
     const out = computeKneeStatus({ morning: morning(5, 5) }, [], "REACTIVE", null);
     expect(out.kneeScoreToday).toBe(5);
     expect(out.kneeBaseline28d).toBe(5);
+  });
+
+  it("returns illnessRecoveryDays: null without workout statuses (backwards compat)", () => {
+    const out = computeKneeStatus({ morning: morning(3, 3) }, recentKneeData, "REMODELING", null);
+    expect(out.illnessRecoveryDays).toBeNull();
+  });
+
+  it("returns illnessRecoveryDays when workout statuses provided", () => {
+    const today = new Date("2026-05-14");
+    const workouts = [
+      { date: new Date("2026-05-10"), status: "skipped_illness" },
+      { date: new Date("2026-05-09"), status: "skipped_illness" },
+      { date: new Date("2026-05-08"), status: "completed" },
+    ];
+    const out = computeKneeStatus(
+      { morning: morning(3, 3) },
+      recentKneeData,
+      "REMODELING",
+      null,
+      workouts,
+      today,
+    );
+    expect(out.illnessRecoveryDays).toBe(4); // May 14 - May 10 = 4 days
+  });
+});
+
+describe("computeIllnessRecoveryDays", () => {
+  const today = new Date("2026-05-15");
+
+  it("returns null when no skipped_illness workouts", () => {
+    const workouts = [
+      { date: new Date("2026-05-12"), status: "completed" },
+      { date: new Date("2026-05-10"), status: "skipped" },
+    ];
+    expect(computeIllnessRecoveryDays(workouts, today)).toBeNull();
+  });
+
+  it("returns correct days since last illness day", () => {
+    const workouts = [
+      { date: new Date("2026-05-13"), status: "skipped_illness" },
+      { date: new Date("2026-05-12"), status: "skipped_illness" },
+    ];
+    expect(computeIllnessRecoveryDays(workouts, today)).toBe(2); // May 15 - May 13
+  });
+
+  it("uses the most recent illness day when multiple exist", () => {
+    const workouts = [
+      { date: new Date("2026-05-11"), status: "skipped_illness" },
+      { date: new Date("2026-05-09"), status: "skipped_illness" },
+      { date: new Date("2026-05-07"), status: "skipped_illness" },
+    ];
+    expect(computeIllnessRecoveryDays(workouts, today)).toBe(4); // May 15 - May 11
+  });
+
+  it("returns null when illness was more than 10 days ago", () => {
+    const workouts = [
+      { date: new Date("2026-05-04"), status: "skipped_illness" },
+    ];
+    expect(computeIllnessRecoveryDays(workouts, today)).toBe(null); // May 15 - May 4 = 11
+  });
+
+  it("returns 10 for exactly 10 days ago (boundary)", () => {
+    const workouts = [
+      { date: new Date("2026-05-05"), status: "skipped_illness" },
+    ];
+    expect(computeIllnessRecoveryDays(workouts, today)).toBe(10); // May 15 - May 5
+  });
+
+  it("returns 0 for illness on same day", () => {
+    const workouts = [
+      { date: new Date("2026-05-15"), status: "skipped_illness" },
+    ];
+    expect(computeIllnessRecoveryDays(workouts, today)).toBe(0);
+  });
+
+  it("returns null for empty workout array", () => {
+    expect(computeIllnessRecoveryDays([], today)).toBeNull();
   });
 });
