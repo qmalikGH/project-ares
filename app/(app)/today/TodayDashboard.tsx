@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
 import { CompletionFlow } from "@/components/workout/CompletionFlow";
 import {
   SESSION_LABEL,
@@ -12,8 +11,10 @@ import {
 import type {
   ExerciseShape,
   FinalSessionShape,
+  RunStructure,
   SessionShape,
 } from "@/components/training/shared";
+import { WeekStrip } from "@/components/training/WeekStrip";
 import type { Exercise } from "@/lib/coach-engine/types";
 import { cn } from "@/lib/utils";
 import { getSessionColor } from "@/lib/ui/session-colors";
@@ -186,25 +187,21 @@ function RecoveryMetric({
 }) {
   return (
     <div
-      className="flex flex-1 min-w-[100px] flex-col gap-1 rounded-md px-3.5 py-3 border-l-2"
+      className="cell"
       style={{
-        backgroundColor: bgTint ?? "rgba(255,255,255,0.03)",
-        borderLeftColor: toneColor ?? "var(--color-border)",
-      }}
+        "--rec-tone": toneColor ?? "var(--color-border)",
+        "--rec-bg": bgTint ?? "rgba(255,255,255,0.025)",
+      } as React.CSSProperties}
     >
-      <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--color-foreground-muted)]">
-        {label}
-      </span>
+      <span className="label">{label}</span>
       <span
-        className="num-md leading-none"
+        className="v num"
         style={toneColor ? { color: toneColor } : undefined}
       >
         {value}
       </span>
       {sub && (
-        <span className="text-[10px] uppercase tracking-wider text-[var(--color-foreground-tertiary)]">
-          {sub}
-        </span>
+        <span className="label" style={{ opacity: 0.7 }}>{sub}</span>
       )}
     </div>
   );
@@ -268,7 +265,7 @@ function RecoveryStrip({
     : "GREEN";
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="recovery">
       <RecoveryMetric
         label="Readiness"
         value={String(outputs.readiness.score)}
@@ -287,13 +284,21 @@ function RecoveryStrip({
         toneColor={bandToToneColor(acwr.band)}
         bgTint={bandToBgTint(acwr.band)}
       />
-      {showKnee && (
+      {showKnee ? (
         <RecoveryMetric
           label="Knee"
           value={String(outputs.limitations.kneeScoreToday)}
           sub={outputs.limitations.therapyPhase}
           toneColor={bandToToneColor(kneeKey)}
           bgTint={bandToBgTint(kneeKey)}
+        />
+      ) : (
+        <RecoveryMetric
+          label="HRV"
+          value={outputs.readiness.components.hrv != null ? String(Math.round(outputs.readiness.components.hrv)) : "—"}
+          sub={outputs.readiness.trend7d}
+          toneColor={bandToToneColor(outputs.readiness.band)}
+          bgTint={bandToBgTint(outputs.readiness.band)}
         />
       )}
     </div>
@@ -311,6 +316,36 @@ function sessionStatusLabel(ws: WorkoutState): { label: string; className: strin
   if (ws?.status === "completed")
     return { label: "Abgeschlossen", className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" };
   return { label: "Geplant", className: "border-[var(--border-strong)] text-[var(--text-secondary)]" };
+}
+
+function RunStructureRows({ structure, color }: { structure: RunStructure; color: string }) {
+  return (
+    <div className="flex flex-col gap-0" style={{ marginTop: 8 }}>
+      {structure.warmupMin != null && (
+        <div className="flex items-baseline justify-between py-2" style={{ borderLeft: `2px solid ${color}`, paddingLeft: 12, opacity: 0.8 }}>
+          <span className="text-sm">Einlaufen</span>
+          <span className="num text-sm text-[var(--color-foreground-muted)]">{structure.warmupMin} min</span>
+        </div>
+      )}
+      {structure.workIntervals?.map((iv, i) => (
+        <div key={i} className="flex items-baseline justify-between py-2" style={{ borderLeft: `2px solid ${color}`, paddingLeft: 12 }}>
+          <span className="text-sm">
+            {iv.repeats} × {iv.durationMin ? `${iv.durationMin} min` : iv.distanceM ? `${iv.distanceM}m` : ""}
+            {iv.paceTarget && <span className="text-[var(--color-foreground-muted)]"> @ {iv.paceTarget.from === iv.paceTarget.to ? iv.paceTarget.from : `${iv.paceTarget.from}–${iv.paceTarget.to}`}</span>}
+          </span>
+          {iv.restMin != null && (
+            <span className="num text-sm text-[var(--color-foreground-muted)]">{iv.restMin} min Trab</span>
+          )}
+        </div>
+      ))}
+      {structure.cooldownMin != null && (
+        <div className="flex items-baseline justify-between py-2" style={{ borderLeft: `2px solid ${color}`, paddingLeft: 12, opacity: 0.8 }}>
+          <span className="text-sm">Auslaufen</span>
+          <span className="num text-sm text-[var(--color-foreground-muted)]">{structure.cooldownMin} min</span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SessionHeroCard({
@@ -332,189 +367,136 @@ function SessionHeroCard({
   const isRest = final.type === "rest" || final.type === "active_recovery";
   const status = workoutState?.status;
 
-  // Rest day uses Sage as the visible color (charcoal would vanish on black bg)
   const stripeColor = isRest ? "var(--color-session-easy)" : color.color;
+  const stripeBg = isRest ? "var(--color-session-easy-bg)" : color.bg;
   const titleColor = isRest ? "var(--color-session-easy)" : color.color;
+
+  const zoneChipText = final.zoneLabel
+    ? `Z${final.intensityZone ?? ""} · ${final.zoneLabel}`
+    : final.intensityZone
+    ? `Z${final.intensityZone}`
+    : null;
 
   return (
     <div
-      className="flex flex-col gap-4 pl-4 border-l-[3px]"
-      style={{ borderLeftColor: stripeColor }}
+      className="hero-stripe flex flex-col gap-3"
+      style={{
+        borderLeftColor: stripeColor,
+        background: `linear-gradient(90deg, color-mix(in srgb, ${stripeColor} 18%, transparent), transparent 70%)`,
+      }}
     >
-      {/* Title row: session label · status · modulated badge */}
-      <div className="flex items-start justify-between gap-4">
-        <h2
-          className="text-xs uppercase tracking-[0.2em] font-semibold"
-          style={{ color: titleColor }}
-        >
-          {SESSION_LABEL[final.type] ?? final.type}
-        </h2>
-        <div className="flex flex-col items-end gap-1">
+      {/* Title row: session label left, zone chip right */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="label" style={{ color: titleColor, margin: 0 }}>
+            {SESSION_LABEL[final.type] ?? final.type}
+          </span>
           {status === "in_progress" && (
-            <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-[var(--color-success)]">
-              · Live
-            </span>
+            <span className="label" style={{ color: "var(--color-success)", margin: 0 }}>· Live</span>
           )}
           {status === "completed" && (
-            <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-[var(--color-success)]">
-              ✓ Abgeschlossen
-            </span>
+            <span className="label" style={{ color: "var(--color-success)", margin: 0 }}>✓</span>
           )}
           {final.wasModified && (
-            <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-[var(--color-warning)]">
-              ↻ angepasst
-            </span>
+            <span className="label" style={{ color: "var(--color-warning)", margin: 0 }}>↻</span>
           )}
         </div>
+        {!isStrength && zoneChipText && (
+          <span className="chip" style={{ backgroundColor: color.bg, color: color.color }}>
+            {zoneChipText}
+          </span>
+        )}
       </div>
 
-      {/* Rest day hero: prominent label + body text (no charcoal-on-black ghost) */}
+      {/* Rest day */}
       {isRest && (
         <>
-          <span
-            className="num-md uppercase tracking-[0.04em]"
-            style={{ color: titleColor }}
-          >
+          <span className="num-md uppercase tracking-[0.04em]" style={{ color: titleColor }}>
             Ruhetag
           </span>
           <p className="text-sm text-[var(--color-foreground-secondary)] leading-relaxed">
             Recovery ist Training. Heute kein geplanter Workout.
-            {final.notes
-              ? ` ${final.notes}`
-              : " Optional: 15–20 min Mobility, Knee-Score am Abend kurz prüfen."}
+            {final.notes ? ` ${final.notes}` : " Optional: 15–20 min Mobility."}
           </p>
         </>
       )}
 
-      {/* Sprint v0.13: Pre-Run Activation block for run-only days */}
-      {!isStrength && !isRest && final.preRunActivation && final.preRunActivation.length > 0 && (
-        <div className="flex flex-col gap-2 mb-4">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--color-foreground-muted)]">
-            Pre-Run Activation (5 min)
-          </span>
+      {/* Hero number: HR or Pace */}
+      {!isRest && !isStrength && (
+        <>
+          {!isPaceFirst && final.hrTarget ? (
+            <div className="flex items-baseline gap-3">
+              <span className="num-hero" style={{ color: color.color }}>
+                {final.hrTarget.from}–{final.hrTarget.to}
+              </span>
+              <span className="text-base text-[var(--color-foreground-tertiary)]">bpm</span>
+            </div>
+          ) : paceDisplay ? (
+            <div className="flex items-baseline gap-3">
+              <span className="num-hero" style={{ color: color.color }}>
+                {paceDisplay}
+              </span>
+              <span className="text-base text-[var(--color-foreground-tertiary)]">/km</span>
+            </div>
+          ) : null}
+
+          {/* Sub-line: duration · pace · RPE */}
+          <p className="num text-sm text-[var(--color-foreground-secondary)]">
+            {final.durationMin && <>{final.durationMin} min</>}
+            {!isPaceFirst && final.hrTarget && paceDisplay && <> · {paceDisplay} /km</>}
+            {final.rpeTarget != null && <> · RPE {final.rpeTarget}</>}
+          </p>
+        </>
+      )}
+
+      {/* Run structure rows (Einlaufen / Intervalle / Auslaufen) */}
+      {!isStrength && !isRest && final.structure && (
+        <RunStructureRows structure={final.structure} color={stripeColor} />
+      )}
+
+      {/* Pre-Run Activation (only when no structure is available) */}
+      {!isStrength && !isRest && !final.structure && final.preRunActivation && final.preRunActivation.length > 0 && (
+        <div className="flex flex-col gap-2 mt-2">
+          <span className="label">Pre-Run Activation (5 min)</span>
           <ul className="flex flex-col gap-1.5">
             {final.preRunActivation.map((ex, i) => (
               <li key={i} className="flex items-baseline justify-between text-[var(--color-foreground-muted)]">
                 <span className="text-xs">{ex.name}</span>
-                <span className="num text-[10px]">
-                  {ex.sets}×{ex.reps}
-                  {ex.rpeCap !== undefined && <> RPE ≤{ex.rpeCap}</>}
-                </span>
+                <span className="num text-[10px]">{ex.sets}×{ex.reps}</span>
               </li>
             ))}
           </ul>
-          <hr className="rule mt-2" />
         </div>
       )}
 
-      {/* Hero number: HR for hr_first, pace for pace_first/strength fallback */}
-      {!isPaceFirst && final.hrTarget ? (
-        <div className="flex items-baseline gap-3">
-          <span className="num-hero" style={{ color: color.color }}>
-            {final.hrTarget.from}–{final.hrTarget.to}
-          </span>
-          <span className="text-base text-[var(--color-foreground-tertiary)]">
-            bpm
-          </span>
-        </div>
-      ) : paceDisplay && !isStrength ? (
-        <div className="flex items-baseline gap-3">
-          <span className="num-hero" style={{ color: color.color }}>
-            {paceDisplay}
-          </span>
-          <span className="text-base text-[var(--color-foreground-tertiary)]">
-            /km
-          </span>
-        </div>
-      ) : null}
-
-      {/* Secondary line: duration + pace (when HR is primary). Skipped for
-          strength because the strength block below renders its own duration
-          line — would double up otherwise. Skipped for rest. */}
-      {!isRest && !isStrength && (
-        <p className="text-sm text-[var(--color-foreground-secondary)]">
-          {final.durationMin ? (
-            <>
-              <span className="num">{final.durationMin}</span> min
-            </>
-          ) : null}
-          {!isPaceFirst && final.hrTarget && paceDisplay && (
-            <>
-              {" · "}
-              <span className="num">{paceDisplay}</span> /km
-              <span className="text-[var(--color-foreground-muted)]"> (orient.)</span>
-            </>
-          )}
-        </p>
-      )}
-
-      {/* Chips: zoneLabel ∥ Z{n} + RPE */}
-      {!isStrength && (final.zoneLabel || final.intensityZone || final.rpeTarget != null) && (
-        <div className="flex flex-wrap gap-2">
-          {final.zoneLabel ? (
-            <span
-              className="chip"
-              style={{ backgroundColor: color.bg, color: color.color }}
-            >
-              {final.zoneLabel}
-            </span>
-          ) : final.intensityZone ? (
-            <span
-              className="chip"
-              style={{ backgroundColor: color.bg, color: color.color }}
-            >
-              Z{final.intensityZone}
-            </span>
-          ) : null}
-          {final.rpeTarget != null && (
-            <span className="chip bg-[var(--color-muted)] text-[var(--color-foreground-secondary)]">
-              RPE {final.rpeTarget}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Strength: duration line + exercise list (always expanded; collapsibility is Phase 5+ polish) */}
+      {/* Strength: exercise list */}
       {isStrength && (
         <>
           {final.durationMin && (
-            <p className="text-sm text-[var(--color-foreground-secondary)]">
-              <span className="num">{final.durationMin}</span> min
+            <p className="num text-sm text-[var(--color-foreground-secondary)]">
+              {final.durationMin} min
+              {final.exercises && <> · {final.exercises.filter(e => !e.isWarmup).length} ex</>}
             </p>
           )}
           {final.exercises && final.exercises.length > 0 && (
             <ul className="flex flex-col gap-3 mt-1">
               {final.exercises.map((ex, i) => {
                 if (ex.isWarmup) {
-                  // Sprint v0.13: Warmup sets rendered compact and dimmed.
-                  // Show "WARMUP" header before the first warmup set of each exercise.
                   const prevEx = final.exercises![i - 1];
                   const isFirstWarmup = !prevEx || !prevEx.isWarmup || prevEx.name !== ex.name;
                   return (
                     <li key={i} className="flex flex-col gap-0.5">
-                      {isFirstWarmup && (
-                        <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--color-foreground-muted)]">
-                          Warmup · {ex.name}
-                        </span>
-                      )}
+                      {isFirstWarmup && <span className="label">Warmup · {ex.name}</span>}
                       <div className="flex items-baseline gap-2 text-[var(--color-foreground-muted)]">
                         <span className="num text-xs">
                           {ex.sets}×{ex.reps}
-                          {ex.loadAbs !== undefined && ex.loadAbs > 0 ? (
-                            <> @ {ex.loadAbs} kg</>
-                          ) : ex.loadPct ? (
-                            <> @ {ex.loadPct}%</>
-                          ) : null}
+                          {ex.loadAbs !== undefined && ex.loadAbs > 0 ? <> @ {ex.loadAbs} kg</> : ex.loadPct ? <> @ {ex.loadPct}%</> : null}
                         </span>
-                        {ex.rpeCap !== undefined && (
-                          <span className="text-[10px]">RPE ≤{ex.rpeCap}</span>
-                        )}
+                        {ex.rpeCap !== undefined && <span className="text-[10px]">RPE ≤{ex.rpeCap}</span>}
                       </div>
                     </li>
                   );
                 }
-
-                // Working set — full rendering (unchanged).
                 return (
                   <li key={i} className="flex flex-col gap-1">
                     <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-foreground-secondary)]">
@@ -524,25 +506,14 @@ function SessionHeroCard({
                       <span className="num-md text-[var(--color-foreground)]">
                         {ex.sets} × {ex.reps}
                         {ex.loadAbs !== undefined && ex.loadAbs > 0 ? (
-                          <>
-                            <span className="text-[var(--color-foreground-tertiary)]">
-                              {" @ "}
-                            </span>
-                            {ex.loadAbs} kg
-                          </>
+                          <><span className="text-[var(--color-foreground-tertiary)]">{" @ "}</span>{ex.loadAbs} kg</>
                         ) : ex.loadPct ? (
-                          <>
-                            <span className="text-[var(--color-foreground-tertiary)]">
-                              {" @ "}
-                            </span>
-                            {ex.loadPct}%
-                          </>
+                          <><span className="text-[var(--color-foreground-tertiary)]">{" @ "}</span>{ex.loadPct}%</>
                         ) : null}
                       </span>
                       {ex.loadAbs !== undefined && ex.loadAbs > 0 && ex.loadPct ? (
                         <span className="num text-xs text-[var(--color-foreground-muted)]">
                           {ex.loadPct}%
-                          {/* Sprint v0.15: ×BW for working sets */}
                           {currentWeightKg && currentWeightKg > 0 && (
                             <span className="ml-1 text-[var(--color-session-calibration)]">
                               · {(ex.loadAbs / currentWeightKg).toFixed(2)}×
@@ -554,22 +525,11 @@ function SessionHeroCard({
                     {(ex.tempo || ex.restSec !== undefined || ex.rpeCap !== undefined) && (
                       <div className="text-xs text-[var(--color-foreground-tertiary)] flex flex-wrap gap-x-3">
                         {ex.tempo && <span>Tempo {ex.tempo}</span>}
-                        {ex.restSec !== undefined && (
-                          <span>
-                            Pause{" "}
-                            {ex.restSec >= 60
-                              ? `${Math.round(ex.restSec / 60)}min`
-                              : `${ex.restSec}s`}
-                          </span>
-                        )}
+                        {ex.restSec !== undefined && <span>Pause {ex.restSec >= 60 ? `${Math.round(ex.restSec / 60)}min` : `${ex.restSec}s`}</span>}
                         {ex.rpeCap !== undefined && <span>RPE ≤ {ex.rpeCap}</span>}
                       </div>
                     )}
-                    {ex.notes && (
-                      <p className="text-xs italic text-[var(--color-foreground-muted)]">
-                        {ex.notes}
-                      </p>
-                    )}
+                    {ex.notes && <p className="text-xs italic text-[var(--color-foreground-muted)]">{ex.notes}</p>}
                   </li>
                 );
               })}
@@ -578,21 +538,16 @@ function SessionHeroCard({
         </>
       )}
 
-      {/* Inline notes */}
-      {final.notes && (
-        <p className="text-sm italic text-[var(--color-foreground-tertiary)]">
-          {final.notes}
-        </p>
+      {/* Notes */}
+      {!isRest && final.notes && (
+        <p className="text-sm italic text-[var(--color-foreground-tertiary)]">{final.notes}</p>
       )}
 
       {/* Modulation reasons */}
       {final.modifications.length > 0 && (
-        <ul className="flex flex-col gap-1.5 mt-1">
+        <ul className="flex flex-col gap-1 mt-1">
           {final.modifications.map((m, i) => (
-            <li
-              key={i}
-              className="flex items-start gap-2 text-xs text-[var(--color-foreground-tertiary)]"
-            >
+            <li key={i} className="flex items-start gap-2 text-xs text-[var(--color-foreground-tertiary)]">
               <span className="mt-px shrink-0 opacity-50">→</span>
               <span>{m}</span>
             </li>
@@ -600,12 +555,8 @@ function SessionHeroCard({
         </ul>
       )}
 
-      {/* Low confidence warning */}
       {final.confidence < 70 && (
-        <p
-          className="text-xs text-[var(--color-foreground-tertiary)]"
-          title="Engine-Konfidenz basierend auf Datenqualität und Sensor-Vollständigkeit."
-        >
+        <p className="text-xs text-[var(--color-foreground-tertiary)]">
           ⚠ Konfidenz <span className="num">{final.confidence}</span>/100
         </p>
       )}
@@ -636,27 +587,44 @@ function TwoADaySection({
   return (
     <div className="flex flex-col">
       {sessions.map((s, i) => {
-        const slot = slotLabel(s.type);
         const sessionWorkout = workoutMap[s.type] ?? null;
+        const isLater = i > 0;
+        const sessionColor = getSessionColor(s.type);
         return (
-          <div key={i} className="flex flex-col gap-3">
-            {i > 0 && <hr className="rule my-6" />}
-            {slot && (
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--color-foreground-muted)]">
-                {slot}
-              </p>
+          <div key={i} className="flex flex-col">
+            {isLater && (
+              <>
+                <div style={{ height: 20 }} />
+                <div className="section-h">
+                  <span className="label">Heute Später</span>
+                </div>
+                <div style={{ height: 10 }} />
+                <SessionHeroCard final={s} workoutState={sessionWorkout} currentWeightKg={currentWeightKg} />
+                <div style={{ height: 16 }} />
+                <ActionsZone
+                  onChanged={onChanged}
+                  sessionType={s.type}
+                  plannedExercises={s.exercises ?? []}
+                  plannedDurationMin={s.durationMin ?? 45}
+                  workoutState={sessionWorkout}
+                  onWorkoutStateChange={(ws) => onWorkoutStateChange(s.type, ws)}
+                />
+              </>
             )}
-            <SessionHeroCard final={s} workoutState={sessionWorkout} currentWeightKg={currentWeightKg} />
-            {/* Each session gets its own start/complete affordance — Easy Run
-                imports from Garmin, Strength gets the manual set logger. */}
-            <ActionsZone
-              onChanged={onChanged}
-              sessionType={s.type}
-              plannedExercises={s.exercises ?? []}
-              plannedDurationMin={s.durationMin ?? 45}
-              workoutState={sessionWorkout}
-              onWorkoutStateChange={(ws) => onWorkoutStateChange(s.type, ws)}
-            />
+            {!isLater && (
+              <>
+                <SessionHeroCard final={s} workoutState={sessionWorkout} currentWeightKg={currentWeightKg} />
+                <div style={{ height: 16 }} />
+                <ActionsZone
+                  onChanged={onChanged}
+                  sessionType={s.type}
+                  plannedExercises={s.exercises ?? []}
+                  plannedDurationMin={s.durationMin ?? 45}
+                  workoutState={sessionWorkout}
+                  onWorkoutStateChange={(ws) => onWorkoutStateChange(s.type, ws)}
+                />
+              </>
+            )}
           </div>
         );
       })}
@@ -842,14 +810,14 @@ function MorningRitual({
 
       {err && <p className="mt-4 text-sm text-red-400">{err}</p>}
 
-      <Button
+      <button
         onClick={submit}
         disabled={submitting}
-        size="lg"
-        className="mt-6 w-full"
+        className="btn-primary mt-6"
+        style={{ opacity: submitting ? 0.6 : 1 }}
       >
         {submitting ? "Berechne…" : "Session berechnen"}
-      </Button>
+      </button>
     </section>
   );
 }
@@ -877,11 +845,7 @@ function ActionsZone({
   const [err, setErr] = useState<string | null>(null);
 
   if (sessionType === "rest") {
-    return (
-      <p className="py-2 text-center text-sm text-[var(--text-tertiary)]">
-        Heute Ruhetag.
-      </p>
-    );
+    return null;
   }
 
   async function start() {
@@ -936,9 +900,9 @@ function ActionsZone({
 
   return (
     <div>
-      <Button onClick={start} disabled={busy} size="lg" className="w-full">
+      <button onClick={start} disabled={busy} className="btn-primary" style={{ opacity: busy ? 0.6 : 1 }}>
         {busy ? "Starte…" : "Session starten"}
-      </Button>
+      </button>
       {err && (
         <p className="mt-2 text-sm text-[var(--color-destructive)]">{err}</p>
       )}
@@ -1025,31 +989,27 @@ export default function TodayDashboard() {
   // its baseline className; variants override via scoped CSS variables.
   const dashboardInner = (
     <>
-      {/* Header — uppercase weekday · mono day-month */}
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          <span className="uppercase">{weekdayLong}</span>
-          <span className="text-[var(--color-foreground-tertiary)]"> · </span>
-          <span className="num">{dayMonth}</span>
-        </h1>
-        {today.status === "READY" && (
-          <p className="text-[var(--color-foreground-tertiary)] text-xs uppercase tracking-wider">
-            Block {today.week.blockNumber} · W{today.week.weekNumber}{" "}
-            {prettyPhase(today.week.phaseName)}
-            {!shouldShowKneePill(today.sensorOutputs, today.finalSession.type) && (
-              <>
-                {" · Knie "}
-                <span className="num">
-                  {today.sensorOutputs.limitations.kneeScoreToday}
-                </span>
-                /10
-              </>
-            )}
-          </p>
-        )}
-      </header>
-
-      <hr className="rule mt-4 mb-6" />
+      {/* Appbar — design prototype pattern */}
+      <div className="appbar" style={{ padding: 0 }}>
+        <div className="left">
+          <div>
+            <h1 style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-0.01em", margin: 0 }}>Heute</h1>
+            <div className="sub">
+              <span className="num">{dayMonth}</span>
+              {today.status === "READY" && (
+                <>
+                  {" · Block "}
+                  <span className="num">{today.week.blockNumber}</span>
+                  {" · W"}
+                  <span className="num">{today.week.weekNumber}</span>
+                  {" · "}
+                  {prettyPhase(today.week.phaseName)}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Empty states */}
       {today.status === "NO_ACTIVE_PLAN" && (
@@ -1076,13 +1036,13 @@ export default function TodayDashboard() {
         <MorningRitual onSubmitted={refresh} plannedSession={today.plannedSession} />
       )}
 
-      {/* Ready: full dashboard, separated by rule lines */}
+      {/* Ready: full dashboard — design prototype hierarchy */}
       {today.status === "READY" && (
         <>
           {today.week.weekNumber >= 17 && !today.macrocycleEvaluated && (
             <div className="mb-6 flex items-center justify-between rounded-lg border-l-4 border-[var(--color-session-calibration)] bg-[var(--color-session-calibration)]/8 px-4 py-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--color-session-calibration)]">
+                <p className="label" style={{ color: "var(--color-session-calibration)" }}>
                   Makrozyklus abgeschlossen
                 </p>
                 <p className="mt-0.5 text-xs text-[var(--color-foreground-secondary)]">
@@ -1098,12 +1058,7 @@ export default function TodayDashboard() {
             </div>
           )}
 
-          <RecoveryStrip
-            outputs={today.sensorOutputs}
-            sessionType={today.finalSession.type}
-          />
-          <hr className="rule my-6" />
-
+          {/* Session hero — stripe treatment */}
           {(today.finalSessions?.length ?? 0) > 1 ? (
             <TwoADaySection
               finalSessions={today.finalSessions!}
@@ -1124,34 +1079,73 @@ export default function TodayDashboard() {
                 workoutState={workoutMap[today.finalSession.type] ?? null}
                 currentWeightKg={today.currentWeightKg}
               />
-              <hr className="rule my-6" />
-              <ActionsZone
-                onChanged={() => {
-                  refresh();
-                  refreshWorkoutMap();
-                }}
-                sessionType={today.finalSession.type}
-                plannedExercises={today.finalSession.exercises ?? []}
-                plannedDurationMin={today.finalSession.durationMin ?? 45}
-                workoutState={workoutMap[today.finalSession.type] ?? null}
-                onWorkoutStateChange={(ws) =>
-                  setWorkoutMap((prev) => ({
-                    ...prev,
-                    [today.finalSession.type]: ws,
-                  }))
-                }
-              />
             </>
           )}
 
-          <hr className="rule my-6" />
+          <div style={{ height: 20 }} />
 
-          <Link
-            href="/coach"
-            className="block py-3 text-sm uppercase tracking-[0.2em] font-semibold text-[var(--color-foreground-tertiary)] hover:text-[var(--color-foreground-secondary)] transition-colors"
-          >
-            Workout anpassen →
-          </Link>
+          {/* WeekStrip */}
+          <WeekStrip />
+
+          {/* Secondary session for single-session days shows below weekstrip */}
+
+          <div style={{ height: 20 }} />
+
+          {/* CTA: Session starten */}
+          {(() => {
+            const primaryType = today.finalSession.type;
+            const primaryWs = workoutMap[primaryType] ?? null;
+            if ((today.finalSessions?.length ?? 0) <= 1) {
+              return (
+                <ActionsZone
+                  onChanged={() => { refresh(); refreshWorkoutMap(); }}
+                  sessionType={primaryType}
+                  plannedExercises={today.finalSession.exercises ?? []}
+                  plannedDurationMin={today.finalSession.durationMin ?? 45}
+                  workoutState={primaryWs}
+                  onWorkoutStateChange={(ws) =>
+                    setWorkoutMap((prev) => ({ ...prev, [primaryType]: ws }))
+                  }
+                />
+              );
+            }
+            return null;
+          })()}
+
+          <div style={{ height: 20 }} />
+
+          {/* Recovery section */}
+          <div className="section-h">
+            <span className="label">Recovery</span>
+          </div>
+          <div style={{ height: 10 }} />
+          <RecoveryStrip
+            outputs={today.sensorOutputs}
+            sessionType={today.finalSession.type}
+          />
+
+          <div style={{ height: 20 }} />
+
+          {/* Coach line */}
+          <hr className="rule" />
+          <div className="coach">
+            <div className="avatar">A</div>
+            <div>
+              <p className="msg" style={{ margin: 0 }}>
+                {today.sensorOutputs.load.band === "HIGH" ? (
+                  <>ACWR erhöht. Heute moderate Intensität halten.</>
+                ) : today.sensorOutputs.readiness.band === "RED" || today.sensorOutputs.readiness.band === "DANGER" ? (
+                  <>Readiness niedrig. Überlege ob heute leichter trainiert wird.</>
+                ) : (
+                  <>Alles im grünen Bereich. Session wie geplant.</>
+                )}
+              </p>
+              <Link href="/coach" className="link">
+                Anpassen →
+              </Link>
+            </div>
+          </div>
+          <hr className="rule" />
         </>
       )}
     </>
