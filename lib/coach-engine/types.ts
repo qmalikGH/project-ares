@@ -311,6 +311,8 @@ export interface LimitationsOutput {
   kneeTrend7d: Trend7d;
   therapyPhase: TherapyPhase;
   constraints: string[];
+  /** Days since last skipped_illness workout. null = not in recovery, 1-3 = acute, 4-7 = transition, 8-10 = taper. */
+  illnessRecoveryDays: number | null;
 }
 
 // ============================================

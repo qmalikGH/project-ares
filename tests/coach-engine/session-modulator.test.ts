@@ -32,6 +32,7 @@ const cleanLimitations: LimitationsOutput = {
   kneeTrend7d: "stable",
   therapyPhase: "REMODELING",
   constraints: [],
+  illnessRecoveryDays: null,
 };
 
 const thresholdSession: SessionPlan = {
@@ -218,6 +219,122 @@ describe("modulateSession — therapy phase", () => {
     });
     const wallSitCount = (final.exercises ?? []).filter((e) => e.name === "Wall Sit").length;
     expect(wallSitCount).toBe(1);
+  });
+});
+
+describe("modulateSession — illness recovery", () => {
+  it("day 2: threshold → easy + 70% duration", () => {
+    const final = modulateSession(thresholdSession, greenReadiness, optimalLoad, {
+      ...cleanLimitations,
+      illnessRecoveryDays: 2,
+    });
+    expect(final.type).toBe("easy_run");
+    expect(final.intensityZone).toBe(1);
+    expect(final.paceTarget).toBeUndefined();
+    expect(final.structure).toBeUndefined();
+    expect(final.durationMin).toBe(35); // 50 × 0.7
+    expect(final.wasModified).toBe(true);
+    expect(final.modifications.some((m) => m.includes("Illness Recovery"))).toBe(true);
+  });
+
+  it("day 1: vo2max → easy + 70% duration", () => {
+    const final = modulateSession(vo2Session, greenReadiness, optimalLoad, {
+      ...cleanLimitations,
+      illnessRecoveryDays: 1,
+    });
+    expect(final.type).toBe("easy_run");
+    expect(final.durationMin).toBe(35); // 50 × 0.7
+  });
+
+  it("day 3: strength → 80% load cap + sets -1", () => {
+    const final = modulateSession(strengthASession, greenReadiness, optimalLoad, {
+      ...cleanLimitations,
+      illnessRecoveryDays: 3,
+    });
+    // Load capped at 80%
+    final.exercises?.forEach((ex) => {
+      if (ex.loadPct !== undefined) {
+        expect(ex.loadPct).toBeLessThanOrEqual(80);
+      }
+    });
+    // Sets reduced by 1 (min 2)
+    expect(final.exercises?.[0].sets).toBe(3); // 4 - 1 = 3
+    expect(final.exercises?.[1].sets).toBe(2); // 3 - 1 = 2
+    expect(final.exercises?.[2].sets).toBe(2); // 3 - 1 = 2
+    expect(final.modifications.some((m) => m.includes("Kraft"))).toBe(true);
+  });
+
+  it("day 5: run duration 80% (quality allowed)", () => {
+    const final = modulateSession(thresholdSession, greenReadiness, optimalLoad, {
+      ...cleanLimitations,
+      illnessRecoveryDays: 5,
+    });
+    expect(final.type).toBe("threshold_run"); // quality stays
+    expect(final.durationMin).toBe(40); // 50 × 0.8
+  });
+
+  it("day 5: strength → 90% load cap", () => {
+    const final = modulateSession(strengthASession, greenReadiness, optimalLoad, {
+      ...cleanLimitations,
+      illnessRecoveryDays: 5,
+    });
+    final.exercises?.forEach((ex) => {
+      if (ex.loadPct !== undefined) {
+        expect(ex.loadPct).toBeLessThanOrEqual(90);
+      }
+    });
+  });
+
+  it("day 9: no modulation (taper phase)", () => {
+    const final = modulateSession(thresholdSession, greenReadiness, optimalLoad, {
+      ...cleanLimitations,
+      illnessRecoveryDays: 9,
+    });
+    expect(final.type).toBe("threshold_run");
+    expect(final.durationMin).toBe(50);
+    expect(final.wasModified).toBe(false);
+  });
+
+  it("null: no modulation", () => {
+    const final = modulateSession(thresholdSession, greenReadiness, optimalLoad, {
+      ...cleanLimitations,
+      illnessRecoveryDays: null,
+    });
+    expect(final.type).toBe("threshold_run");
+    expect(final.durationMin).toBe(50);
+    expect(final.wasModified).toBe(false);
+  });
+
+  it("illness recovery fires before readiness (additive)", () => {
+    // Day 2 illness + ORANGE readiness: both should fire
+    const final = modulateSession(thresholdSession, {
+      ...greenReadiness,
+      band: "ORANGE",
+      score: 55,
+    }, optimalLoad, {
+      ...cleanLimitations,
+      illnessRecoveryDays: 2,
+    });
+    // Illness: threshold → easy + 70% (35min)
+    // ORANGE: Z3→Z2 (already Z1 from illness), 80% of 35 = 28
+    expect(final.type).toBe("easy_run");
+    expect(final.durationMin).toBe(28); // 50 × 0.7 = 35 → 35 × 0.8 = 28
+    expect(final.modifications.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("easy_run at day 2 stays easy but gets 70% duration", () => {
+    const easySession: SessionPlan = {
+      date: baseDate,
+      type: "easy_run",
+      durationMin: 40,
+      intensityZone: 1,
+    };
+    const final = modulateSession(easySession, greenReadiness, optimalLoad, {
+      ...cleanLimitations,
+      illnessRecoveryDays: 2,
+    });
+    expect(final.type).toBe("easy_run");
+    expect(final.durationMin).toBe(28); // 40 × 0.7
   });
 });
 

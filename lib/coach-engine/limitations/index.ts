@@ -96,11 +96,35 @@ export function generateConstraints(kneeScore: number, therapyPhase: TherapyPhas
   return [...new Set(constraints)];
 }
 
+/**
+ * Compute how many days since the last `skipped_illness` workout.
+ * Returns null when not in recovery (no illness or >10 days ago).
+ * ACSM Return-to-Sport: 1-3 acute, 4-7 transition, 8-10 taper.
+ */
+export function computeIllnessRecoveryDays(
+  recentWorkouts: { date: Date; status: string }[],
+  today: Date,
+): number | null {
+  const illnessDays = recentWorkouts
+    .filter((w) => w.status === "skipped_illness")
+    .sort((a, b) => b.date.getTime() - a.date.getTime());
+
+  if (illnessDays.length === 0) return null;
+
+  const lastIllnessDate = illnessDays[0].date;
+  const diffMs = today.getTime() - lastIllnessDate.getTime();
+  const daysSince = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+
+  return daysSince <= 10 ? daysSince : null;
+}
+
 export function computeKneeStatus(
   todayInputs: { morning: UserMorningInputs; postSession?: number },
   recentKneeData: KneeLog[],
   currentTherapyPhase: TherapyPhase,
   visaPLatest: number | null = null,
+  recentWorkoutStatuses?: { date: Date; status: string }[],
+  today?: Date,
 ): LimitationsOutput {
   const kneeScoreToday = kneeScoreFromInputs(todayInputs.morning, todayInputs.postSession);
 
@@ -130,11 +154,17 @@ export function computeKneeStatus(
 
   const constraints = generateConstraints(kneeScoreToday, therapyPhase);
 
+  const illnessRecoveryDays =
+    recentWorkoutStatuses && today
+      ? computeIllnessRecoveryDays(recentWorkoutStatuses, today)
+      : null;
+
   return {
     kneeScoreToday,
     kneeBaseline28d: Math.round(baseline28 * 10) / 10,
     kneeTrend7d,
     therapyPhase,
     constraints,
+    illnessRecoveryDays,
   };
 }
