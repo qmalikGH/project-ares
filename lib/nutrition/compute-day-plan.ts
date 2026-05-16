@@ -159,12 +159,80 @@ export function computeDayPlan(
 
   // Dinner uses the ratio-based budget (eggs/hack have coarser step sizes)
   const dinnerBudget = Math.round(remainingBudget * config.variableSlots.dinner.budgetRatio);
-  const scaledDinner = scaleRecipe(dinnerTemplate, dinnerBudget);
 
-  // MainMeal gets the ACTUAL remaining kcal after dinner's real output.
-  // This lets rice (10g/36kcal steps) absorb the rounding error from dinner.
-  const mainMealBudget = remainingBudget - scaledDinner.totals.kcal;
-  const scaledMainMeal = scaleRecipe(mainMealTemplate, mainMealBudget);
+  // ── Step 4a: Two-pass macro-aware scaling ──
+  // Pass 1: Scale without protein cap (old behavior) to see natural protein distribution
+  const scaledDinnerUncapped = scaleRecipe(dinnerTemplate, dinnerBudget);
+  const mainMealBudgetRaw = remainingBudget - scaledDinnerUncapped.totals.kcal;
+  const scaledMainMealUncapped = scaleRecipe(mainMealTemplate, mainMealBudgetRaw);
+
+  const uncappedTotalProtein = fixedTotals.protein
+    + scaledDinnerUncapped.totals.protein
+    + scaledMainMealUncapped.totals.protein;
+
+  // Effective protein cap: must satisfy BOTH macro target AND functional minimum
+  const minFunctionalProteinG = Math.round(athleteWeightKg * 2.0);
+  const effectiveProteinTarget = Math.max(
+    config.macroTargets.proteinG,
+    minFunctionalProteinG + nonFunctionalProtein,
+  );
+
+  // Pass 2: Re-scale with protein caps only when there's significant excess (>10g).
+  // Only cap recipes that have a carb component — no-carb recipes can't shift
+  // excess calories from protein to carbs (vegetables can't absorb hundreds of kcal).
+  let scaledDinner, scaledMainMeal;
+  if (uncappedTotalProtein > effectiveProteinTarget + 10) {
+    const remainingProteinG = effectiveProteinTarget - fixedTotals.protein;
+    const dinnerHasCarb = dinnerTemplate.components.some((c) => c.role === "carb");
+    const mainMealHasCarb = mainMealTemplate.components.some((c) => c.role === "carb");
+
+    // Protein from no-carb recipes is fixed (can't be reduced without calorie gap)
+    const uncappedDinnerP = scaledDinnerUncapped.totals.protein;
+    const uncappedMainP = scaledMainMealUncapped.totals.protein;
+    const fixedRecipeP = (dinnerHasCarb ? 0 : uncappedDinnerP) + (mainMealHasCarb ? 0 : uncappedMainP);
+    const cappableTarget = Math.max(0, remainingProteinG - fixedRecipeP);
+    const cappableUncapped = (dinnerHasCarb ? uncappedDinnerP : 0) + (mainMealHasCarb ? uncappedMainP : 0);
+
+    if (cappableUncapped > 0 && cappableTarget < cappableUncapped) {
+      // Distribute reduction proportionally among carb-containing recipes
+      const dinnerCap = dinnerHasCarb
+        ? Math.round(cappableTarget * uncappedDinnerP / cappableUncapped)
+        : undefined;
+
+      const cappedDinner = dinnerCap !== undefined
+        ? scaleRecipe(dinnerTemplate, dinnerBudget, dinnerCap)
+        : scaledDinnerUncapped;
+
+      const mainMealBudget = remainingBudget - cappedDinner.totals.kcal;
+      const mainMealCap = mainMealHasCarb
+        ? Math.max(0, remainingProteinG - cappedDinner.totals.protein)
+        : undefined;
+
+      const cappedMainMeal = mainMealCap !== undefined
+        ? scaleRecipe(mainMealTemplate, mainMealBudget, mainMealCap)
+        : scaleRecipe(mainMealTemplate, mainMealBudget);
+
+      // Validate: capping may cause kcal gap when carb/veg components hit their
+      // maximumAmount and can't absorb the freed calories. Fall back to uncapped
+      // if total kcal drifts beyond tolerance (component maxima are exhausted).
+      const cappedDayKcal = fixedTotals.kcal + cappedDinner.totals.kcal + cappedMainMeal.totals.kcal;
+      if (Math.abs(cappedDayKcal - config.calorieTarget) <= CALORIE_TOLERANCE) {
+        scaledDinner = cappedDinner;
+        scaledMainMeal = cappedMainMeal;
+      } else {
+        // Capping creates worse calorie mismatch than uncapped — keep old behavior
+        scaledDinner = scaledDinnerUncapped;
+        scaledMainMeal = scaledMainMealUncapped;
+      }
+    } else {
+      scaledDinner = scaledDinnerUncapped;
+      scaledMainMeal = scaledMainMealUncapped;
+    }
+  } else {
+    // Protein within range — keep uncapped (old behavior)
+    scaledDinner = scaledDinnerUncapped;
+    scaledMainMeal = scaledMainMealUncapped;
+  }
 
   // ── Step 6: Sum all totals ──
   const dayTotals = addTotals(fixedTotals, scaledMainMeal.totals, scaledDinner.totals);
@@ -215,7 +283,7 @@ export function computeDayPlan(
   }
 
   // 7g. Protein cap per slot — SOFT warning (not error) for MPS-optimal distribution
-  const PROTEIN_CAP_PER_SLOT = 60;
+  const PROTEIN_CAP_PER_SLOT = 50;
   if (scaledMainMeal.totals.protein > PROTEIN_CAP_PER_SLOT) {
     warnings.push(
       `MainMeal protein ${Math.round(scaledMainMeal.totals.protein)}g > ${PROTEIN_CAP_PER_SLOT}g soft cap`,
