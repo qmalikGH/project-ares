@@ -68,11 +68,43 @@ describe("computePeriodizationAdjustment — week pattern", () => {
     expect(adj.rpeCapDelta).toBe(1);
   });
 
-  it("W4 = 85% load, 67% sets, -1 RPE-cap", () => {
+  it("W4 = 85% load, 67% sets, -1 RPE-cap (linear_progression default)", () => {
     const adj = computePeriodizationAdjustment({ ...BASE_CTX, weekInBlock: 4 });
     expect(adj.loadMultiplier).toBeCloseTo(0.85, 3);
     expect(adj.setMultiplier).toBeCloseTo(0.67, 2);
     expect(adj.rpeCapDelta).toBe(-1);
+  });
+});
+
+describe("computePeriodizationAdjustment — W4 setMultiplier per strengthMode (Sprint v1.4)", () => {
+  it("linear_progression mode → W4 setMultiplier 0.67 (unchanged)", () => {
+    const adj = computePeriodizationAdjustment({
+      ...BASE_CTX,
+      weekInBlock: 4,
+      strengthMode: "linear_progression",
+    });
+    expect(adj.setMultiplier).toBeCloseTo(0.67, 2);
+    expect(adj.rationale).toContain("67%");
+  });
+
+  it("maintenance mode → W4 setMultiplier 0.80 (softer deload)", () => {
+    const adj = computePeriodizationAdjustment({
+      ...BASE_CTX,
+      weekInBlock: 4,
+      strengthMode: "maintenance",
+    });
+    expect(adj.setMultiplier).toBeCloseTo(0.80, 2);
+    expect(adj.rationale).toContain("maintenance-adjusted");
+    expect(adj.rationale).toContain("80%");
+  });
+
+  it("minimal mode → W4 setMultiplier 0.80 (same softening)", () => {
+    const adj = computePeriodizationAdjustment({
+      ...BASE_CTX,
+      weekInBlock: 4,
+      strengthMode: "minimal",
+    });
+    expect(adj.setMultiplier).toBeCloseTo(0.80, 2);
   });
 });
 

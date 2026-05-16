@@ -290,3 +290,91 @@ describe("insertWarmupSets", () => {
     expect(result1).toEqual(result2);
   });
 });
+
+// ============================================
+// Sprint v1.4 — New exercises in MOVEMENT_GROUPS
+// ============================================
+
+describe("insertWarmupSets — Sprint v1.4 new exercises", () => {
+  it("Face Pulls: no ramp-up (no loadPct)", () => {
+    const result = insertWarmupSets([
+      { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6 },
+    ]);
+    expect(result.filter((e) => e.isWarmup)).toHaveLength(0);
+  });
+
+  it("Band Pull-Aparts: no ramp-up (no loadPct)", () => {
+    const result = insertWarmupSets([
+      { name: "Band Pull-Aparts", sets: 3, reps: 20, rpeCap: 5 },
+    ]);
+    expect(result.filter((e) => e.isWarmup)).toHaveLength(0);
+  });
+
+  it("Nordic Curls: no ramp-up (no loadPct, bodyweight eccentric)", () => {
+    const result = insertWarmupSets([
+      { name: "Nordic Curls", sets: 3, reps: 6, rpeCap: 7 },
+    ]);
+    expect(result.filter((e) => e.isWarmup)).toHaveLength(0);
+  });
+
+  it("Chin-ups: no ramp-up (bodyweight, no loadPct)", () => {
+    const result = insertWarmupSets([
+      { name: "Chin-ups", sets: 3, reps: 8, rpeCap: 7 },
+    ]);
+    expect(result.filter((e) => e.isWarmup)).toHaveLength(0);
+  });
+
+  it("Dead Bug: no ramp-up (core, no loadPct)", () => {
+    const result = insertWarmupSets([
+      { name: "Dead Bug", sets: 3, reps: "10/side", rpeCap: 6 },
+    ]);
+    expect(result.filter((e) => e.isWarmup)).toHaveLength(0);
+  });
+
+  it("DB Row at 60%: gets ramp-up when upper_pull not yet warm", () => {
+    const result = insertWarmupSets([
+      { name: "DB Row", sets: 3, reps: 10, loadPct: 60, rpeCap: 7 },
+    ]);
+    const warmups = result.filter((e) => e.isWarmup && e.name === "DB Row");
+    expect(warmups).toHaveLength(3);
+  });
+
+  it("DB Row: NO ramp-up when Pull-ups already warmed upper_pull group", () => {
+    // Pull-ups has no loadPct so it doesn't itself generate warmups, but it
+    // ALSO doesn't warm the group. DB Row should generate its warmup.
+    // Test the realistic case: Barbell Row (with loadPct) warms group first.
+    const result = insertWarmupSets([
+      { name: "Barbell Row", sets: 4, reps: 8, loadPct: 65, rpeCap: 8 },
+      { name: "DB Row", sets: 3, reps: 10, loadPct: 60, rpeCap: 7 },
+    ]);
+    const dbRowWarmups = result.filter((e) => e.isWarmup && e.name === "DB Row");
+    // Same upper_pull group; should NOT get its own warmup.
+    expect(dbRowWarmups).toHaveLength(0);
+
+    const barbellWarmups = result.filter((e) => e.isWarmup && e.name === "Barbell Row");
+    expect(barbellWarmups).toHaveLength(3);
+  });
+
+  it("Step-ups at 55%: no ramp-up (below 60% threshold)", () => {
+    const result = insertWarmupSets([
+      { name: "Step-ups", sets: 3, reps: "8/leg", loadPct: 55, rpeCap: 7 },
+    ]);
+    expect(result.filter((e) => e.isWarmup)).toHaveLength(0);
+  });
+
+  it("Step-ups at 60% but Hex Bar already warmed lower_body: no ramp-up", () => {
+    const result = insertWarmupSets([
+      { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8 },
+      { name: "Step-ups", sets: 3, reps: "8/leg", loadPct: 60, rpeCap: 7 },
+    ]);
+    const stepupWarmups = result.filter((e) => e.isWarmup && e.name === "Step-ups");
+    expect(stepupWarmups).toHaveLength(0);
+  });
+
+  it("Depth Drops: no ramp-up (plyometric)", () => {
+    const result = insertWarmupSets([
+      { name: "Depth Drops", sets: 3, reps: 5, rpeCap: 6 },
+    ]);
+    expect(result.filter((e) => e.isWarmup)).toHaveLength(0);
+  });
+});
