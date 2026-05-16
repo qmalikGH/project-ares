@@ -29,7 +29,7 @@ const WARMUP_THRESHOLD_PCT = 60;
 /** Movement pattern groups for warmup deduplication.
  *  Once any exercise in a group gets ramp-up sets, all subsequent
  *  exercises in the SAME group skip ramp-up (muscles are already warm). */
-type MovementGroup = "lower_body" | "upper_push" | "upper_pull" | "full_body";
+type MovementGroup = "lower_body" | "upper_push" | "upper_pull" | "full_body" | "plyometric" | "core" | "shoulder";
 
 const EXERCISE_MOVEMENT_GROUP: Record<string, MovementGroup> = {
   // Lower Body — hip hinge, knee dominant, glutes, calves, carries
@@ -46,6 +46,8 @@ const EXERCISE_MOVEMENT_GROUP: Record<string, MovementGroup> = {
   "Single-Leg Calf Raises": "lower_body",
   "Farmer's Carry": "lower_body",
   "Suitcase Carry": "lower_body",
+  "Nordic Curls": "lower_body",  // Sprint v1.4
+  "Step-ups": "lower_body",       // Sprint v1.4
   // Upper Push
   "Bench Press": "upper_push",
   "DB Bench Press": "upper_push",
@@ -56,6 +58,17 @@ const EXERCISE_MOVEMENT_GROUP: Record<string, MovementGroup> = {
   "Pull-ups": "upper_pull",
   "Lat Pulldown": "upper_pull",
   "Barbell Row": "upper_pull",
+  "DB Row": "upper_pull",              // Sprint v1.4
+  "Chin-ups": "upper_pull",            // Sprint v1.4
+  "Face Pulls": "upper_pull",          // Sprint v1.4
+  "Band Pull-Aparts": "upper_pull",    // Sprint v1.4
+  // Plyometric — never gets warmup (separate ramp from running drills)
+  "Box Jumps": "plyometric",           // Sprint v1.4
+  "Broad Jumps": "plyometric",         // Sprint v1.4
+  "Depth Drops": "plyometric",         // Sprint v1.4
+  // Core
+  "Pallof Press": "core",              // Sprint v1.4
+  "Dead Bug": "core",                  // Sprint v1.4
 };
 
 function getMovementGroup(exerciseName: string): MovementGroup | null {

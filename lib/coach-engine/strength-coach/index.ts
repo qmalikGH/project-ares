@@ -64,81 +64,190 @@ type StrengthSlot = "strength_a" | "strength_b" | "strength_c";
 type BlockTemplateMap = Partial<Record<BlockNumber, Record<StrengthSlot, Exercise[]>>>;
 
 const BLOCK_TEMPLATES: BlockTemplateMap = {
-  // Block 1: foundation. HSR is introduced, accessories are "classic" (bilateral,
-  // bilateral-pull, basic plyo).
+  // Block 1: foundation. HSR introduced, accessories "classic". Sprint v1.4
+  // adds Face Pulls (shoulder health + horizontal pull) in StrA + StrB and
+  // DB Row in StrC so no session has 0 pull volume.
   1: {
     strength_a: [
-      // HSR — slow tempo is the active ingredient for tendon remodeling
+      // HSR — slow tempo for tendon remodeling (Kongsgaard 2009)
       { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, tempo: "3-3-1", restSec: 180 },
+      // Push
       { name: "Bench Press", sets: 3, reps: 8, loadPct: 75, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
+      // Lower accessory
       { name: "Reverse Lunge", sets: 3, reps: "10/leg", loadPct: 60, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
-      // Sprint v0.12: Calf Raises → Tibialis Anterior Raises. Marques 2025
-      // (MA, n=8197) shows neuromuscular training is the highest-evidence
-      // MTSS prevention; weak tibialis anterior is a primary risk factor.
+      // Pull / Shoulder — Sprint v1.4: balances Bench, posterior delt + ext rotation
+      { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, tempo: "1-2-1", restSec: 60,
+        notes: "Schulter-Gesundheit: Posterior Delt + External Rotation. Cable oder Band." },
+      // Therapy
       { name: "Tibialis Anterior Raises", sets: 3, reps: 15, rpeCap: 6, tempo: "2-1-2", restSec: 60,
         notes: "Shin-Splint-Prävention (Marques 2025). Ferse auf Stufe, Fußspitze heben." },
+      // Core
       { name: "Pallof Press", sets: 3, reps: "10/side", rpeCap: 6, tempo: "1-2-1", restSec: 60 },
     ],
     strength_b: [
-      { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "3-3-1", restSec: 180 }, // HSR
+      // HSR
+      { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "3-3-1", restSec: 180 },
+      // Pull (vertical)
       { name: "Pull-ups", sets: 4, reps: 8, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
+      // Lower accessory
       { name: "Hip Thrust", sets: 3, reps: 10, loadPct: 70, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
-      { name: "Pallof Press", sets: 3, reps: "10/side", rpeCap: 6, tempo: "1-2-1", restSec: 60 },
-      // Sprint v0.12: intrinsic foot muscle activation. Newsham 2023:
-      // 93% reduction in MTSS recurrence with foot-core training.
+      // Shoulder — Sprint v1.4
+      { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, tempo: "1-2-1", restSec: 60,
+        notes: "Schulter-Gesundheit." },
+      // Therapy
       { name: "Short Foot Exercise", sets: 2, reps: "30sec hold", rpeCap: 5, restSec: 30,
         notes: "Intrinsic foot muscles (Newsham 2023: 93% weniger Rezidive). Fußgewölbe aktiv anheben, barfuß." },
     ],
     strength_c: [
-      { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 }, // HSR
+      // HSR
+      { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 },
+      // Push
       { name: "DB Bench Press", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
-      { name: "Broad Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 120, notes: "Plyo (knee-friendly alternative to box jumps)" },
-      // Sprint v0.12: soleus-focused unilateral calf work — running-specific
-      // shock absorption (Pillai 2025: training volume is the dominant MTSS
-      // risk factor; calf strength buffers landing impact).
+      // Pull (horizontal) — Sprint v1.4: balances DB Bench Press, StrC had 0 pull before
+      { name: "DB Row", sets: 3, reps: 10, loadPct: 60, rpeCap: 7, tempo: "2-1-1", restSec: 90,
+        notes: "Horizontal Pull — gleicht DB Bench Press aus." },
+      // Plyo
+      { name: "Broad Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 120,
+        notes: "Plyo (knee-friendly alternative to box jumps)" },
+      // Therapy
       { name: "Single-Leg Calf Raises", sets: 3, reps: "12/leg", rpeCap: 7, tempo: "2-2-2", restSec: 60,
         notes: "Auf Stufe, volle ROM. Soleus-fokussiert für Lauf-Stoßdämpfung." },
+      // Carry
       { name: "Farmer's Carry", sets: 3, reps: "30m", loadPct: 60, rpeCap: 6, restSec: 90 },
     ],
   },
-  // Block 2: Build / Threshold-Intro (weeks 5-8). HSR-Lifts (Hex Bar, RDL)
-  // identical to Block 1 — Kongsgaard 2009 tendon-protocol consistency.
-  // Accessories vary systematically (Kassiano 2022): different angle, unilateral
-  // vs bilateral, anti-extension instead of anti-rotation, soleus instead of
-  // gastrocnemius. Volume / RPE caps the same; only the movement pool changes.
+  // Block 2: Build / Threshold-Intro. Same template structure, systematic
+  // variation (Kassiano 2022): different angles, unilateral, anti-extension.
+  // Sprint v1.4: Face Pulls in StrA+StrB, Chin-ups in StrC.
   2: {
     strength_a: [
       { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, tempo: "3-3-1", restSec: 180 },                  // HSR — KONSTANT
-      { name: "Incline DB Press", sets: 3, reps: 8, loadPct: 70, rpeCap: 8, tempo: "2-1-1", restSec: 120 },                  // var: anderer Winkel als Bench
-      { name: "Bulgarian Split Squat", sets: 3, reps: "8/leg", loadPct: 55, rpeCap: 7, tempo: "2-1-1", restSec: 90 },        // var: lauf-spezifischer als Reverse Lunge
-      // Sprint v0.12: Seated Calf Raises → Tibialis Anterior Raises (same
-      // shin-splint-prevention rationale as Block 1 — Marques 2025).
+      { name: "Incline DB Press", sets: 3, reps: 8, loadPct: 70, rpeCap: 8, tempo: "2-1-1", restSec: 120 },                  // var: anderer Winkel
+      { name: "Bulgarian Split Squat", sets: 3, reps: "8/leg", loadPct: 55, rpeCap: 7, tempo: "2-1-1", restSec: 90 },        // var: unilateral
+      // Shoulder — Sprint v1.4
+      { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, tempo: "1-2-1", restSec: 60,
+        notes: "Schulter-Gesundheit." },
       { name: "Tibialis Anterior Raises", sets: 3, reps: 15, rpeCap: 6, tempo: "2-1-2", restSec: 60,
         notes: "Shin-Splint-Prävention (Marques 2025)." },
-      { name: "Dead Bug", sets: 3, reps: "10/side", rpeCap: 6, tempo: "2-2-2", restSec: 60 },                                 // var: Anti-Extension statt Anti-Rotation
+      { name: "Dead Bug", sets: 3, reps: "10/side", rpeCap: 6, tempo: "2-2-2", restSec: 60 },                                 // var: Anti-Extension
     ],
     strength_b: [
       { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "3-3-1", restSec: 180 },                 // HSR — KONSTANT
-      { name: "Barbell Row", sets: 4, reps: 8, loadPct: 65, rpeCap: 8, tempo: "2-1-1", restSec: 120 },                       // var: horizontal Pull statt vertikal (Pull-ups)
+      { name: "Barbell Row", sets: 4, reps: 8, loadPct: 65, rpeCap: 8, tempo: "2-1-1", restSec: 120 },                       // var: horizontal
       { name: "Single-Leg Hip Thrust", sets: 3, reps: "10/leg", loadPct: 50, rpeCap: 7, tempo: "2-1-1", restSec: 90 },       // var: unilateral
-      { name: "Pallof Press", sets: 3, reps: "10/side", rpeCap: 6, tempo: "1-2-1", restSec: 60 },                            // gleich: bewährt
-      // Sprint v0.12: foot-core finisher (Newsham 2023).
+      // Shoulder — Sprint v1.4
+      { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, tempo: "1-2-1", restSec: 60,
+        notes: "Schulter-Gesundheit." },
       { name: "Short Foot Exercise", sets: 2, reps: "30sec hold", rpeCap: 5, restSec: 30,
         notes: "Intrinsic foot muscles (Newsham 2023)." },
     ],
     strength_c: [
       { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 },                  // HSR — KONSTANT
-      { name: "Push-ups", sets: 3, reps: 12, rpeCap: 7, tempo: "2-1-1", restSec: 90, notes: "Weighted vest if BW too easy" },// var: höhere Reps, BW-progression
-      { name: "Box Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 120, notes: "Low box ~30cm, reactive plyo" },// var: reaktiver als Broad Jumps
-      // Sprint v0.12: soleus-focused unilateral calf work, before the
-      // unilateral carry — same MTSS rationale as Block 1.
+      { name: "Push-ups", sets: 3, reps: 12, rpeCap: 7, tempo: "2-1-1", restSec: 90,
+        notes: "Weighted vest if BW too easy" },
+      // Pull — Sprint v1.4: Chin-ups (supinated grip, biceps + lat). Variation: vertical pull complements StrB Barbell Row (horizontal).
+      { name: "Chin-ups", sets: 3, reps: 8, rpeCap: 7, tempo: "2-1-1", restSec: 90,
+        notes: "Supinated Grip — Biceps + Lat. Variation zu Barbell Row (StrB)." },
+      { name: "Box Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 120,
+        notes: "Low box ~30cm, reactive plyo" },
       { name: "Single-Leg Calf Raises", sets: 3, reps: "12/leg", rpeCap: 7, tempo: "2-2-2", restSec: 60,
         notes: "Soleus-fokussiert." },
-      { name: "Suitcase Carry", sets: 3, reps: "30m/side", loadPct: 50, rpeCap: 6, restSec: 90 },                            // var: unilateral statt bilateral
+      { name: "Suitcase Carry", sets: 3, reps: "30m/side", loadPct: 50, rpeCap: 6, restSec: 90 },                            // var: unilateral
     ],
   },
-  // Block 3-5: intentionally undefined — derived during Block 2 W4 deload
-  // from the user's actual training data (rolling 1RM, RPE trends, knee NRS).
+  // Block 3: Transmutation / Threshold. Run volume rises (Long Run 75min) —
+  // strength shifts to run-specific (unilateral) + hamstring resilience
+  // (Nordic Curls, van Dyk 2019: 51% reduction in hamstring injuries).
+  3: {
+    strength_a: [
+      { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, tempo: "3-3-1", restSec: 180 },                  // HSR — KONSTANT
+      // Push — back to Bench (rotation from Block 2 Incline DB)
+      { name: "Bench Press", sets: 3, reps: 8, loadPct: 75, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
+      // Lower — Step-ups (run-specific, unilateral)
+      { name: "Step-ups", sets: 3, reps: "8/leg", loadPct: 55, rpeCap: 7, tempo: "2-1-1", restSec: 90,
+        notes: "Box-Höhe knie-hoch. Lauf-spezifische unilaterale Kraft (Balsalobre-Fernandez 2016)." },
+      { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, tempo: "1-2-1", restSec: 60,
+        notes: "Schulter-Gesundheit." },
+      { name: "Tibialis Anterior Raises", sets: 3, reps: 15, rpeCap: 6, tempo: "2-1-2", restSec: 60,
+        notes: "Shin-Splint-Prävention (Marques 2025)." },
+      // Core — back to Anti-Rotation (rotation from Block 2 Dead Bug)
+      { name: "Pallof Press", sets: 3, reps: "10/side", rpeCap: 6, tempo: "1-2-1", restSec: 60 },
+    ],
+    strength_b: [
+      { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "3-3-1", restSec: 180 },                 // HSR — KONSTANT
+      // Pull — back to vertical (rotation from Block 2 Barbell Row)
+      { name: "Pull-ups", sets: 4, reps: 8, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
+      // Hamstring resilience — Sprint v1.4: Nordic Curls (van Dyk 2019)
+      { name: "Nordic Curls", sets: 3, reps: 6, rpeCap: 7, tempo: "3-1-X", restSec: 120,
+        notes: "Exzentrisch betont. Partner oder GHR-Bank. Van Dyk 2019: 51% weniger Hamstring-Verletzungen." },
+      { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, tempo: "1-2-1", restSec: 60,
+        notes: "Schulter-Gesundheit." },
+      { name: "Short Foot Exercise", sets: 2, reps: "30sec hold", rpeCap: 5, restSec: 30,
+        notes: "Intrinsic foot muscles (Newsham 2023)." },
+    ],
+    strength_c: [
+      { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 },                  // HSR — KONSTANT
+      // Push — DB Bench (rotation)
+      { name: "DB Bench Press", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
+      // Pull — DB Row (horizontal; StrB has vertical Pull-ups)
+      { name: "DB Row", sets: 3, reps: 10, loadPct: 60, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
+      // Plyo — Box Jumps for reactive strength
+      { name: "Box Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 120 },
+      { name: "Single-Leg Calf Raises", sets: 3, reps: "12/leg", rpeCap: 7, tempo: "2-2-2", restSec: 60 },
+      // Carry — back to bilateral (rotation)
+      { name: "Farmer's Carry", sets: 3, reps: "30m", loadPct: 60, rpeCap: 6, restSec: 90 },
+    ],
+  },
+  // Block 4: Transmutation / VO2max. Same maintenance mode as Block 3 but
+  // run focus shifts to Z3 (VO2max). Strength varies (Kassiano 2022) and
+  // emphasizes power/reactive (Depth Drops). Hamstring work continues
+  // (high run volume).
+  4: {
+    strength_a: [
+      { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, tempo: "3-3-1", restSec: 180 },                  // HSR — KONSTANT
+      // Push — Incline DB (rotation from Block 3 Flat Bench)
+      { name: "Incline DB Press", sets: 3, reps: 8, loadPct: 70, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
+      // Lower — BSS (rotation from Block 3 Step-ups)
+      { name: "Bulgarian Split Squat", sets: 3, reps: "8/leg", loadPct: 55, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
+      // Shoulder — Band Pull-Aparts (rotation from Face Pulls)
+      { name: "Band Pull-Aparts", sets: 3, reps: 20, rpeCap: 5, restSec: 45,
+        notes: "Variation von Face Pulls — Posterior Delt + Rhomboids." },
+      { name: "Tibialis Anterior Raises", sets: 3, reps: 15, rpeCap: 6, tempo: "2-1-2", restSec: 60,
+        notes: "Shin-Splint-Prävention (Marques 2025)." },
+      // Core — Dead Bug (rotation from Block 3 Pallof)
+      { name: "Dead Bug", sets: 3, reps: "10/side", rpeCap: 6, tempo: "2-2-2", restSec: 60 },
+    ],
+    strength_b: [
+      { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "3-3-1", restSec: 180 },                 // HSR — KONSTANT
+      // Pull — Barbell Row (rotation from Block 3 Pull-ups)
+      { name: "Barbell Row", sets: 4, reps: 8, loadPct: 65, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
+      // Hamstring — Nordic Curls stay (proven, high run volume)
+      { name: "Nordic Curls", sets: 3, reps: 6, rpeCap: 7, tempo: "3-1-X", restSec: 120,
+        notes: "Van Dyk 2019: 51% weniger Hamstring-Verletzungen." },
+      { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, tempo: "1-2-1", restSec: 60,
+        notes: "Schulter-Gesundheit." },
+      { name: "Short Foot Exercise", sets: 2, reps: "30sec hold", rpeCap: 5, restSec: 30,
+        notes: "Intrinsic foot muscles (Newsham 2023)." },
+    ],
+    strength_c: [
+      { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 },                  // HSR — KONSTANT
+      // Push — Push-ups (rotation)
+      { name: "Push-ups", sets: 3, reps: 12, rpeCap: 7, tempo: "2-1-1", restSec: 90,
+        notes: "Weighted vest wenn BW zu leicht." },
+      // Pull — Chin-ups (rotation from Block 3 DB Row → vertical)
+      { name: "Chin-ups", sets: 3, reps: 8, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
+      // Plyo — Depth Drops (power for VO2max phase)
+      { name: "Depth Drops", sets: 3, reps: 5, rpeCap: 6, tempo: "X-X-X", restSec: 120,
+        notes: "Von 20-30cm Box fallen lassen, sofort springen. Reactive Strength Index." },
+      { name: "Single-Leg Calf Raises", sets: 3, reps: "12/leg", rpeCap: 7, tempo: "2-2-2", restSec: 60 },
+      // Carry — Suitcase (rotation)
+      { name: "Suitcase Carry", sets: 3, reps: "30m/side", loadPct: 50, rpeCap: 6, restSec: 90 },
+    ],
+  },
+  // Block 5: intentionally undefined — falls through to Block 4 via the
+  // Sprint v1.4 walk-down fallback chain. With strengthMode "minimal" and
+  // 2 sessions (StrA+StrB), gives the peaking phase a sane volume floor
+  // while preserving exercise variation.
 };
 
 /**
@@ -206,14 +315,72 @@ export function isHsrLift(name: string): boolean {
 const SUPERSET_INTRA_REST_SEC = 0;
 
 /**
+ * Pairing-Rule für ein Block × Session-Pair. Sprint v1.4 — table-driven
+ * replaces the hardcoded if/else chain that only handled Block 2-4 partially.
+ *
+ * `exercise1` runs first with restSec=0 (immediate transition). `exercise2`
+ * runs with the partnerRestSec (matches the heavier partner so we don't
+ * drop recovery in the chain).
+ */
+type PairingRule = {
+  exercise1: string;
+  exercise2: string;
+  group: string;
+  rationale: string;
+  /** Rest after exercise2 finishes the pair (cycle rest). Defaults to 90s. */
+  partnerRestSec?: number;
+};
+
+const PAIRING_RULES: Record<number, Partial<Record<StrengthSlot, PairingRule[]>>> = {
+  2: {
+    strength_a: [
+      { exercise1: "Incline DB Press", exercise2: "Face Pulls", group: "A1",
+        rationale: "Push + Rear Pull: low antagonist conflict, time-efficient." },
+    ],
+    strength_b: [
+      { exercise1: "Barbell Row", exercise2: "Single-Leg Hip Thrust", group: "B1",
+        rationale: "Pull + Hip-hinge: different muscle groups, no antagonist conflict.",
+        partnerRestSec: 120 },
+    ],
+    strength_c: [], // Push-ups + Chin-ups remain Straight Sets in Block 2
+  },
+  3: {
+    strength_a: [
+      { exercise1: "Bench Press", exercise2: "Face Pulls", group: "A1",
+        rationale: "Push + Rear Pull: low antagonist conflict, time-efficient." },
+    ],
+    strength_b: [
+      { exercise1: "Pull-ups", exercise2: "Nordic Curls", group: "B1",
+        rationale: "Pull + Knee-flexion: different muscle patterns.",
+        partnerRestSec: 120 },
+    ],
+    strength_c: [
+      { exercise1: "DB Bench Press", exercise2: "DB Row", group: "C1",
+        rationale: "Classic antagonist pair: Push + Pull, balanced fatigue." },
+    ],
+  },
+  4: {
+    strength_a: [
+      { exercise1: "Incline DB Press", exercise2: "Band Pull-Aparts", group: "A1",
+        rationale: "Push + Rear Pull: low fatigue interaction." },
+    ],
+    strength_b: [
+      { exercise1: "Barbell Row", exercise2: "Nordic Curls", group: "B1",
+        rationale: "Pull + Knee-flexion: different patterns.",
+        partnerRestSec: 120 },
+    ],
+    strength_c: [
+      { exercise1: "Push-ups", exercise2: "Chin-ups", group: "C1",
+        rationale: "BW Push + BW Pull: low fatigue interaction, time-efficient." },
+    ],
+  },
+};
+
+/**
  * Apply Superset-Pairing rules in-place on a copy of `exercises`.
  *
- * Pairing strategy (per session type, only Block 2-4):
- *   strength_a: Bench Press (1) + Pallof Press (2) → group "A1"
- *               (push + anti-rotation; minimal antagonist conflict)
- *   strength_b: Pull-ups (1) + Hip Thrust (2) → group "B1"
- *               (vertical pull + posterior-chain hinge; different muscle groups)
- *   strength_c: no pair (Broad Jumps + Farmer's Carry don't antagonize cleanly)
+ * Block 1 + Block 5 → pure Straight Sets (no pairs). HSR-Lifts NEVER paired
+ * (Kongsgaard 2009: full rest is the tendon-loading stimulus).
  *
  * Pure function — input array is not mutated; returns a new array.
  */
@@ -227,59 +394,33 @@ export function applySupersetPairing(
     return exercises.map((ex) => ({ ...ex }));
   }
 
+  const rules = PAIRING_RULES[blockNumber]?.[sessionType] ?? [];
+  if (rules.length === 0) return exercises.map((ex) => ({ ...ex }));
+
   return exercises.map((ex) => {
     // HSR-Lifts NEVER paired — full rest is the active ingredient.
     if (isHsrLift(ex.name)) return { ...ex };
 
-    if (sessionType === "strength_a") {
-      if (ex.name === "Bench Press") {
+    for (const rule of rules) {
+      if (ex.name === rule.exercise1) {
         return {
           ...ex,
-          supersetGroup: "A1",
+          supersetGroup: rule.group,
           supersetOrder: 1,
-          supersetRationale:
-            "Push + Anti-rotation: low antagonist conflict, time-efficient.",
+          supersetRationale: rule.rationale,
           restSec: SUPERSET_INTRA_REST_SEC,
         };
       }
-      if (ex.name === "Pallof Press") {
-        // Original Pallof restSec = 60s; full pair-rest matches the heavier
-        // partner (Bench had 120s) so we don't drop recovery in the chain.
+      if (ex.name === rule.exercise2) {
         return {
           ...ex,
-          supersetGroup: "A1",
+          supersetGroup: rule.group,
           supersetOrder: 2,
-          supersetRationale:
-            "Push + Anti-rotation: low antagonist conflict, time-efficient.",
-          restSec: 90,
+          supersetRationale: rule.rationale,
+          restSec: rule.partnerRestSec ?? 90,
         };
       }
     }
-
-    if (sessionType === "strength_b") {
-      if (ex.name === "Pull-ups") {
-        return {
-          ...ex,
-          supersetGroup: "B1",
-          supersetOrder: 1,
-          supersetRationale:
-            "Pull + Hip-hinge: different muscle groups, no antagonist conflict.",
-          restSec: SUPERSET_INTRA_REST_SEC,
-        };
-      }
-      if (ex.name === "Hip Thrust") {
-        return {
-          ...ex,
-          supersetGroup: "B1",
-          supersetOrder: 2,
-          supersetRationale:
-            "Pull + Hip-hinge: different muscle groups, no antagonist conflict.",
-          restSec: 120,
-        };
-      }
-    }
-
-    // strength_c → no pairs in v0.7 (no clean antagonist match).
     return { ...ex };
   });
 }
