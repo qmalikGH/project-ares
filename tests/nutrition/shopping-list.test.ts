@@ -40,11 +40,11 @@ describe("extractDayNeeds", () => {
     expect(need.hackG).toBe(0);
   });
 
-  it("Saturday (long_run): hack mainMeal + eggs dinner", () => {
+  it("Saturday (long_run): hack mainMeal + chicken dinner", () => {
     const need = extractDayNeeds(slotsMap[6]!);
     expect(need.hackG).toBeGreaterThan(0);
-    expect(need.eggCount).toBeGreaterThan(0);
-    expect(need.chickenG).toBe(0);
+    expect(need.chickenG).toBeGreaterThan(0);
+    expect(need.eggCount).toBe(0);
   });
 
   it("Sunday (rest): egg mainMeal (no rice) + chicken dinner (v1.2)", () => {
@@ -129,11 +129,11 @@ describe("v2 recipe assignment per weekday", () => {
     expect(need.hackG).toBe(0);
   });
 
-  it("long_run (Sat) has hack + eggs", () => {
+  it("long_run (Sat) has hack + chicken", () => {
     const need = extractDayNeeds(slotsMap[6]!);
     expect(need.hackG).toBeGreaterThan(0);
-    expect(need.eggCount).toBeGreaterThan(0);
-    expect(need.chickenG).toBe(0);
+    expect(need.chickenG).toBeGreaterThan(0);
+    expect(need.eggCount).toBe(0);
   });
 
   it("rest days (Wed, Sun) have eggs + chicken (v1.2: Hähnchen statt Hack)", () => {

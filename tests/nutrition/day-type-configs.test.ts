@@ -106,10 +106,10 @@ describe("Recipe assignments (v1.2)", () => {
     expect(c.variableSlots.dinner.recipeId).toBe("egg_chicken_rice_asia");
   });
 
-  it("long_run: hack mainMeal, egg_rice_brokkoli dinner", () => {
+  it("long_run: hack mainMeal, chicken_rice_brokkoli dinner", () => {
     const c = findDayTypeConfig("long_run");
     expect(c.variableSlots.mainMeal.recipeId).toBe("hack_rice_brokkoli");
-    expect(c.variableSlots.dinner.recipeId).toBe("egg_rice_brokkoli");
+    expect(c.variableSlots.dinner.recipeId).toBe("chicken_rice_brokkoli");
   });
 
   it("rest: egg_asia_norice mainMeal (no rice), chicken_rice_brokkoli dinner", () => {

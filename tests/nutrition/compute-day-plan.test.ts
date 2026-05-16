@@ -148,6 +148,42 @@ describe("computeDayPlan — guards", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Collagen non-functional protein (Sprint: fix_collagen_protein_accounting)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("computeDayPlan — collagen protein excluded from functional check", () => {
+  const minProtein = Math.round(weight * 2.0); // 184g at 92kg
+
+  it("strength_run: functional protein (minus 14g collagen) >= 184g", () => {
+    const plan = computeDayPlan(configFor("strength_run"), recipes, weight);
+    expect(plan.validation.valid).toBe(true);
+    const functionalProtein = plan.totals.protein - 14;
+    expect(functionalProtein).toBeGreaterThanOrEqual(minProtein);
+  });
+
+  it("threshold: functional protein (minus 14g collagen) >= 184g", () => {
+    const plan = computeDayPlan(configFor("threshold"), recipes, weight);
+    expect(plan.validation.valid).toBe(true);
+    const functionalProtein = plan.totals.protein - 14;
+    expect(functionalProtein).toBeGreaterThanOrEqual(minProtein);
+  });
+
+  it("long_run: functional protein (minus 14g collagen) >= 184g", () => {
+    const plan = computeDayPlan(configFor("long_run"), recipes, weight);
+    expect(plan.validation.valid).toBe(true);
+    const functionalProtein = plan.totals.protein - 14;
+    expect(functionalProtein).toBeGreaterThanOrEqual(minProtein);
+  });
+
+  it("rest: no collagen (preTraining null) — protein unchanged, valid", () => {
+    const plan = computeDayPlan(configFor("rest"), recipes, weight);
+    expect(plan.validation.valid).toBe(true);
+    // Rest has no preTraining → no collagen → functional = total
+    expect(plan.totals.protein).toBeGreaterThanOrEqual(minProtein);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Determinism
 // ═══════════════════════════════════════════════════════════════════════════
 
