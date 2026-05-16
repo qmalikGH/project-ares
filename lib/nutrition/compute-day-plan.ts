@@ -118,6 +118,12 @@ export function computeDayPlan(
     }
   }
 
+  // Non-functional protein: items where functionalProtein === false (e.g. collagen — no leucine, no MPS)
+  const allFixedItems = Object.values(slotMap).flat().filter((x): x is FixedSlotItem => x !== null);
+  let nonFunctionalProtein = allFixedItems
+    .filter((item) => item.functionalProtein === false)
+    .reduce((sum, item) => sum + item.protein, 0);
+
   // ── Step 2: Flex dessert (Skyr) ──
   let flexDessertResult: ComputedDayPlan["flexDessert"] = null;
   if (config.fixedSlots.flexDessert?.enabled) {
@@ -128,6 +134,10 @@ export function computeDayPlan(
       totalKcal: dessertTotals.kcal,
     };
     fixedTotals = addTotals(fixedTotals, dessertTotals);
+    // Include flex dessert items in non-functional protein check
+    nonFunctionalProtein += config.fixedSlots.flexDessert.items
+      .filter((item) => item.functionalProtein === false)
+      .reduce((sum, item) => sum + item.protein, 0);
   }
 
   const fixedSlotsTotalKcal = fixedTotals.kcal;
@@ -171,11 +181,13 @@ export function computeDayPlan(
     );
   }
 
-  // 7b. Protein minimum (2.0 g/kg)
+  // 7b. Functional protein minimum (2.0 g/kg)
+  // Exclude non-functional protein (e.g. collagen — no leucine, no MPS stimulus)
+  const functionalProtein = dayTotals.protein - nonFunctionalProtein;
   const minProtein = Math.round(athleteWeightKg * 2.0);
-  if (dayTotals.protein < minProtein) {
+  if (functionalProtein < minProtein) {
     errors.push(
-      `Protein ${dayTotals.protein}g < minimum ${minProtein}g (${athleteWeightKg}kg × 2.0)`,
+      `Functional protein ${functionalProtein}g < minimum ${minProtein}g (${athleteWeightKg}kg × 2.0, excludes ${nonFunctionalProtein}g non-functional)`,
     );
   }
 

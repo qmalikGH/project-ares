@@ -87,10 +87,10 @@ describe("templateSlotsForDayType — slot composition", () => {
     expect(slots.dinner.recipe).toBe("egg_asia_norice");
   });
 
-  it("long_run: mainMeal=hack_rice_brokkoli, dinner=egg_rice_brokkoli (v1.2)", () => {
+  it("long_run: mainMeal=hack_rice_brokkoli, dinner=chicken_rice_brokkoli", () => {
     const slots = templateSlotsForDayType("long_run");
     expect(slots.mainMeal.recipe).toBe("hack_rice_brokkoli");
-    expect(slots.dinner.recipe).toBe("egg_rice_brokkoli");
+    expect(slots.dinner.recipe).toBe("chicken_rice_brokkoli");
   });
 
   it("rest: mainMeal=egg_asia_norice (no rice), dinner=chicken_rice_brokkoli (v1.2)", () => {
@@ -347,11 +347,11 @@ describe("buildSlotsForWeekday — v2 recipe assignment", () => {
     expect(slots.dinner.recipe).toBe("egg_chicken_rice_asia");
   });
 
-  it("long_run day (Sat) uses hack mainMeal + egg_rice_brokkoli dinner (v1.2)", () => {
+  it("long_run day (Sat) uses hack mainMeal + chicken_rice_brokkoli dinner", () => {
     const dayType = DAY_TYPE_BY_WEEKDAY[6] as DayType;
     const slots = buildSlotsForWeekday(6, INITIAL_TARGETS[dayType]);
     expect(slots.mainMeal.recipe).toBe("hack_rice_brokkoli");
-    expect(slots.dinner.recipe).toBe("egg_rice_brokkoli");
+    expect(slots.dinner.recipe).toBe("chicken_rice_brokkoli");
     expect(slots.mainMeal.items.some((i) => i.name.includes("Rinderhack"))).toBe(true);
   });
 

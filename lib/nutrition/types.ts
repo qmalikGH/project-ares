@@ -185,6 +185,8 @@ export interface FixedSlotItem {
   carbs: number;
   fat: number;
   cost: number;
+  /** Default true. When false, kcal count but protein is excluded from functional protein validation. */
+  functionalProtein?: boolean;
 }
 
 export interface FlexSlotDef {

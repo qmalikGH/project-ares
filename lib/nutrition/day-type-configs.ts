@@ -28,6 +28,7 @@ const GINGER_HONEY: FixedSlotItem = {
 
 const COLLAGEN_VITC: FixedSlotItem = {
   name: "Kollagen 15g + Vitamin C", kcal: 55, protein: 14, carbs: 0, fat: 0, cost: 0.4,
+  functionalProtein: false, // Kollagen hat kein Leucin → kein MPS-Stimulus
 };
 
 const CARROTS: FixedSlotItem = {
@@ -112,7 +113,9 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
       // boundary), pushing day protein from 184→188g engine / 187g bridge.
       // Dinner still gets enough rice (70g = ~55g carbs) for Post-WO recovery.
       mainMeal: { recipeId: "hack_rice_brokkoli", budgetRatio: 0.54 },
-      dinner: { recipeId: "egg_rice_brokkoli", budgetRatio: 0.46 },
+      // Swapped from egg_rice_brokkoli: chicken has ~19g P/100kcal vs eggs ~8g,
+      // needed to hit ≥184g functional protein after excluding 14g collagen.
+      dinner: { recipeId: "chicken_rice_brokkoli", budgetRatio: 0.46 },
     },
     tdeeEstimate: 3168,
     trainingWindow: "evening",
