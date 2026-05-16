@@ -82,7 +82,7 @@ export default function NutritionDashboard() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/nutrition/today")
+    fetch(`/api/nutrition/today?t=${Date.now()}`)
       .then((r) => r.json())
       .then((d: NutritionTodayResponse) => {
         if (!active) return;
@@ -292,7 +292,10 @@ interface SlotCardProps {
 }
 
 function SlotCard({ label, slot, adjusted, flexible }: SlotCardProps) {
-  const total = slot.items.reduce(
+  // Exclude non-functional protein items (Kollagen) — they don't count as macros.
+  // kcal/cost still relevant but user prefers the supplement out of the meal view.
+  const visibleItems = slot.items.filter((item) => item.functionalProtein !== false);
+  const total = visibleItems.reduce(
     (acc, i) => ({ kcal: acc.kcal + i.kcal, protein: acc.protein + i.protein, costEur: acc.costEur + i.costEur }),
     { kcal: 0, protein: 0, costEur: 0 },
   );
@@ -318,7 +321,7 @@ function SlotCard({ label, slot, adjusted, flexible }: SlotCardProps) {
         </div>
       </header>
       <ul className="space-y-1">
-        {slot.items.map((item, i) => (
+        {visibleItems.map((item, i) => (
           <li key={i} className="flex items-baseline justify-between gap-3 text-sm">
             <span>{item.name}</span>
             <span className="font-mono text-xs text-[var(--color-foreground-tertiary)]">

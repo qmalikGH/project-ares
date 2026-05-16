@@ -12,7 +12,9 @@
 //     after subsequent deploys. Bumped to v0.9.3.
 //   - v0.9.3 (2026-04-28b): HTML moved to network-first. Cache version bumped
 //     to force eviction of the stale settings/today/etc pages.
-const CACHE_VERSION = "ares-v0.9.3-2026-04-28";
+//   - v0.9.4 (2026-05-16): bump to evict stale JS bundles serving old nutrition
+//     totals (kollagen exclusion fix from compute-day-plan + template).
+const CACHE_VERSION = "ares-v0.9.4-2026-05-16";
 const APP_SHELL = [
   "/manifest.webmanifest",
   "/icons/icon-192.png",
