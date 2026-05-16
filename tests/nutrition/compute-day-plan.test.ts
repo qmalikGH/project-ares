@@ -151,28 +151,26 @@ describe("computeDayPlan — guards", () => {
 // Collagen non-functional protein (Sprint: fix_collagen_protein_accounting)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("computeDayPlan — collagen protein excluded from functional check", () => {
+describe("computeDayPlan — collagen protein excluded from total + functional check", () => {
   const minProtein = Math.round(weight * 2.0); // 184g at 92kg
 
-  it("strength_run: functional protein (minus 14g collagen) >= 184g", () => {
+  it("strength_run: total protein (collagen already excluded) >= 184g", () => {
     const plan = computeDayPlan(configFor("strength_run"), recipes, weight);
     expect(plan.validation.valid).toBe(true);
-    const functionalProtein = plan.totals.protein - 14;
-    expect(functionalProtein).toBeGreaterThanOrEqual(minProtein);
+    // plan.totals.protein already EXCLUDES the 14g collagen (since 2026-05-16)
+    expect(plan.totals.protein).toBeGreaterThanOrEqual(minProtein);
   });
 
-  it("threshold: functional protein (minus 14g collagen) >= 184g", () => {
+  it("threshold: total protein (collagen already excluded) >= 184g", () => {
     const plan = computeDayPlan(configFor("threshold"), recipes, weight);
     expect(plan.validation.valid).toBe(true);
-    const functionalProtein = plan.totals.protein - 14;
-    expect(functionalProtein).toBeGreaterThanOrEqual(minProtein);
+    expect(plan.totals.protein).toBeGreaterThanOrEqual(minProtein);
   });
 
-  it("long_run: functional protein (minus 14g collagen) >= 184g", () => {
+  it("long_run: total protein (collagen already excluded) >= 184g", () => {
     const plan = computeDayPlan(configFor("long_run"), recipes, weight);
     expect(plan.validation.valid).toBe(true);
-    const functionalProtein = plan.totals.protein - 14;
-    expect(functionalProtein).toBeGreaterThanOrEqual(minProtein);
+    expect(plan.totals.protein).toBeGreaterThanOrEqual(minProtein);
   });
 
   it("rest: no collagen (preTraining null) — protein unchanged, valid", () => {

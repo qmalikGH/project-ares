@@ -8,31 +8,39 @@ import { computeDayPlan } from "@/lib/nutrition/compute-day-plan";
 const weight = ATHLETE_WEIGHT_KG;
 const minProtein = Math.round(weight * 2.0);
 
-console.log(`Athlete: ${weight}kg | Min functional protein: ${minProtein}g\n`);
-console.log("DayType         | kcal | Protein | Functional | Carbs | Fat  | Valid");
-console.log("----------------|------|---------|------------|-------|------|------");
+console.log(`Athlete: ${weight}kg | Min functional protein: ${minProtein}g`);
+console.log(`Note: Kollagen (14g) is excluded from protein totals (no leucine, no MPS).\n`);
+console.log("DayType         | kcal | Protein | Carbs | Fat  | Valid");
+console.log("----------------|------|---------|-------|------|------");
 
 for (const cfg of DAY_TYPE_CONFIGS) {
   const plan = computeDayPlan(cfg, RECIPE_TEMPLATES, weight);
-  const hasCollagen = cfg.fixedSlots.preTraining !== null;
-  const nonFunctional = hasCollagen ? 14 : 0;
-  const functional = plan.totals.protein - nonFunctional;
+  // plan.totals.protein already excludes kollagen (since 2026-05-16 fix).
 
   console.log(
-    `${cfg.dayType.padEnd(16)}| ${String(plan.totals.kcal).padEnd(5)}| ${String(plan.totals.protein).padStart(4)}g   | ${String(functional).padStart(7)}g    | ${String(plan.totals.carbs).padStart(4)}g | ${String(plan.totals.fat).padStart(4)}g | ${plan.validation.valid ? "OK" : "FAIL"}`,
+    `${cfg.dayType.padEnd(16)}| ${String(plan.totals.kcal).padEnd(5)}| ${String(plan.totals.protein).padStart(4)}g   | ${String(plan.totals.carbs).padStart(4)}g | ${String(plan.totals.fat).padStart(4)}g | ${plan.validation.valid ? "OK" : "FAIL"}`,
   );
 
   // Show macro targets for comparison
   console.log(
-    `${"  (target)".padEnd(16)}| ${String(cfg.calorieTarget).padEnd(5)}| ${String(cfg.macroTargets.proteinG).padStart(4)}g   |            | ${String(cfg.macroTargets.carbsG).padStart(4)}g | ${String(cfg.macroTargets.fatG).padStart(4)}g |`,
+    `${"  (target)".padEnd(16)}| ${String(cfg.calorieTarget).padEnd(5)}| ${String(cfg.macroTargets.proteinG).padStart(4)}g   | ${String(cfg.macroTargets.carbsG).padStart(4)}g | ${String(cfg.macroTargets.fatG).padStart(4)}g |`,
   );
 
-  // Per-slot protein
+  // Per-slot protein — split main-protein (Hähnchen/Hack/Eier) vs total
+  const mainProteinComp = plan.mainMeal.components.find((c) =>
+    ["beef_mince", "chicken_breast", "eggs"].includes(c.ingredientId)
+  );
+  const dinnerProteinComp = plan.dinner.components.find((c) =>
+    ["beef_mince", "chicken_breast", "eggs"].includes(c.ingredientId)
+  );
+  const mainMP = Math.round(mainProteinComp?.protein ?? 0);
+  const dinnerMP = Math.round(dinnerProteinComp?.protein ?? 0);
+
   console.log(
-    `${"  MainMeal".padEnd(16)}| ${String(plan.mainMeal.totals.kcal).padEnd(5)}| ${String(plan.mainMeal.totals.protein).padStart(4)}g   |            | ${String(plan.mainMeal.totals.carbs).padStart(4)}g |      | ${plan.mainMeal.recipeId}`,
+    `${"  MainMeal".padEnd(16)}| ${String(plan.mainMeal.totals.kcal).padEnd(5)}| ${String(plan.mainMeal.totals.protein).padStart(4)}g   | ${String(plan.mainMeal.totals.carbs).padStart(4)}g | (MPS: ${mainMP}g) | ${plan.mainMeal.recipeId}`,
   );
   console.log(
-    `${"  Dinner".padEnd(16)}| ${String(plan.dinner.totals.kcal).padEnd(5)}| ${String(plan.dinner.totals.protein).padStart(4)}g   |            | ${String(plan.dinner.totals.carbs).padStart(4)}g |      | ${plan.dinner.recipeId}`,
+    `${"  Dinner".padEnd(16)}| ${String(plan.dinner.totals.kcal).padEnd(5)}| ${String(plan.dinner.totals.protein).padStart(4)}g   | ${String(plan.dinner.totals.carbs).padStart(4)}g | (MPS: ${dinnerMP}g) | ${plan.dinner.recipeId}`,
   );
 
   if (!plan.validation.valid) {

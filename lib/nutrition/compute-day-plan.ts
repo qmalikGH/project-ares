@@ -171,7 +171,13 @@ export function computeDayPlan(
   });
 
   // ── Step 6: Sum all totals ──
-  const dayTotals = addTotals(fixedTotals, scaledMainMeal.totals, scaledDinner.totals);
+  // Non-functional protein (Kollagen) is EXCLUDED from the visible total —
+  // it doesn't count as a macro (no leucine, no MPS contribution).
+  const dayTotalsRaw = addTotals(fixedTotals, scaledMainMeal.totals, scaledDinner.totals);
+  const dayTotals: MacroTotals = {
+    ...dayTotalsRaw,
+    protein: dayTotalsRaw.protein - nonFunctionalProtein,
+  };
 
   // ── Step 7: Validate ──
   const errors: string[] = [];
@@ -186,8 +192,9 @@ export function computeDayPlan(
   }
 
   // 7b. Functional protein minimum (2.0 g/kg)
-  // Exclude non-functional protein (e.g. collagen — no leucine, no MPS stimulus)
-  const functionalProtein = dayTotals.protein - nonFunctionalProtein;
+  // dayTotals.protein already excludes non-functional protein (e.g. collagen)
+  // since Step 6 — collagen has no leucine, doesn't contribute to MPS.
+  const functionalProtein = dayTotals.protein;
   const minProtein = Math.round(athleteWeightKg * 2.0);
   if (functionalProtein < minProtein) {
     errors.push(

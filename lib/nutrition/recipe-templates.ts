@@ -26,7 +26,7 @@ const CHICKEN_RICE_ASIA: RecipeTemplate = {
       fatPerUnit: 0.01,
       costPerUnit: 0.0092, // €9.20/kg
       minimumAmount: 100,
-      maximumAmount: 200, // v1.3: was 400 — cap to shift protein to dinner, free budget → rice
+      maximumAmount: 200, // chicken-only protein 44g (under 50g MPS soft cap). Rice protein doesn't count toward MPS.
       stepSize: 25,
     },
     {
@@ -339,7 +339,7 @@ const CHICKEN_RICE_BROKKOLI: RecipeTemplate = {
       fatPerUnit: 0.01,
       costPerUnit: 0.0092,
       minimumAmount: 100,
-      maximumAmount: 400,
+      maximumAmount: 275, // 2026-05-16: was 400 — cap at 60.5g chicken-protein (needed for rest day functional min; long_run gets capped by engine to ~50g via raised rice ceiling)
       stepSize: 25,
     },
     {
@@ -352,7 +352,7 @@ const CHICKEN_RICE_BROKKOLI: RecipeTemplate = {
       fatPerUnit: 0.01,
       costPerUnit: 0.002,
       minimumAmount: 50,
-      maximumAmount: 100,
+      maximumAmount: 180, // 2026-05-16: was 100 — bigger carb sink so engine can absorb freed kcal when chicken caps
       stepSize: 10, // 10g for ±30 kcal precision
     },
     {

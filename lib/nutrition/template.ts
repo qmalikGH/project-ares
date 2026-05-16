@@ -40,7 +40,8 @@ const preTraining: MealSlot = {
   items: [
     { name: "Rote Bete Saft 200ml", kcal: 80, protein: 0, carbs: 18, fat: 0, costEur: 0.5 },
     { name: "Ingwer + Honig", kcal: 70, protein: 0, carbs: 17, fat: 0, costEur: 0.3 },
-    { name: "Kollagen 15g + Vitamin C", kcal: 55, protein: 14, carbs: 0, fat: 0, costEur: 0.4 },
+    // Kollagen has no leucine → no MPS → excluded from visible protein total
+    { name: "Kollagen 15g + Vitamin C", kcal: 55, protein: 14, carbs: 0, fat: 0, costEur: 0.4, functionalProtein: false },
   ],
 };
 
@@ -120,10 +121,13 @@ function buildSlots(dayType: DayType, targetsOverride?: DayTypeTargets): MealSlo
 
   // ── Step 1: Sum fixed slot kcal + protein ──
   // Kollagen (in preTraining) is non-functional protein (no leucine, no MPS)
-  // and must be excluded from the 2.0 g/kg minimum check.
+  // and is EXCLUDED from the visible protein total entirely (doesn't count
+  // as a macro). 14g kollagen are filtered out of fixedProtein but kept in
+  // fixedKcal (the 55 kcal still count toward the calorie target).
+  const KOLLAGEN_PROTEIN_G = 14;
   const fixedEntries: { slot: MealSlot; present: boolean; nonFuncP?: number }[] = [
     { slot: morning, present: presence.morning },
-    { slot: preTraining, present: presence.preTraining, nonFuncP: 14 },
+    { slot: preTraining, present: presence.preTraining, nonFuncP: KOLLAGEN_PROTEIN_G },
     { slot: afternoonSnack, present: presence.afternoonSnack },
     { slot: eveningSnack, present: presence.eveningSnack },
     { slot: skyrDessert, present: presence.postMealDessert },
@@ -135,7 +139,8 @@ function buildSlots(dayType: DayType, targetsOverride?: DayTypeTargets): MealSlo
   for (const { slot, present, nonFuncP } of fixedEntries) {
     if (present) {
       fixedKcal += sumItemsKcal(slot.items);
-      fixedProtein += slot.items.reduce((s, i) => s + i.protein, 0);
+      const slotProtein = slot.items.reduce((s, i) => s + i.protein, 0);
+      fixedProtein += slotProtein - (nonFuncP ?? 0);
       if (nonFuncP) nonFunctionalProteinG += nonFuncP;
     }
   }
@@ -273,7 +278,11 @@ export function sumSlotMacros(slots: MealSlots): {
   for (const slot of Object.values(slots)) {
     for (const item of slot.items) {
       kcal += item.kcal;
-      protein += item.protein;
+      // Exclude non-functional protein (e.g. Kollagen — no leucine, no MPS)
+      // from the visible total. kcal still counts toward the calorie target.
+      if (item.functionalProtein !== false) {
+        protein += item.protein;
+      }
       carbs += item.carbs;
       fat += item.fat;
       costEur += item.costEur;

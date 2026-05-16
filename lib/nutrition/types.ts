@@ -15,6 +15,9 @@ export interface MealItem {
   carbs: number; // grams
   fat: number; // grams
   costEur: number;
+  /** False for proteins without leucine that don't trigger MPS (e.g. collagen).
+   *  Excluded from visible protein totals and the 2.0 g/kg minimum check. */
+  functionalProtein?: boolean;
 }
 
 export interface MealSlot {
