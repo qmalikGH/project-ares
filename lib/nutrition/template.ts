@@ -18,8 +18,8 @@
 //     → VALIDATE: |slotSum − target| ≤ 30 kcal
 
 import { DAY_TYPE_BY_WEEKDAY, INITIAL_TARGETS, SLOT_PRESENCE } from "./day-type";
-import { findDayTypeConfig, DAY_TYPE_CONFIGS } from "./day-type-configs";
-import { scaleRecipe } from "./scale-recipe";
+import { findDayTypeConfig, DAY_TYPE_CONFIGS, ATHLETE_WEIGHT_KG } from "./day-type-configs";
+import { scaleVariableSlots } from "./scale-variable-slots";
 import { findRecipeTemplate, RECIPE_TEMPLATES } from "./recipe-templates";
 import type { DayTypeTargets } from "./day-type";
 import type { DayType, MealItem, MealSlot, MealSlots, FixedSlotItem } from "./types";
@@ -116,35 +116,49 @@ function buildSlots(dayType: DayType, targetsOverride?: DayTypeTargets): MealSlo
   const presence = SLOT_PRESENCE[dayType];
   const config = findDayTypeConfig(dayType);
   const calorieTarget = targetsOverride?.calorieTarget ?? config.calorieTarget;
+  const proteinTargetG = targetsOverride?.proteinG ?? config.macroTargets.proteinG;
 
-  // ── Step 1: Sum fixed slot kcal ──
-  const fixedEntries: { slot: MealSlot; present: boolean }[] = [
+  // ── Step 1: Sum fixed slot kcal + protein ──
+  // Kollagen (in preTraining) is non-functional protein (no leucine, no MPS)
+  // and must be excluded from the 2.0 g/kg minimum check.
+  const fixedEntries: { slot: MealSlot; present: boolean; nonFuncP?: number }[] = [
     { slot: morning, present: presence.morning },
-    { slot: preTraining, present: presence.preTraining },
+    { slot: preTraining, present: presence.preTraining, nonFuncP: 14 },
     { slot: afternoonSnack, present: presence.afternoonSnack },
     { slot: eveningSnack, present: presence.eveningSnack },
     { slot: skyrDessert, present: presence.postMealDessert },
   ];
 
   let fixedKcal = 0;
-  for (const { slot, present } of fixedEntries) {
+  let fixedProtein = 0;
+  let nonFunctionalProteinG = 0;
+  for (const { slot, present, nonFuncP } of fixedEntries) {
     if (present) {
       fixedKcal += sumItemsKcal(slot.items);
+      fixedProtein += slot.items.reduce((s, i) => s + i.protein, 0);
+      if (nonFuncP) nonFunctionalProteinG += nonFuncP;
     }
   }
 
   // ── Step 2: Remaining budget after fixed slots ──
   const remainingKcal = calorieTarget - fixedKcal;
 
-  // ── Step 3: Scale dinner FIRST (coarser steps), then mainMeal absorbs remainder ──
+  // ── Step 3: Macro-aware scaling (shared helper — same logic as cascade) ──
   const dinnerTemplate = findRecipeTemplate(config.variableSlots.dinner.recipeId);
   const mainMealTemplate = findRecipeTemplate(config.variableSlots.mainMeal.recipeId);
 
-  const dinnerBudget = Math.round(remainingKcal * config.variableSlots.dinner.budgetRatio);
-  const scaledDinner = scaleRecipe(dinnerTemplate, dinnerBudget);
-
-  const mainMealBudget = remainingKcal - scaledDinner.totals.kcal;
-  const scaledMainMeal = scaleRecipe(mainMealTemplate, mainMealBudget);
+  const { mainMeal: scaledMainMeal, dinner: scaledDinner } = scaleVariableSlots({
+    mainMealTemplate,
+    dinnerTemplate,
+    remainingBudget: remainingKcal,
+    dinnerBudgetRatio: config.variableSlots.dinner.budgetRatio,
+    fixedProteinG: fixedProtein,
+    fixedKcal,
+    calorieTarget,
+    proteinTargetG,
+    athleteWeightKg: ATHLETE_WEIGHT_KG,
+    nonFunctionalProteinG,
+  });
 
   const mainMealSlot = presence.mainMeal
     ? scaledRecipeToMealSlot(scaledMainMeal)
