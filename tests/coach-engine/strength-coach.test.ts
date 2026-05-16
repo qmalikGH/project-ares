@@ -67,9 +67,11 @@ describe("generateWeekStrengthPlan", () => {
     expect(plan.sessions[2].type).toBe("strength_c");
   });
 
-  it("generates only 1 session for minimal mode", () => {
+  it("generates 2 sessions for minimal mode (Sprint v1.4: StrA + StrB)", () => {
     const plan = generateWeekStrengthPlan(block5Config, 17, monday);
-    expect(plan.sessions).toHaveLength(1);
+    expect(plan.sessions).toHaveLength(2);
+    expect(plan.sessions[0].type).toBe("strength_a");
+    expect(plan.sessions[1].type).toBe("strength_b");
   });
 
   it("Strength A includes Hex Bar Deadlift", () => {

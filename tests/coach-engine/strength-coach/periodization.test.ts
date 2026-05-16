@@ -14,6 +14,7 @@ const BASE_CTX: PeriodizationContext = {
   prevPainNrs: null,
   prevRpeReported: null,
   baselineRpeCap: 8,
+  strengthMode: "linear_progression",
 };
 
 const HEX_BAR: Exercise = {

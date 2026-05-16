@@ -142,16 +142,25 @@ const BLOCK_TEMPLATES: BlockTemplateMap = {
 };
 
 /**
- * Look up the strength template for a (block, slot) pair. Falls back to
- * Block 1 when the block has no template defined yet — keeps the engine
- * working through Block 3-5 even before they're authored.
+ * Look up the strength template for a (block, slot) pair. Walks DOWNWARD
+ * to the nearest defined block — e.g. Block 5 falls back to Block 4 (which
+ * preserves the latest exercise variation set), not Block 1. Block 1 is
+ * always defined and acts as the ultimate fallback.
+ *
+ * Sprint v1.4: previously fell back to Block 1 unconditionally, which made
+ * Block 5 lose all the systematic variation from Block 2-4.
  */
-function getStrengthTemplate(
+export function getStrengthTemplate(
   blockNumber: BlockNumber,
   type: StrengthSlot,
 ): Exercise[] {
-  const block = BLOCK_TEMPLATES[blockNumber] ?? BLOCK_TEMPLATES[1]!;
-  return block[type];
+  // Walk downward to find the nearest defined block
+  for (let b = blockNumber; b >= 1; b--) {
+    const block = BLOCK_TEMPLATES[b as BlockNumber];
+    if (block) return block[type];
+  }
+  // Unreachable in practice — Block 1 is always defined.
+  return BLOCK_TEMPLATES[1]![type];
 }
 
 // ============================================
@@ -369,6 +378,7 @@ export function generateWeekStrengthPlan(
       prevPainNrs: prevSession?.kneePainNrs ?? null,
       prevRpeReported: prevSession?.rpeReported ?? null,
       baselineRpeCap: phaseConfig.strengthRpeCap,
+      strengthMode: phaseConfig.strengthMode,
     });
     exercises = applyPeriodization(exercises, periodAdjustment);
 
@@ -413,8 +423,12 @@ export function generateWeekStrengthPlan(
   const sessions: SessionPlan[] = [];
 
   if (phaseConfig.strengthMode === "minimal") {
-    // Minimal mode: only 1× strength per week (Wed)
-    sessions.push(buildSession("strength_a", 2));
+    // Minimal mode: 2× strength per week (Mon StrA + Thu StrB).
+    // Sprint v1.4: was 1 session — but without StrB, Upper Pull volume drops
+    // to 0 across the entire peaking phase (functional detraining,
+    // Ogasawara 2013: strength loss after 3wk inactivity for a muscle group).
+    sessions.push(buildSession("strength_a", 0));
+    sessions.push(buildSession("strength_b", 3));
   } else {
     // Standard 3-day split: Mon A, Wed B, Fri C
     sessions.push(buildSession("strength_a", 0));
@@ -437,4 +451,4 @@ export const STRENGTH_TEMPLATES_PUBLIC = {
   strength_b: BLOCK_TEMPLATES[1]!.strength_b,
   strength_c: BLOCK_TEMPLATES[1]!.strength_c,
 } as const;
-export { BLOCK_TEMPLATES, getStrengthTemplate };
+export { BLOCK_TEMPLATES };

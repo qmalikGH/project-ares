@@ -35,6 +35,14 @@ export interface PeriodizationContext {
   prevRpeReported: number | null;
   /** Phase's RPE-cap baseline (e.g. 8 for Block 1). */
   baselineRpeCap: number;
+  /**
+   * Phase's strength mode. Sprint v1.4: when "maintenance" or "minimal",
+   * the W4 setMultiplier is softened (0.80 instead of 0.67) because the
+   * mode-multiplier (0.75 maintenance / 0.5 minimal) already compounds with
+   * the deload, otherwise: 0.75 × 0.67 = 0.50, which can drop accessories
+   * below the 2-set MEV floor after rounding.
+   */
+  strengthMode: "linear_progression" | "maintenance" | "minimal";
 }
 
 export interface PeriodizationAdjustment {
@@ -124,9 +132,15 @@ export function computePeriodizationAdjustment(
       break;
     case 4:
       loadMultiplier = 0.85;
-      setMultiplier = 0.67;
+      // Sprint v1.4: softer deload when mode is already reducing volume.
+      // maintenance: 0.75 × 0.67 = 0.50 (too aggressive, accessories hit MEV
+      // floor after rounding). 0.75 × 0.80 = 0.60 is closer to maintenance
+      // minimum. minimal mode same — already 0.5x, no need to compound.
+      setMultiplier = ctx.strengthMode === "linear_progression" ? 0.67 : 0.80;
       rpeCapDelta = -1;
-      weekRationale = "W4 Deload: 85% load, 67% sets, -1 RPE-cap.";
+      weekRationale = ctx.strengthMode === "linear_progression"
+        ? "W4 Deload: 85% load, 67% sets, -1 RPE-cap."
+        : "W4 Deload (maintenance-adjusted): 85% load, 80% sets, -1 RPE-cap.";
       break;
   }
 

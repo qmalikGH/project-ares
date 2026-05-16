@@ -62,15 +62,23 @@ describe("BLOCK_TEMPLATES", () => {
   });
 });
 
-describe("getStrengthTemplate fallback", () => {
-  it("falls back to Block 1 templates when block 3-5 are undefined", () => {
+describe("getStrengthTemplate fallback (Sprint v1.4: walk-down)", () => {
+  it("Block 3 walks DOWN to Block 2 (nearest defined), not Block 1", () => {
     const b3 = getStrengthTemplate(3, "strength_a");
-    const b1 = getStrengthTemplate(1, "strength_a");
-    expect(b3).toBe(b1);
+    const b2 = getStrengthTemplate(2, "strength_a");
+    expect(b3).toBe(b2);
+  });
 
+  it("Block 5 walks DOWN to Block 2 (nearest defined, Blocks 3-4 not yet authored)", () => {
     const b5 = getStrengthTemplate(5, "strength_b");
-    const b1b = getStrengthTemplate(1, "strength_b");
-    expect(b5).toBe(b1b);
+    const b2b = getStrengthTemplate(2, "strength_b");
+    expect(b5).toBe(b2b);
+  });
+
+  it("Block 1 always returns Block 1 (ultimate fallback)", () => {
+    const b1 = getStrengthTemplate(1, "strength_a");
+    expect(b1).toBeDefined();
+    expect(b1[0].name).toBe("Hex Bar Deadlift");
   });
 });
 

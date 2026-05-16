@@ -50,7 +50,12 @@ export const BLOCK_CONFIGS: Record<BlockNumber, PhaseConfig> = {
     durationWeeks: 4,
     enduranceTID: { z1: 75, z2: 20, z3: 5 },
     strengthMode: "maintenance",
-    strengthRpeCap: 7,
+    // Sprint v1.4: was 7 — strength MAINTENANCE needs intensity, not just
+    // reduced volume. Bickel 2011: 1/3 volume at same intensity preserves
+    // strength. Currier 2023: load >80% 1RM is the strongest hypertrophy/
+    // strength predictor. Lowering rpeCap AND volume simultaneously is a
+    // double stimulus loss.
+    strengthRpeCap: 8,
     volumeProgression: "maintain",
     vdotTarget: 44,
     longRunBaselineMin: 75,
@@ -63,7 +68,8 @@ export const BLOCK_CONFIGS: Record<BlockNumber, PhaseConfig> = {
     durationWeeks: 4,
     enduranceTID: { z1: 72, z2: 13, z3: 15 },
     strengthMode: "maintenance",
-    strengthRpeCap: 7,
+    // Sprint v1.4: was 7. Same rationale as Block 3 — maintain intensity.
+    strengthRpeCap: 8,
     volumeProgression: "maintain",
     vdotTarget: 46,
     longRunBaselineMin: 70,
