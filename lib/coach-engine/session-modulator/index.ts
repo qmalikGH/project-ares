@@ -2,7 +2,7 @@
 // See science_doc.md Kap 9.4 (Decision Tree) & spec 6.7.
 // Pure function. No async. Sequential modulation pipeline:
 //   1. Hard constraints   (knee >= 8, RED+ACWR critical, multi-risk)
-//   2. Illness recovery   (ACSM Return-to-Sport: days 1-3 acute, 4-7 transition)
+//   2. Illness recovery   (ACSM Return-to-Sport: days 1-3 acute, 4-5 transition)
 //   3. Readiness-based    (YELLOW/ORANGE/RED bands)
 //   4. Knee-based         (5-7 score range)
 //   5. Load-based         (ACWR > 1.3)
@@ -173,7 +173,7 @@ export function modulateSession(
         modulated.exercises = reduceSetCount(modulated.exercises, -1, 2);
         modifications.push(`Illness Recovery Tag ${days} — Kraft: Load-Cap 80%, Sets -1`);
       }
-    } else if (days <= 7) {
+    } else if (days <= 5) {
       // Transition phase: quality allowed, volume reduced
       if (isRunSession(modulated) && modulated.durationMin) {
         modulated.durationMin = Math.round(modulated.durationMin * 0.8);
@@ -184,7 +184,7 @@ export function modulateSession(
         modifications.push(`Illness Recovery Tag ${days} — Kraft: Load-Cap 90%`);
       }
     }
-    // Days 8-10: no modulation, but illnessRecoveryDays stays in output for UI transparency
+    // Days 6-8: no modulation, but illnessRecoveryDays stays in output for UI transparency
   }
 
   // ============================================

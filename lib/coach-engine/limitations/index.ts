@@ -99,7 +99,7 @@ export function generateConstraints(kneeScore: number, therapyPhase: TherapyPhas
 /**
  * Compute how many days since the last `skipped_illness` workout.
  * Returns null when not in recovery (no illness or >10 days ago).
- * ACSM Return-to-Sport: 1-3 acute, 4-7 transition, 8-10 taper.
+ * ACSM Return-to-Sport: 1-3 acute, 4-5 transition, 6-8 taper.
  */
 export function computeIllnessRecoveryDays(
   recentWorkouts: { date: Date; status: string }[],
@@ -115,7 +115,7 @@ export function computeIllnessRecoveryDays(
   const diffMs = today.getTime() - lastIllnessDate.getTime();
   const daysSince = Math.floor(diffMs / (24 * 60 * 60 * 1000));
 
-  return daysSince <= 10 ? daysSince : null;
+  return daysSince <= 8 ? daysSince : null;
 }
 
 export function computeKneeStatus(

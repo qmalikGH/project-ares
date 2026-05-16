@@ -285,10 +285,10 @@ describe("modulateSession — illness recovery", () => {
     });
   });
 
-  it("day 9: no modulation (taper phase)", () => {
+  it("day 7: no modulation (taper phase)", () => {
     const final = modulateSession(thresholdSession, greenReadiness, optimalLoad, {
       ...cleanLimitations,
-      illnessRecoveryDays: 9,
+      illnessRecoveryDays: 7,
     });
     expect(final.type).toBe("threshold_run");
     expect(final.durationMin).toBe(50);

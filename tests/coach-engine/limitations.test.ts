@@ -181,18 +181,18 @@ describe("computeIllnessRecoveryDays", () => {
     expect(computeIllnessRecoveryDays(workouts, today)).toBe(4); // May 15 - May 11
   });
 
-  it("returns null when illness was more than 10 days ago", () => {
+  it("returns null when illness was more than 8 days ago", () => {
     const workouts = [
       { date: new Date("2026-05-04"), status: "skipped_illness" },
     ];
     expect(computeIllnessRecoveryDays(workouts, today)).toBe(null); // May 15 - May 4 = 11
   });
 
-  it("returns 10 for exactly 10 days ago (boundary)", () => {
+  it("returns 8 for exactly 8 days ago (boundary)", () => {
     const workouts = [
-      { date: new Date("2026-05-05"), status: "skipped_illness" },
+      { date: new Date("2026-05-07"), status: "skipped_illness" },
     ];
-    expect(computeIllnessRecoveryDays(workouts, today)).toBe(10); // May 15 - May 5
+    expect(computeIllnessRecoveryDays(workouts, today)).toBe(8); // May 15 - May 7
   });
 
   it("returns 0 for illness on same day", () => {
