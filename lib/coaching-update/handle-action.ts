@@ -100,6 +100,12 @@ const AdjustDeficitSchema = z.object({
 
 const ForceReseedSchema = z.object({}).strict();
 
+// Sprint v1.5 — Block Reset: regenerate W1-W4 of current Block.
+// loadPreset W1 = full ramp-up (no override). W2 = W1 volume + W2 loads.
+const ResetBlockSchema = z.object({
+  loadPreset: z.enum(["W1", "W2"]).default("W2"),
+}).strict();
+
 const SEED_DAY_TYPES: DayType[] = ["strength_run", "threshold", "long_run", "rest"];
 
 export type ActionResult =
@@ -717,6 +723,26 @@ export async function handleCoachingAction(
       return { success: true, logId: log.id, action };
     }
 
+    // ── Sprint v1.5 — Block Reset (post-illness ramp-up) ──────────────────
+    case "resetBlock": {
+      const parsed = ResetBlockSchema.safeParse(data ?? {});
+      if (!parsed.success) {
+        return { success: false, status: 400, error: "invalid_data", details: parsed.error.flatten() };
+      }
+      const result = await resetCurrentBlock(userId, parsed.data.loadPreset, reason);
+      if (!result.ok) return { success: false, status: result.status, error: result.error };
+      const log = await db.coachingLog.create({
+        data: {
+          userId,
+          action,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          data: result.details as any,
+          reason,
+        },
+      });
+      return { success: true, logId: log.id, action };
+    }
+
     default:
       return { success: false, status: 400, error: "unknown_action", details: { action } };
   }
@@ -753,4 +779,137 @@ async function dryRunConfigChange(
     return { ok: false, errors: result.allErrors };
   }
   return { ok: true };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sprint v1.5 — Block-Reset implementation
+// ═══════════════════════════════════════════════════════════════════════════
+
+type ResetBlockResult =
+  | { ok: true; details: Record<string, unknown> }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Reset the current Block for a user:
+ *  1. Find active Macrocycle.
+ *  2. Find the Phase whose date range contains "today" (= current Block).
+ *  3. Delete all WeeklyPlan rows for that Phase with startDate >= next Monday.
+ *  4. Create 4 fresh WeeklyPlan rows (W1–W4) starting next Monday. The first
+ *     row receives `loadOverrideWeek=2` when loadPreset is "W2" (ramp-up).
+ *  5. Extend the Phase + Macrocycle endDate to account for re-run weeks.
+ *
+ * The new rows have `plannedSessions: []` placeholders — call
+ * `regenerateFuturePlans()` (or `POST /api/debug/regenerate-from-now`) after
+ * resetBlock to fill them with concrete sessions (the regenerate helper
+ * reads loadOverrideWeek and threads it into the periodization engine).
+ */
+async function resetCurrentBlock(
+  userId: string,
+  loadPreset: "W1" | "W2",
+  reason: string,
+): Promise<ResetBlockResult> {
+  void reason; // reason is logged by the caller via CoachingLog
+
+  const { getNextMonday, addWeeks, userToday } = await import("@/lib/date");
+
+  // 1. Active macrocycle
+  const macro = await db.macrocycle.findFirst({
+    where: { userId, status: "active" },
+    include: { phases: { orderBy: { startDate: "asc" } } },
+  });
+  if (!macro) return { ok: false, status: 404, error: "no_active_macrocycle" };
+
+  // 2. Current Phase = the one whose [startDate, plannedEndDate] contains today
+  const today = userToday();
+  const currentPhase = macro.phases.find(
+    (p) => p.startDate <= today && p.plannedEndDate > today,
+  ) ?? macro.phases.find((p) => p.status === "active");
+  if (!currentPhase) {
+    return { ok: false, status: 404, error: "no_current_phase" };
+  }
+
+  const nextMonday = getNextMonday(today);
+
+  // 3. Delete future WeeklyPlan rows for this phase (from next Monday onwards).
+  //    Past + current-week-up-to-today rows are kept (already executed).
+  const deleted = await db.weeklyPlan.deleteMany({
+    where: {
+      phaseId: currentPhase.id,
+      startDate: { gte: nextMonday },
+    },
+  });
+
+  // 4. Generate 4 fresh WeeklyPlan rows (W1–W4 of this Block). plannedSessions
+  //    starts as [] — the caller is expected to invoke the regenerate cascade
+  //    next, which will fill plannedSessions and honor loadOverrideWeek.
+  //
+  //    weekNumber is the absolute week within the macrocycle, derived from
+  //    the Phase startWeek. We keep the existing weekNumber semantics so the
+  //    coach-engine periodization still sees W1-W4 within the block.
+  const phaseFirstWeek =
+    macro.phases.findIndex((p) => p.id === currentPhase.id) * 4 + 1;
+
+  const newRows: {
+    phaseId: string;
+    weekNumber: number;
+    startDate: Date;
+    endDate: Date;
+    plannedSessions: object;
+    loadOverrideWeek: number | null;
+  }[] = [];
+  for (let w = 0; w < 4; w++) {
+    const start = addWeeks(nextMonday, w);
+    const end = addWeeks(start, 1);
+    newRows.push({
+      phaseId: currentPhase.id,
+      weekNumber: phaseFirstWeek + w,
+      startDate: start,
+      endDate: end,
+      plannedSessions: [] as unknown as object,
+      // Sprint v1.5: first week of the reset gets the load-override when
+      // loadPreset === "W2" (athlete keeps prior strength gain).
+      loadOverrideWeek: w === 0 && loadPreset === "W2" ? 2 : null,
+    });
+  }
+  await db.weeklyPlan.createMany({ data: newRows });
+
+  // 5. Extend the Phase + Macrocycle dates by the new 4-week window. The
+  //    Phase plannedEndDate becomes (nextMonday + 4 weeks). The Macrocycle
+  //    endDate slides by the delta between old and new Phase ends.
+  const newPhaseEnd = addWeeks(nextMonday, 4);
+  const oldPhaseEnd = currentPhase.plannedEndDate;
+  const phaseShiftMs = newPhaseEnd.getTime() - oldPhaseEnd.getTime();
+  const weeksAdded = Math.round(phaseShiftMs / (7 * 86400000));
+
+  await db.phase.update({
+    where: { id: currentPhase.id },
+    data: {
+      plannedEndDate: newPhaseEnd,
+      durationWeeks: currentPhase.durationWeeks + Math.max(0, weeksAdded),
+    },
+  });
+
+  if (weeksAdded > 0) {
+    await db.macrocycle.update({
+      where: { id: macro.id },
+      data: {
+        endDate: addWeeks(macro.endDate, weeksAdded),
+        totalWeeks: macro.totalWeeks + weeksAdded,
+      },
+    });
+  }
+
+  return {
+    ok: true,
+    details: {
+      macrocycleId: macro.id,
+      phaseId: currentPhase.id,
+      blockNumber: currentPhase.blockNumber,
+      loadPreset,
+      deletedRows: deleted.count,
+      createdRows: newRows.length,
+      newStartDate: nextMonday.toISOString().slice(0, 10),
+      weeksAdded,
+    },
+  };
 }

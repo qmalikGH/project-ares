@@ -225,6 +225,13 @@ model WeeklyPlan {
 
   plannedSessions Json // SessionPlan[] for the week (7 days)
 
+  // Sprint v1.5 — Block-Reset: when set, the periodization engine uses the
+  // LOAD multiplier from this week-in-block (e.g. 2 = W2's +2.5%) while the
+  // SET-count + RPE-cap still follow the row's actual weekNumber. Used for
+  // ramp-up scenarios where the athlete returns from illness and wants W2-
+  // calibrated weights with W1 volume.
+  loadOverrideWeek Int?
+
   createdAt DateTime @default(now())
 }
 

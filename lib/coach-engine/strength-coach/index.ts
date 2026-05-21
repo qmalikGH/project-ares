@@ -490,6 +490,9 @@ export function generateWeekStrengthPlan(
   prevWeekData: WeekStrengthData | null = null,
   therapyPhase: TherapyPhase | null = null,
   userMaxEstimates: Record<string, number> | null = null,
+  /** Sprint v1.5 — load-override-week from the WeeklyPlan row. Passed
+   *  through to computePeriodizationAdjustment. null = no override. */
+  loadOverrideWeek: 1 | 2 | 3 | 4 | null = null,
 ): WeekStrengthPlan {
   const dateAt = (offsetDays: number): Date =>
     new Date(weekStartDate.getTime() + offsetDays * 86400000);
@@ -520,6 +523,7 @@ export function generateWeekStrengthPlan(
       prevRpeReported: prevSession?.rpeReported ?? null,
       baselineRpeCap: phaseConfig.strengthRpeCap,
       strengthMode: phaseConfig.strengthMode,
+      loadOverrideWeek,
     });
     exercises = applyPeriodization(exercises, periodAdjustment);
 

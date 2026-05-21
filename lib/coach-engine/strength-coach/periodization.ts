@@ -43,6 +43,19 @@ export interface PeriodizationContext {
    * below the 2-set MEV floor after rounding.
    */
   strengthMode: "linear_progression" | "maintenance" | "minimal";
+  /**
+   * Sprint v1.5 — Block-Reset Ramp-Up: when set, the LOAD multiplier from
+   * this target week-in-block overrides the actual `weekInBlock` load.
+   * Sets, RPE-cap, and rationale still follow the row's real `weekInBlock`.
+   *
+   * Use case: after illness, restart Block 1 with W1 volume (sets unchanged)
+   * but apply the W2 +2.5% load increment because the athlete keeps the
+   * strength gain from the previous block. `loadOverrideWeek: 2` while
+   * `weekInBlock: 1` = "W1 volume + W2 loads".
+   *
+   * `null` / undefined → no override (default behavior).
+   */
+  loadOverrideWeek?: WeekInBlock | null;
 }
 
 export interface PeriodizationAdjustment {
@@ -74,6 +87,20 @@ const HSR_LIFTS: ReadonlySet<string> = new Set([
 /** NRS threshold semantics, per Escriche-Escuder 2020 + Sprague 2020. */
 const NRS_HOLD_LOWER = 4;
 const NRS_STEP_BACK_THRESHOLD = 5; // strictly greater steps back
+
+/**
+ * Sprint v1.5 — Load-only multiplier for a target week-in-block, used by
+ * the loadOverrideWeek mechanism. Mirrors the LOAD column from the W1-W4
+ * pattern in computePeriodizationAdjustment, WITHOUT touching sets or RPE.
+ */
+function loadMultiplierForWeek(week: WeekInBlock): number {
+  switch (week) {
+    case 1: return 1.0;
+    case 2: return 1.025;
+    case 3: return 1.05;
+    case 4: return 0.85;
+  }
+}
 
 // ============================================
 // computePeriodizationAdjustment
@@ -142,6 +169,15 @@ export function computePeriodizationAdjustment(
         ? "W4 Deload: 85% load, 67% sets, -1 RPE-cap."
         : "W4 Deload (maintenance-adjusted): 85% load, 80% sets, -1 RPE-cap.";
       break;
+  }
+
+  // Sprint v1.5 — Block-Reset Ramp-Up: override the LOAD multiplier with a
+  // different week-in-block's value while keeping the row's actual set count
+  // and RPE-cap. Use case: W1 volume + W2 loads after illness reset.
+  if (ctx.loadOverrideWeek != null && ctx.loadOverrideWeek !== ctx.weekInBlock) {
+    const overrideLoad = loadMultiplierForWeek(ctx.loadOverrideWeek);
+    loadMultiplier = overrideLoad;
+    weekRationale += ` [Load-Override: W${ctx.loadOverrideWeek} loads (×${overrideLoad}), volume from W${ctx.weekInBlock}]`;
   }
 
   // RPE-based fine-tune: only if we have a prior reading. Never zero — small

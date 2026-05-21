@@ -131,6 +131,11 @@ export async function POST(req: NextRequest) {
         | "SPORT_SPECIFIC"
         | null) ?? null,
       userMaxEstimates,
+      // Sprint v1.5: respect loadOverrideWeek when this WeeklyPlan row was
+      // created via Block-Reset (W1 volume + W2 loads ramp-up scenario).
+      (plan as { loadOverrideWeek?: number | null }).loadOverrideWeek as
+        | 1 | 2 | 3 | 4 | null
+        | undefined ?? null,
     );
 
     const mergedSessions: SessionPlan[] = planWeekSchedule(

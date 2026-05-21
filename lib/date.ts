@@ -145,3 +145,27 @@ export function userTomorrow(): Date {
   const today = userToday();
   return new Date(today.getTime() + 86400000);
 }
+
+/**
+ * Return the UTC midnight of the next Monday relative to `from`.
+ * If `from` is itself a Monday, this returns the Monday 7 days later
+ * (never `from` itself) — useful for "next training week starts".
+ * Sprint v1.5 — Block-Reset helper.
+ *
+ * Pure. Uses UTC day-of-week (0=Sun..6=Sat) since `from` is expected to
+ * be a UTC-midnight Date (e.g. from userToday()).
+ */
+export function getNextMonday(from: Date): Date {
+  const day = from.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  // Days until next Monday: if today is Mon → 7, else (8-day) % 7
+  const daysUntil = day === 1 ? 7 : (8 - day) % 7 || 7;
+  return new Date(from.getTime() + daysUntil * 86400000);
+}
+
+/**
+ * Add `weeks` whole weeks (7 × 86 400 000 ms) to `date`. Returns a new
+ * Date. Pure — does not mutate. Negative `weeks` subtracts.
+ */
+export function addWeeks(date: Date, weeks: number): Date {
+  return new Date(date.getTime() + weeks * 7 * 86400000);
+}
