@@ -873,9 +873,14 @@ async function resetCurrentBlock(
   }
   await db.weeklyPlan.createMany({ data: newRows });
 
-  // 5. Extend the Phase + Macrocycle dates by the new 4-week window. The
-  //    Phase plannedEndDate becomes (nextMonday + 4 weeks). The Macrocycle
-  //    endDate slides by the delta between old and new Phase ends.
+  // 5. Extend the Phase + shift subsequent Phases by the same delta.
+  //
+  //    Old Phase 1: [April 27 → May 25]. After reset, Phase 1 spans the
+  //    surviving past weeks PLUS the new 4-week window starting next Monday:
+  //    [April 27 → nextMonday + 4 weeks]. The delta in weeks (vs the old
+  //    plannedEndDate) is added to EVERY subsequent Phase's startDate +
+  //    plannedEndDate, and to every WeeklyPlan row in those phases — so
+  //    Block 2-5 slide forward instead of overlapping with the new Block 1.
   const newPhaseEnd = addWeeks(nextMonday, 4);
   const oldPhaseEnd = currentPhase.plannedEndDate;
   const phaseShiftMs = newPhaseEnd.getTime() - oldPhaseEnd.getTime();
@@ -890,6 +895,35 @@ async function resetCurrentBlock(
   });
 
   if (weeksAdded > 0) {
+    // Find subsequent phases (block > current.blockNumber)
+    const subsequentPhases = macro.phases.filter(
+      (p) => p.blockNumber > currentPhase.blockNumber,
+    );
+
+    for (const p of subsequentPhases) {
+      await db.phase.update({
+        where: { id: p.id },
+        data: {
+          startDate: addWeeks(p.startDate, weeksAdded),
+          plannedEndDate: addWeeks(p.plannedEndDate, weeksAdded),
+        },
+      });
+      // Shift every WeeklyPlan row in that phase
+      const rows = await db.weeklyPlan.findMany({
+        where: { phaseId: p.id },
+        select: { id: true, startDate: true, endDate: true },
+      });
+      for (const r of rows) {
+        await db.weeklyPlan.update({
+          where: { id: r.id },
+          data: {
+            startDate: addWeeks(r.startDate, weeksAdded),
+            endDate: addWeeks(r.endDate, weeksAdded),
+          },
+        });
+      }
+    }
+
     await db.macrocycle.update({
       where: { id: macro.id },
       data: {
