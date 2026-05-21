@@ -23,7 +23,8 @@ import type { BlockNumber, WeekStrengthPlan } from "@/lib/coach-engine/types";
 const monday = new Date("2026-04-27T00:00:00.000Z");
 
 const PUSH = new Set(["Bench Press", "DB Bench Press", "Incline DB Press", "Push-ups"]);
-const PULL = new Set(["Pull-ups", "Chin-ups", "Barbell Row", "DB Row"]);
+// Sprint v1.5: Pull pool now includes Cable Row + Lat Pulldown.
+const PULL = new Set(["Pull-ups", "Chin-ups", "Barbell Row", "DB Row", "Seated Cable Row", "Lat Pulldown"]);
 const SHOULDERS = new Set(["Face Pulls", "Band Pull-Aparts"]);
 const CORE = new Set(["Pallof Press", "Dead Bug"]);
 const THERAPY = new Set([
@@ -31,6 +32,17 @@ const THERAPY = new Set([
   "Short Foot Exercise",
 ]);
 const CARRIES = new Set(["Farmer's Carry", "Suitcase Carry"]);
+// Sprint v1.5 — Quad sub-classification (squat/lunge patterns). Subset of
+// lower_body. Hex Bar DL, RDL, Hip Thrust, Nordic Curls are hip/hinge/post-
+// chain, NOT quad-dominant.
+const QUADS = new Set([
+  "Reverse Lunge",
+  "Bulgarian Split Squat",
+  "Goblet Squat",
+  "Walking Lunge",
+  "Step-ups",
+  "Front Squat",
+]);
 
 function classify(name: string): string {
   if (PUSH.has(name)) return "upper_push";
@@ -40,6 +52,17 @@ function classify(name: string): string {
   if (THERAPY.has(name)) return "therapy";
   if (CARRIES.has(name)) return "carries";
   return "lower_body";
+}
+
+function countQuadSets(plan: WeekStrengthPlan): number {
+  let sets = 0;
+  for (const session of plan.sessions) {
+    for (const ex of session.exercises ?? []) {
+      if (ex.isWarmup) continue;
+      if (QUADS.has(ex.name)) sets += ex.sets;
+    }
+  }
+  return sets;
 }
 
 function countSetsByGroup(plan: WeekStrengthPlan): Record<string, number> {
@@ -79,18 +102,25 @@ function generateW3(blockNumber: BlockNumber): WeekStrengthPlan {
 describe("Volume audit — Block 1 + 2 (linear_progression)", () => {
   for (const blockNumber of [1, 2] as const) {
     describe(`Block ${blockNumber} W1 baseline`, () => {
-      const counts = countSetsByGroup(generateW1(blockNumber));
+      const plan = generateW1(blockNumber);
+      const counts = countSetsByGroup(plan);
+      const quads = countQuadSets(plan);
 
       it("upper_push >= 6 sets", () => {
         expect(counts.upper_push).toBeGreaterThanOrEqual(6);
       });
-      it("upper_pull >= 5 sets (was 0 in StrC pre-v1.4)", () => {
-        expect(counts.upper_pull).toBeGreaterThanOrEqual(5);
+      // Sprint v1.5: Pull (Lat/Bizeps incl. Cable Row + Lat Pulldown) target 10+
+      it("upper_pull >= 10 sets (Sprint v1.5 hypertrophy target)", () => {
+        expect(counts.upper_pull).toBeGreaterThanOrEqual(10);
       });
-      it("shoulders >= 4 sets (was 0 across whole macrocycle pre-v1.4)", () => {
+      it("shoulders >= 4 sets", () => {
         expect(counts.shoulders).toBeGreaterThanOrEqual(4);
       });
-      it("lower_body >= 13 sets", () => {
+      // Sprint v1.5: Quad volume target 10+ (was 3 pre-v1.5)
+      it("quads >= 10 sets (Sprint v1.5 hypertrophy target)", () => {
+        expect(quads).toBeGreaterThanOrEqual(10);
+      });
+      it("lower_body >= 13 sets (HSR + Quads + Hip)", () => {
         expect(counts.lower_body).toBeGreaterThanOrEqual(13);
       });
       it("core >= 1 set", () => {
@@ -117,16 +147,22 @@ describe("Volume audit — Block 1 + 2 (linear_progression)", () => {
 describe("Volume audit — Block 3 + 4 (maintenance)", () => {
   for (const blockNumber of [3, 4] as const) {
     describe(`Block ${blockNumber} W1 baseline (×0.75 maintenance)`, () => {
-      const counts = countSetsByGroup(generateW1(blockNumber));
+      const plan = generateW1(blockNumber);
+      const counts = countSetsByGroup(plan);
+      const quads = countQuadSets(plan);
 
       it("upper_push >= 4 sets", () => {
         expect(counts.upper_push).toBeGreaterThanOrEqual(4);
       });
-      it("upper_pull >= 4 sets (was 0-5 pre-v1.4)", () => {
-        expect(counts.upper_pull).toBeGreaterThanOrEqual(4);
+      // Sprint v1.5: maintenance keeps Pull (Lat/Bizeps) above minimum
+      it("upper_pull >= 7 sets (maintenance Sprint v1.5)", () => {
+        expect(counts.upper_pull).toBeGreaterThanOrEqual(7);
       });
       it("shoulders >= 4 sets", () => {
         expect(counts.shoulders).toBeGreaterThanOrEqual(4);
+      });
+      it("quads >= 6 sets (after maintenance multiplier)", () => {
+        expect(quads).toBeGreaterThanOrEqual(6);
       });
       it("lower_body >= 10 sets", () => {
         expect(counts.lower_body).toBeGreaterThanOrEqual(10);

@@ -138,6 +138,10 @@ export interface PlannedExercise {
   reps: number | string;
   loadPct?: number;
   loadKg?: number;
+  /** Sprint v1.5 — Superset group label (e.g. "A1", "B2"). Same label across
+   *  two exercises = they alternate as antagonist pair. HSR-lifts never set. */
+  supersetGroup?: string | null;
+  supersetOrder?: number | null;
 }
 
 export interface PlannedSessionData {

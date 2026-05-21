@@ -1,3 +1,13 @@
+// Sprint v1.5 — Superset-Pairing tests for the new template-driven model.
+//
+// Templates declare `supersetGroup` directly on each exercise. The
+// applySupersetPairing function just:
+//   - strips supersetGroup from any HSR-Lift (Kongsgaard guard),
+//   - assigns supersetOrder by encounter order within each group,
+//   - sets restSec=0 on order-1, 60-120s on order 2+.
+//
+// All blocks (1-5) now use template-defined pairings.
+
 import { describe, it, expect } from "vitest";
 import {
   applySupersetPairing,
@@ -20,143 +30,147 @@ describe("isHsrLift", () => {
     expect(isHsrLift("Bench Press")).toBe(false);
     expect(isHsrLift("Face Pulls")).toBe(false);
     expect(isHsrLift("Pull-ups")).toBe(false);
+    expect(isHsrLift("DB Row")).toBe(false);
   });
 });
 
-describe("applySupersetPairing — Block 1 + 5 = Straight Sets", () => {
-  it("Block 1 strength_a: all exercises remain Straight Sets", () => {
-    const result = applySupersetPairing(BLOCK_TEMPLATES[1]!.strength_a, 1, "strength_a");
-    for (const ex of result) {
-      expect(ex.supersetGroup ?? null).toBe(null);
-      expect(ex.supersetOrder ?? null).toBe(null);
-    }
-  });
-
-  it("Block 5 strength_a: peaking phase keeps Straight Sets (Iversen 2024)", () => {
-    const result = applySupersetPairing(BLOCK_TEMPLATES[1]!.strength_a, 5, "strength_a");
-    for (const ex of result) {
-      expect(ex.supersetGroup ?? null).toBe(null);
-    }
-  });
-});
-
-describe("applySupersetPairing — Block 2 (Sprint v1.4)", () => {
-  it("strength_a: Incline DB Press + Face Pulls become A1 superset", () => {
-    const result = applySupersetPairing(BLOCK_TEMPLATES[2]!.strength_a, 2, "strength_a");
-    const inclineDb = find(result, "Incline DB Press");
-    const facePulls = find(result, "Face Pulls");
-
-    expect(inclineDb?.supersetGroup).toBe("A1");
-    expect(inclineDb?.supersetOrder).toBe(1);
-    expect(inclineDb?.restSec).toBe(0);
-
-    expect(facePulls?.supersetGroup).toBe("A1");
-    expect(facePulls?.supersetOrder).toBe(2);
-  });
-
-  it("strength_b: Barbell Row + Single-Leg Hip Thrust become B1 superset", () => {
-    const result = applySupersetPairing(BLOCK_TEMPLATES[2]!.strength_b, 2, "strength_b");
-    const row = find(result, "Barbell Row");
-    const hipThrust = find(result, "Single-Leg Hip Thrust");
-
-    expect(row?.supersetGroup).toBe("B1");
-    expect(row?.supersetOrder).toBe(1);
-    expect(row?.restSec).toBe(0);
-
-    expect(hipThrust?.supersetGroup).toBe("B1");
-    expect(hipThrust?.supersetOrder).toBe(2);
-    expect(hipThrust?.restSec).toBe(120);
-  });
-
-  it("strength_c: no pairs (Push-ups + Chin-ups stay Straight Sets in Block 2)", () => {
-    const result = applySupersetPairing(BLOCK_TEMPLATES[2]!.strength_c, 2, "strength_c");
-    for (const ex of result) {
-      expect(ex.supersetGroup ?? null).toBe(null);
-    }
-  });
-
-  it("HSR (Hex Bar Deadlift, RDL) NEVER paired", () => {
-    const aResult = applySupersetPairing(BLOCK_TEMPLATES[2]!.strength_a, 2, "strength_a");
-    const hex = find(aResult, "Hex Bar Deadlift");
+describe("applySupersetPairing — HSR-Guard (Sprint v1.5)", () => {
+  it("strips supersetGroup from Hex Bar Deadlift even if template sets it", () => {
+    const exercises: Exercise[] = [
+      { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, supersetGroup: "A1" },
+      { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, supersetGroup: "A1" },
+    ];
+    const result = applySupersetPairing(exercises, 2, "strength_a");
+    const hex = find(result, "Hex Bar Deadlift");
     expect(hex?.supersetGroup ?? null).toBe(null);
-    expect(hex?.restSec).toBe(180);
+  });
 
-    const bResult = applySupersetPairing(BLOCK_TEMPLATES[2]!.strength_b, 2, "strength_b");
-    const rdl = find(bResult, "Romanian Deadlift");
+  it("strips supersetGroup from Romanian Deadlift", () => {
+    const exercises: Exercise[] = [
+      { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, supersetGroup: "B1" },
+    ];
+    const result = applySupersetPairing(exercises, 2, "strength_b");
+    const rdl = find(result, "Romanian Deadlift");
     expect(rdl?.supersetGroup ?? null).toBe(null);
-    expect(rdl?.restSec).toBe(180);
   });
 });
 
-describe("applySupersetPairing — Block 3 (Sprint v1.4)", () => {
-  it("strength_a: Bench Press + Face Pulls become A1 superset", () => {
+describe("applySupersetPairing — order assignment", () => {
+  it("assigns order 1 to first exercise of pair, order 2 to second", () => {
+    const exercises: Exercise[] = [
+      { name: "Bench Press", sets: 3, reps: 8, loadPct: 75, rpeCap: 8, supersetGroup: "A1" },
+      { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, supersetGroup: "A1" },
+    ];
+    const result = applySupersetPairing(exercises, 3, "strength_a");
+    expect(find(result, "Bench Press")?.supersetOrder).toBe(1);
+    expect(find(result, "Face Pulls")?.supersetOrder).toBe(2);
+  });
+
+  it("order-1 gets restSec=0 (immediate transition)", () => {
+    const exercises: Exercise[] = [
+      { name: "Goblet Squat", sets: 3, reps: 10, rpeCap: 7, supersetGroup: "B2" },
+      { name: "Seated Cable Row", sets: 3, reps: 10, rpeCap: 7, supersetGroup: "B2" },
+    ];
+    const result = applySupersetPairing(exercises, 1, "strength_b");
+    expect(find(result, "Goblet Squat")?.restSec).toBe(0);
+  });
+
+  it("heavy compound order-2 (loadPct >= 65) gets 120s cycle rest", () => {
+    const exercises: Exercise[] = [
+      { name: "Goblet Squat", sets: 3, reps: 10, rpeCap: 7, supersetGroup: "A3" },
+      { name: "Barbell Row", sets: 4, reps: 8, loadPct: 65, rpeCap: 8, supersetGroup: "A3" },
+    ];
+    const result = applySupersetPairing(exercises, 2, "strength_a");
+    expect(find(result, "Barbell Row")?.restSec).toBe(120);
+  });
+
+  it("light accessory order-2 gets 60s cycle rest", () => {
+    const exercises: Exercise[] = [
+      { name: "Bulgarian Split Squat", sets: 3, reps: "8/leg", rpeCap: 7, supersetGroup: "A3" },
+      { name: "DB Row", sets: 3, reps: 10, rpeCap: 7, supersetGroup: "A3" },
+    ];
+    const result = applySupersetPairing(exercises, 1, "strength_a");
+    expect(find(result, "DB Row")?.restSec).toBe(60);
+  });
+});
+
+describe("applySupersetPairing — Block 1 templates (Sprint v1.5: now uses pairings)", () => {
+  it("StrA: Reverse Lunge + Face Pulls paired as A1", () => {
+    const result = applySupersetPairing(BLOCK_TEMPLATES[1]!.strength_a, 1, "strength_a");
+    expect(find(result, "Reverse Lunge")?.supersetGroup).toBe("A1");
+    expect(find(result, "Face Pulls")?.supersetGroup).toBe("A1");
+  });
+
+  it("StrA: BSS + DB Row paired as A3 (new Quad+Back superset)", () => {
+    const result = applySupersetPairing(BLOCK_TEMPLATES[1]!.strength_a, 1, "strength_a");
+    expect(find(result, "Bulgarian Split Squat")?.supersetGroup).toBe("A3");
+    expect(find(result, "DB Row")?.supersetGroup).toBe("A3");
+  });
+
+  it("StrB: Goblet Squat + Seated Cable Row paired as B2", () => {
+    const result = applySupersetPairing(BLOCK_TEMPLATES[1]!.strength_b, 1, "strength_b");
+    expect(find(result, "Goblet Squat")?.supersetGroup).toBe("B2");
+    expect(find(result, "Seated Cable Row")?.supersetGroup).toBe("B2");
+  });
+
+  it("StrC: Walking Lunge + Lat Pulldown paired as C3", () => {
+    const result = applySupersetPairing(BLOCK_TEMPLATES[1]!.strength_c, 1, "strength_c");
+    expect(find(result, "Walking Lunge")?.supersetGroup).toBe("C3");
+    expect(find(result, "Lat Pulldown")?.supersetGroup).toBe("C3");
+  });
+
+  it("Hex Bar Deadlift NOT paired in any Block 1 session", () => {
+    for (const slot of ["strength_a", "strength_c"] as const) {
+      const result = applySupersetPairing(
+        BLOCK_TEMPLATES[1]![slot],
+        1,
+        slot,
+      );
+      const hex = find(result, "Hex Bar Deadlift");
+      expect(hex?.supersetGroup ?? null).toBe(null);
+      expect(hex?.restSec).toBe(180);
+    }
+  });
+});
+
+describe("applySupersetPairing — Block 3 templates (maintenance)", () => {
+  it("StrA: Step-ups + Face Pulls (A1), Goblet Squat + Cable Row (A3)", () => {
     const result = applySupersetPairing(BLOCK_TEMPLATES[3]!.strength_a, 3, "strength_a");
-    const bench = find(result, "Bench Press");
-    const facePulls = find(result, "Face Pulls");
-
-    expect(bench?.supersetGroup).toBe("A1");
-    expect(bench?.supersetOrder).toBe(1);
-    expect(facePulls?.supersetGroup).toBe("A1");
-    expect(facePulls?.supersetOrder).toBe(2);
+    expect(find(result, "Step-ups")?.supersetGroup).toBe("A1");
+    expect(find(result, "Face Pulls")?.supersetGroup).toBe("A1");
+    expect(find(result, "Goblet Squat")?.supersetGroup).toBe("A3");
+    expect(find(result, "Seated Cable Row")?.supersetGroup).toBe("A3");
   });
 
-  it("strength_b: Pull-ups + Nordic Curls become B1 superset", () => {
+  it("StrB: Nordic Curls + Face Pulls (B1), BSS + Lat Pulldown (B2)", () => {
     const result = applySupersetPairing(BLOCK_TEMPLATES[3]!.strength_b, 3, "strength_b");
-    const pullups = find(result, "Pull-ups");
-    const nordic = find(result, "Nordic Curls");
-
-    expect(pullups?.supersetGroup).toBe("B1");
-    expect(pullups?.supersetOrder).toBe(1);
-    expect(nordic?.supersetGroup).toBe("B1");
-    expect(nordic?.supersetOrder).toBe(2);
-    expect(nordic?.restSec).toBe(120);
+    expect(find(result, "Nordic Curls")?.supersetGroup).toBe("B1");
+    expect(find(result, "Bulgarian Split Squat")?.supersetGroup).toBe("B2");
+    expect(find(result, "Lat Pulldown")?.supersetGroup).toBe("B2");
   });
 
-  it("strength_c: DB Bench Press + DB Row become C1 antagonist pair", () => {
+  it("StrC: DB Row + Box Jumps (C1), Walking Lunge + Chin-ups (C3)", () => {
     const result = applySupersetPairing(BLOCK_TEMPLATES[3]!.strength_c, 3, "strength_c");
-    const dbBench = find(result, "DB Bench Press");
-    const dbRow = find(result, "DB Row");
-
-    expect(dbBench?.supersetGroup).toBe("C1");
-    expect(dbBench?.supersetOrder).toBe(1);
-    expect(dbRow?.supersetGroup).toBe("C1");
-    expect(dbRow?.supersetOrder).toBe(2);
-  });
-
-  it("HSR-Lifts NEVER paired (Kongsgaard 2009)", () => {
-    const aResult = applySupersetPairing(BLOCK_TEMPLATES[3]!.strength_a, 3, "strength_a");
-    const hex = find(aResult, "Hex Bar Deadlift");
-    expect(hex?.supersetGroup ?? null).toBe(null);
-    expect(hex?.restSec).toBe(180);
+    expect(find(result, "DB Row")?.supersetGroup).toBe("C1");
+    expect(find(result, "Box Jumps")?.supersetGroup).toBe("C1");
+    expect(find(result, "Walking Lunge")?.supersetGroup).toBe("C3");
+    expect(find(result, "Chin-ups")?.supersetGroup).toBe("C3");
   });
 });
 
-describe("applySupersetPairing — Block 4 (Sprint v1.4)", () => {
-  it("strength_a: Incline DB Press + Band Pull-Aparts become A1", () => {
-    const result = applySupersetPairing(BLOCK_TEMPLATES[4]!.strength_a, 4, "strength_a");
-    const inclineDb = find(result, "Incline DB Press");
-    const bandPa = find(result, "Band Pull-Aparts");
-
-    expect(inclineDb?.supersetGroup).toBe("A1");
-    expect(bandPa?.supersetGroup).toBe("A1");
+describe("applySupersetPairing — Block 5 falls back to Block 4 templates", () => {
+  it("Block 5 strength_a inherits Block 4 supersets (via walk-down fallback)", () => {
+    // Block 5 has no template — getStrengthTemplate walks down to Block 4.
+    // applySupersetPairing applied to Block 4 template still pairs.
+    const result = applySupersetPairing(BLOCK_TEMPLATES[4]!.strength_a, 5, "strength_a");
+    expect(find(result, "Bulgarian Split Squat")?.supersetGroup).toBe("A1");
+    expect(find(result, "Band Pull-Aparts")?.supersetGroup).toBe("A1");
   });
 
-  it("strength_b: Barbell Row + Nordic Curls become B1", () => {
-    const result = applySupersetPairing(BLOCK_TEMPLATES[4]!.strength_b, 4, "strength_b");
-    const row = find(result, "Barbell Row");
-    const nordic = find(result, "Nordic Curls");
-
-    expect(row?.supersetGroup).toBe("B1");
-    expect(nordic?.supersetGroup).toBe("B1");
-  });
-
-  it("strength_c: Push-ups + Chin-ups become C1", () => {
-    const result = applySupersetPairing(BLOCK_TEMPLATES[4]!.strength_c, 4, "strength_c");
-    const pushups = find(result, "Push-ups");
-    const chinups = find(result, "Chin-ups");
-
-    expect(pushups?.supersetGroup).toBe("C1");
-    expect(chinups?.supersetGroup).toBe("C1");
+  it("HSR still guarded in Block 5", () => {
+    const result = applySupersetPairing(BLOCK_TEMPLATES[4]!.strength_a, 5, "strength_a");
+    const hex = find(result, "Hex Bar Deadlift");
+    expect(hex?.supersetGroup ?? null).toBe(null);
   });
 });
 

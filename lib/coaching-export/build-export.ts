@@ -215,6 +215,10 @@ function mapPlannedSession(json: unknown): PlannedSessionData {
       reps: e.reps,
       loadPct: e.loadPct,
       loadKg: e.loadAbs,
+      // Sprint v1.5 — Supersets in coaching-export so the AI coach + PWA
+      // know which exercises pair up. HSR-lifts never have a group set.
+      supersetGroup: e.supersetGroup ?? null,
+      supersetOrder: e.supersetOrder ?? null,
     })),
   };
 }

@@ -48,6 +48,8 @@ const EXERCISE_MOVEMENT_GROUP: Record<string, MovementGroup> = {
   "Suitcase Carry": "lower_body",
   "Nordic Curls": "lower_body",  // Sprint v1.4
   "Step-ups": "lower_body",       // Sprint v1.4
+  "Goblet Squat": "lower_body",   // Sprint v1.5
+  "Walking Lunge": "lower_body",  // Sprint v1.5
   // Upper Push
   "Bench Press": "upper_push",
   "DB Bench Press": "upper_push",
@@ -62,6 +64,8 @@ const EXERCISE_MOVEMENT_GROUP: Record<string, MovementGroup> = {
   "Chin-ups": "upper_pull",            // Sprint v1.4
   "Face Pulls": "upper_pull",          // Sprint v1.4
   "Band Pull-Aparts": "upper_pull",    // Sprint v1.4
+  "Seated Cable Row": "upper_pull",    // Sprint v1.5
+  // Lat Pulldown already mapped above (legacy from v0.x).
   // Plyometric — never gets warmup (separate ramp from running drills)
   "Box Jumps": "plyometric",           // Sprint v1.4
   "Broad Jumps": "plyometric",         // Sprint v1.4

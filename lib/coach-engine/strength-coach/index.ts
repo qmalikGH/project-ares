@@ -64,184 +64,289 @@ type StrengthSlot = "strength_a" | "strength_b" | "strength_c";
 type BlockTemplateMap = Partial<Record<BlockNumber, Record<StrengthSlot, Exercise[]>>>;
 
 const BLOCK_TEMPLATES: BlockTemplateMap = {
-  // Block 1: foundation. HSR introduced, accessories "classic". Sprint v1.4
-  // adds Face Pulls (shoulder health + horizontal pull) in StrA + StrB and
-  // DB Row in StrC so no session has 0 pull volume.
+  // ===========================================================================
+  // Sprint v1.5 — Block 1 with Quad+Back hypertrophy supersets
+  //
+  // Volume targets (W1 baseline, before mode multiplier):
+  //   - Quads: 12 sets (Reverse Lunge 3 + BSS 3 + Goblet Squat 3 + Walking Lunge 3)
+  //   - Back/Lat: 16 sets (Pull-ups 4 + DB Row 3+3 + Cable Row 3 + Lat Pulldown 3)
+  //   - Shoulders: 6 sets (Face Pulls × 2)
+  //
+  // Accessories are paired as antagonist supersets (Paz 2017, Robbins 2010):
+  // no performance loss vs straight sets, ~40% time savings. HSR compounds
+  // NEVER paired (Kongsgaard 2009). supersetGroup is set directly on the
+  // template; applySupersetPairing just propagates the metadata.
+  // ===========================================================================
   1: {
     strength_a: [
-      // HSR — slow tempo for tendon remodeling (Kongsgaard 2009)
+      // === COMPOUNDS (sequential, full rest) ===
       { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, tempo: "3-3-1", restSec: 180 },
-      // Push
       { name: "Bench Press", sets: 3, reps: 8, loadPct: 75, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
-      // Lower accessory
-      { name: "Reverse Lunge", sets: 3, reps: "10/leg", loadPct: 60, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
-      // Pull / Shoulder — Sprint v1.4: balances Bench, posterior delt + ext rotation
+      // === SUPERSET A1: Lower-acc ↔ Shoulder ===
+      { name: "Reverse Lunge", sets: 3, reps: "10/leg", loadPct: 60, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "A1" },
       { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, tempo: "1-2-1", restSec: 60,
-        notes: "Schulter-Gesundheit: Posterior Delt + External Rotation. Cable oder Band." },
-      // Therapy
+        supersetGroup: "A1",
+        notes: "Schulter-Gesundheit: Posterior Delt + External Rotation." },
+      // === SUPERSET A2: Prävention ↔ Core ===
       { name: "Tibialis Anterior Raises", sets: 3, reps: 15, rpeCap: 6, tempo: "2-1-2", restSec: 60,
-        notes: "Shin-Splint-Prävention (Marques 2025). Ferse auf Stufe, Fußspitze heben." },
-      // Core
-      { name: "Pallof Press", sets: 3, reps: "10/side", rpeCap: 6, tempo: "1-2-1", restSec: 60 },
+        supersetGroup: "A2",
+        notes: "Shin-Splint-Prävention (Marques 2025)." },
+      { name: "Pallof Press", sets: 3, reps: "10/side", rpeCap: 6, tempo: "1-2-1", restSec: 60,
+        supersetGroup: "A2" },
+      // === SUPERSET A3: Quad ↔ Back — Sprint v1.5 NEW ===
+      { name: "Bulgarian Split Squat", sets: 3, reps: "8/leg", rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "A3",
+        notes: "Unilateral Quad-dominant. Lauf-spezifisch (Single-Leg Stability)." },
+      { name: "DB Row", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "A3",
+        notes: "Horizontal Pull. DL-Lockout + Laufhaltung bei Ermüdung." },
     ],
     strength_b: [
-      // HSR
+      // === COMPOUNDS ===
       { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "3-3-1", restSec: 180 },
-      // Pull (vertical)
       { name: "Pull-ups", sets: 4, reps: 8, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
-      // Lower accessory
-      { name: "Hip Thrust", sets: 3, reps: 10, loadPct: 70, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
-      // Shoulder — Sprint v1.4
+      // === SUPERSET B1: Glute ↔ Shoulder ===
+      { name: "Hip Thrust", sets: 3, reps: 10, loadPct: 70, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "B1" },
       { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, tempo: "1-2-1", restSec: 60,
+        supersetGroup: "B1",
         notes: "Schulter-Gesundheit." },
-      // Therapy
+      // === SUPERSET B2: Quad ↔ Back — Sprint v1.5 NEW ===
+      { name: "Goblet Squat", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "B2",
+        notes: "Front-loaded Quad. Bilateral, einfaches Pattern." },
+      { name: "Seated Cable Row", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "B2",
+        notes: "Horizontal Pull. Rhomboids + Lats." },
+      // === Prävention (kein Superset — Short Foot ist statisch) ===
       { name: "Short Foot Exercise", sets: 2, reps: "30sec hold", rpeCap: 5, restSec: 30,
-        notes: "Intrinsic foot muscles (Newsham 2023: 93% weniger Rezidive). Fußgewölbe aktiv anheben, barfuß." },
+        notes: "Intrinsic foot muscles (Newsham 2023). Fußgewölbe aktiv anheben, barfuß." },
     ],
     strength_c: [
-      // HSR
+      // === COMPOUNDS ===
       { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 },
-      // Push
       { name: "DB Bench Press", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
-      // Pull (horizontal) — Sprint v1.4: balances DB Bench Press, StrC had 0 pull before
-      { name: "DB Row", sets: 3, reps: 10, loadPct: 60, rpeCap: 7, tempo: "2-1-1", restSec: 90,
-        notes: "Horizontal Pull — gleicht DB Bench Press aus." },
-      // Plyo
-      { name: "Broad Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 120,
-        notes: "Plyo (knee-friendly alternative to box jumps)" },
-      // Therapy
+      // === SUPERSET C1: Back ↔ Plyo (bestehend DB Row, jetzt gepairt) ===
+      { name: "DB Row", sets: 3, reps: 10, loadPct: 60, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "C1" },
+      { name: "Broad Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 60,
+        supersetGroup: "C1",
+        notes: "Plyo (knee-friendly alternative to box jumps)." },
+      // === SUPERSET C2: Prävention ↔ Carry ===
       { name: "Single-Leg Calf Raises", sets: 3, reps: "12/leg", rpeCap: 7, tempo: "2-2-2", restSec: 60,
-        notes: "Auf Stufe, volle ROM. Soleus-fokussiert für Lauf-Stoßdämpfung." },
-      // Carry
-      { name: "Farmer's Carry", sets: 3, reps: "30m", loadPct: 60, rpeCap: 6, restSec: 90 },
+        supersetGroup: "C2",
+        notes: "Soleus-fokussiert für Lauf-Stoßdämpfung." },
+      { name: "Farmer's Carry", sets: 3, reps: "30m", loadPct: 60, rpeCap: 6, restSec: 60,
+        supersetGroup: "C2" },
+      // === SUPERSET C3: Quad ↔ Back — Sprint v1.5 NEW ===
+      { name: "Walking Lunge", sets: 3, reps: "10/leg", rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "C3",
+        notes: "Dynamic Quad + Glute. Lauf-spezifisch." },
+      { name: "Lat Pulldown", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "C3",
+        notes: "Vertikal Pull. Langfrist-Transfer: Schwimmen (Ironman), Laufhaltung." },
     ],
   },
-  // Block 2: Build / Threshold-Intro. Same template structure, systematic
-  // variation (Kassiano 2022): different angles, unilateral, anti-extension.
-  // Sprint v1.4: Face Pulls in StrA+StrB, Chin-ups in StrC.
+  // ===========================================================================
+  // Block 2 — Build / Threshold-Intro. Kassiano-Rotation: Quad-Pool BSS →
+  // Walking Lunge → Step-ups → Goblet Squat; Back-Pool DB Row → Cable Row →
+  // Lat Pulldown → Chin-ups. Block 2 uses Walking Lunge + Lat Pulldown (StrA),
+  // Step-ups + Cable Row (StrB), Goblet Squat + DB Row (StrC).
+  // ===========================================================================
   2: {
     strength_a: [
-      { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, tempo: "3-3-1", restSec: 180 },                  // HSR — KONSTANT
-      { name: "Incline DB Press", sets: 3, reps: 8, loadPct: 70, rpeCap: 8, tempo: "2-1-1", restSec: 120 },                  // var: anderer Winkel
-      { name: "Bulgarian Split Squat", sets: 3, reps: "8/leg", loadPct: 55, rpeCap: 7, tempo: "2-1-1", restSec: 90 },        // var: unilateral
-      // Shoulder — Sprint v1.4
+      { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, tempo: "3-3-1", restSec: 180 },
+      { name: "Incline DB Press", sets: 3, reps: 8, loadPct: 70, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
+      // === SUPERSET A1: Lower ↔ Shoulder ===
+      { name: "Bulgarian Split Squat", sets: 3, reps: "8/leg", loadPct: 55, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "A1" },
       { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, tempo: "1-2-1", restSec: 60,
+        supersetGroup: "A1",
         notes: "Schulter-Gesundheit." },
+      // === SUPERSET A2: Prävention ↔ Core ===
       { name: "Tibialis Anterior Raises", sets: 3, reps: 15, rpeCap: 6, tempo: "2-1-2", restSec: 60,
+        supersetGroup: "A2",
         notes: "Shin-Splint-Prävention (Marques 2025)." },
-      { name: "Dead Bug", sets: 3, reps: "10/side", rpeCap: 6, tempo: "2-2-2", restSec: 60 },                                 // var: Anti-Extension
+      { name: "Dead Bug", sets: 3, reps: "10/side", rpeCap: 6, tempo: "2-2-2", restSec: 60,
+        supersetGroup: "A2" },
+      // === SUPERSET A3: Quad ↔ Back — Rotation (B1=BSS+DB Row → B2=Walking Lunge+Lat Pulldown) ===
+      { name: "Walking Lunge", sets: 3, reps: "10/leg", rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "A3",
+        notes: "Dynamic Quad + Glute." },
+      { name: "Lat Pulldown", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "A3",
+        notes: "Vertikal Pull." },
     ],
     strength_b: [
-      { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "3-3-1", restSec: 180 },                 // HSR — KONSTANT
-      { name: "Barbell Row", sets: 4, reps: 8, loadPct: 65, rpeCap: 8, tempo: "2-1-1", restSec: 120 },                       // var: horizontal
-      { name: "Single-Leg Hip Thrust", sets: 3, reps: "10/leg", loadPct: 50, rpeCap: 7, tempo: "2-1-1", restSec: 90 },       // var: unilateral
-      // Shoulder — Sprint v1.4
+      { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "3-3-1", restSec: 180 },
+      { name: "Barbell Row", sets: 4, reps: 8, loadPct: 65, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
+      // === SUPERSET B1: Glute ↔ Shoulder ===
+      { name: "Single-Leg Hip Thrust", sets: 3, reps: "10/leg", loadPct: 50, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "B1" },
       { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, tempo: "1-2-1", restSec: 60,
+        supersetGroup: "B1",
         notes: "Schulter-Gesundheit." },
+      // === SUPERSET B2: Quad ↔ Back — Rotation (B1=Goblet+Cable → B2=Step-ups+Cable Row) ===
+      { name: "Step-ups", sets: 3, reps: "8/leg", rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "B2",
+        notes: "Box knee-height. Lauf-spezifisch (Balsalobre-Fernandez 2016)." },
+      { name: "Seated Cable Row", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "B2" },
       { name: "Short Foot Exercise", sets: 2, reps: "30sec hold", rpeCap: 5, restSec: 30,
         notes: "Intrinsic foot muscles (Newsham 2023)." },
     ],
     strength_c: [
-      { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 },                  // HSR — KONSTANT
+      { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 },
       { name: "Push-ups", sets: 3, reps: 12, rpeCap: 7, tempo: "2-1-1", restSec: 90,
-        notes: "Weighted vest if BW too easy" },
-      // Pull — Sprint v1.4: Chin-ups (supinated grip, biceps + lat). Variation: vertical pull complements StrB Barbell Row (horizontal).
-      { name: "Chin-ups", sets: 3, reps: 8, rpeCap: 7, tempo: "2-1-1", restSec: 90,
-        notes: "Supinated Grip — Biceps + Lat. Variation zu Barbell Row (StrB)." },
-      { name: "Box Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 120,
-        notes: "Low box ~30cm, reactive plyo" },
+        notes: "Weighted vest if BW too easy." },
+      // === SUPERSET C1: Pull ↔ Plyo ===
+      { name: "Chin-ups", sets: 3, reps: 8, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "C1",
+        notes: "Supinated Grip — Biceps + Lat. Rotation von DB Row." },
+      { name: "Box Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 60,
+        supersetGroup: "C1",
+        notes: "Low box ~30cm, reactive plyo." },
+      // === SUPERSET C2: Prävention ↔ Carry ===
       { name: "Single-Leg Calf Raises", sets: 3, reps: "12/leg", rpeCap: 7, tempo: "2-2-2", restSec: 60,
+        supersetGroup: "C2",
         notes: "Soleus-fokussiert." },
-      { name: "Suitcase Carry", sets: 3, reps: "30m/side", loadPct: 50, rpeCap: 6, restSec: 90 },                            // var: unilateral
+      { name: "Suitcase Carry", sets: 3, reps: "30m/side", loadPct: 50, rpeCap: 6, restSec: 60,
+        supersetGroup: "C2" },
+      // === SUPERSET C3: Quad ↔ Back — Rotation (B1=Walking Lunge+Lat Pulldown → B2=Goblet+DB Row) ===
+      { name: "Goblet Squat", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "C3" },
+      { name: "DB Row", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "C3" },
     ],
   },
-  // Block 3: Transmutation / Threshold. Run volume rises (Long Run 75min) —
-  // strength shifts to run-specific (unilateral) + hamstring resilience
-  // (Nordic Curls, van Dyk 2019: 51% reduction in hamstring injuries).
+  // ===========================================================================
+  // Block 3 — Transmutation / Threshold (maintenance mode = ×0.75 sets).
+  // Nordic Curls introduced (van Dyk 2019: 51% fewer hamstring injuries —
+  // critical as Long Run climbs to 75min). Kassiano rotation continued.
+  // ===========================================================================
   3: {
     strength_a: [
-      { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, tempo: "3-3-1", restSec: 180 },                  // HSR — KONSTANT
-      // Push — back to Bench (rotation from Block 2 Incline DB)
+      { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, tempo: "3-3-1", restSec: 180 },
       { name: "Bench Press", sets: 3, reps: 8, loadPct: 75, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
-      // Lower — Step-ups (run-specific, unilateral)
-      { name: "Step-ups", sets: 3, reps: "8/leg", loadPct: 55, rpeCap: 7, tempo: "2-1-1", restSec: 90,
-        notes: "Box-Höhe knie-hoch. Lauf-spezifische unilaterale Kraft (Balsalobre-Fernandez 2016)." },
+      // === SUPERSET A1: Lower ↔ Shoulder — Rotation: BSS (B1) → Walking Lunge (B2) → Step-ups (B3) ===
+      { name: "Step-ups", sets: 3, reps: "8/leg", loadPct: 55, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "A1",
+        notes: "Box-Höhe knie-hoch. Lauf-spezifische Kraft (Balsalobre-Fernandez 2016)." },
       { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, tempo: "1-2-1", restSec: 60,
-        notes: "Schulter-Gesundheit." },
+        supersetGroup: "A1" },
+      // === SUPERSET A2: Prävention ↔ Core ===
       { name: "Tibialis Anterior Raises", sets: 3, reps: 15, rpeCap: 6, tempo: "2-1-2", restSec: 60,
+        supersetGroup: "A2",
         notes: "Shin-Splint-Prävention (Marques 2025)." },
-      // Core — back to Anti-Rotation (rotation from Block 2 Dead Bug)
-      { name: "Pallof Press", sets: 3, reps: "10/side", rpeCap: 6, tempo: "1-2-1", restSec: 60 },
+      { name: "Pallof Press", sets: 3, reps: "10/side", rpeCap: 6, tempo: "1-2-1", restSec: 60,
+        supersetGroup: "A2" },
+      // === SUPERSET A3: Quad ↔ Back ===
+      { name: "Goblet Squat", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "A3" },
+      { name: "Seated Cable Row", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "A3" },
     ],
     strength_b: [
-      { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "3-3-1", restSec: 180 },                 // HSR — KONSTANT
-      // Pull — back to vertical (rotation from Block 2 Barbell Row)
+      { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "3-3-1", restSec: 180 },
       { name: "Pull-ups", sets: 4, reps: 8, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
-      // Hamstring resilience — Sprint v1.4: Nordic Curls (van Dyk 2019)
-      { name: "Nordic Curls", sets: 3, reps: 6, rpeCap: 7, tempo: "3-1-X", restSec: 120,
-        notes: "Exzentrisch betont. Partner oder GHR-Bank. Van Dyk 2019: 51% weniger Hamstring-Verletzungen." },
+      // === SUPERSET B1: Hamstring ↔ Shoulder — Sprint v1.4 Nordic Curls intro ===
+      { name: "Nordic Curls", sets: 3, reps: 6, rpeCap: 7, tempo: "3-1-X", restSec: 60,
+        supersetGroup: "B1",
+        notes: "Van Dyk 2019: 51% weniger Hamstring-Verletzungen. Exzentrisch, Partner/GHR." },
       { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, tempo: "1-2-1", restSec: 60,
-        notes: "Schulter-Gesundheit." },
+        supersetGroup: "B1" },
+      // === SUPERSET B2: Quad ↔ Back ===
+      { name: "Bulgarian Split Squat", sets: 3, reps: "8/leg", rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "B2" },
+      { name: "Lat Pulldown", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "B2" },
       { name: "Short Foot Exercise", sets: 2, reps: "30sec hold", rpeCap: 5, restSec: 30,
         notes: "Intrinsic foot muscles (Newsham 2023)." },
     ],
     strength_c: [
-      { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 },                  // HSR — KONSTANT
-      // Push — DB Bench (rotation)
+      { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 },
       { name: "DB Bench Press", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
-      // Pull — DB Row (horizontal; StrB has vertical Pull-ups)
-      { name: "DB Row", sets: 3, reps: 10, loadPct: 60, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
-      // Plyo — Box Jumps for reactive strength
-      { name: "Box Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 120 },
-      { name: "Single-Leg Calf Raises", sets: 3, reps: "12/leg", rpeCap: 7, tempo: "2-2-2", restSec: 60 },
-      // Carry — back to bilateral (rotation)
-      { name: "Farmer's Carry", sets: 3, reps: "30m", loadPct: 60, rpeCap: 6, restSec: 90 },
+      // === SUPERSET C1: Pull ↔ Plyo ===
+      { name: "DB Row", sets: 3, reps: 10, loadPct: 60, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "C1" },
+      { name: "Box Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 60,
+        supersetGroup: "C1" },
+      // === SUPERSET C2: Prävention ↔ Carry ===
+      { name: "Single-Leg Calf Raises", sets: 3, reps: "12/leg", rpeCap: 7, tempo: "2-2-2", restSec: 60,
+        supersetGroup: "C2" },
+      { name: "Farmer's Carry", sets: 3, reps: "30m", loadPct: 60, rpeCap: 6, restSec: 60,
+        supersetGroup: "C2" },
+      // === SUPERSET C3: Quad ↔ Back ===
+      { name: "Walking Lunge", sets: 3, reps: "10/leg", rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "C3" },
+      { name: "Chin-ups", sets: 3, reps: 8, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "C3" },
     ],
   },
-  // Block 4: Transmutation / VO2max. Same maintenance mode as Block 3 but
-  // run focus shifts to Z3 (VO2max). Strength varies (Kassiano 2022) and
-  // emphasizes power/reactive (Depth Drops). Hamstring work continues
-  // (high run volume).
+  // ===========================================================================
+  // Block 4 — Transmutation / VO2max (maintenance mode). Power/reactive
+  // focus (Depth Drops). Kassiano rotation continued. Nordic Curls stay.
+  // ===========================================================================
   4: {
     strength_a: [
-      { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, tempo: "3-3-1", restSec: 180 },                  // HSR — KONSTANT
-      // Push — Incline DB (rotation from Block 3 Flat Bench)
+      { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, tempo: "3-3-1", restSec: 180 },
       { name: "Incline DB Press", sets: 3, reps: 8, loadPct: 70, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
-      // Lower — BSS (rotation from Block 3 Step-ups)
-      { name: "Bulgarian Split Squat", sets: 3, reps: "8/leg", loadPct: 55, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
-      // Shoulder — Band Pull-Aparts (rotation from Face Pulls)
-      { name: "Band Pull-Aparts", sets: 3, reps: 20, rpeCap: 5, restSec: 45,
+      // === SUPERSET A1: Lower ↔ Shoulder ===
+      { name: "Bulgarian Split Squat", sets: 3, reps: "8/leg", loadPct: 55, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "A1" },
+      { name: "Band Pull-Aparts", sets: 3, reps: 20, rpeCap: 5, restSec: 60,
+        supersetGroup: "A1",
         notes: "Variation von Face Pulls — Posterior Delt + Rhomboids." },
+      // === SUPERSET A2: Prävention ↔ Core ===
       { name: "Tibialis Anterior Raises", sets: 3, reps: 15, rpeCap: 6, tempo: "2-1-2", restSec: 60,
+        supersetGroup: "A2",
         notes: "Shin-Splint-Prävention (Marques 2025)." },
-      // Core — Dead Bug (rotation from Block 3 Pallof)
-      { name: "Dead Bug", sets: 3, reps: "10/side", rpeCap: 6, tempo: "2-2-2", restSec: 60 },
+      { name: "Dead Bug", sets: 3, reps: "10/side", rpeCap: 6, tempo: "2-2-2", restSec: 60,
+        supersetGroup: "A2" },
+      // === SUPERSET A3: Quad ↔ Back — Rotation (B3 Step-ups → B4 Step-ups+DB Row) ===
+      { name: "Step-ups", sets: 3, reps: "8/leg", rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "A3" },
+      { name: "DB Row", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "A3" },
     ],
     strength_b: [
-      { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "3-3-1", restSec: 180 },                 // HSR — KONSTANT
-      // Pull — Barbell Row (rotation from Block 3 Pull-ups)
+      { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "3-3-1", restSec: 180 },
       { name: "Barbell Row", sets: 4, reps: 8, loadPct: 65, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
-      // Hamstring — Nordic Curls stay (proven, high run volume)
-      { name: "Nordic Curls", sets: 3, reps: 6, rpeCap: 7, tempo: "3-1-X", restSec: 120,
+      // === SUPERSET B1: Hamstring ↔ Shoulder ===
+      { name: "Nordic Curls", sets: 3, reps: 6, rpeCap: 7, tempo: "3-1-X", restSec: 60,
+        supersetGroup: "B1",
         notes: "Van Dyk 2019: 51% weniger Hamstring-Verletzungen." },
       { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, tempo: "1-2-1", restSec: 60,
-        notes: "Schulter-Gesundheit." },
+        supersetGroup: "B1" },
+      // === SUPERSET B2: Quad ↔ Back ===
+      { name: "Walking Lunge", sets: 3, reps: "10/leg", rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "B2" },
+      { name: "Seated Cable Row", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "B2" },
       { name: "Short Foot Exercise", sets: 2, reps: "30sec hold", rpeCap: 5, restSec: 30,
         notes: "Intrinsic foot muscles (Newsham 2023)." },
     ],
     strength_c: [
-      { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 },                  // HSR — KONSTANT
-      // Push — Push-ups (rotation)
+      { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 },
       { name: "Push-ups", sets: 3, reps: 12, rpeCap: 7, tempo: "2-1-1", restSec: 90,
         notes: "Weighted vest wenn BW zu leicht." },
-      // Pull — Chin-ups (rotation from Block 3 DB Row → vertical)
-      { name: "Chin-ups", sets: 3, reps: 8, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
-      // Plyo — Depth Drops (power for VO2max phase)
-      { name: "Depth Drops", sets: 3, reps: 5, rpeCap: 6, tempo: "X-X-X", restSec: 120,
-        notes: "Von 20-30cm Box fallen lassen, sofort springen. Reactive Strength Index." },
-      { name: "Single-Leg Calf Raises", sets: 3, reps: "12/leg", rpeCap: 7, tempo: "2-2-2", restSec: 60 },
-      // Carry — Suitcase (rotation)
-      { name: "Suitcase Carry", sets: 3, reps: "30m/side", loadPct: 50, rpeCap: 6, restSec: 90 },
+      // === SUPERSET C1: Pull ↔ Plyo — VO2max-Power (Depth Drops) ===
+      { name: "Chin-ups", sets: 3, reps: 8, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "C1" },
+      { name: "Depth Drops", sets: 3, reps: 5, rpeCap: 6, tempo: "X-X-X", restSec: 60,
+        supersetGroup: "C1",
+        notes: "Von 20-30cm Box. Reactive Strength für VO2max-Phase." },
+      // === SUPERSET C2: Prävention ↔ Carry ===
+      { name: "Single-Leg Calf Raises", sets: 3, reps: "12/leg", rpeCap: 7, tempo: "2-2-2", restSec: 60,
+        supersetGroup: "C2" },
+      { name: "Suitcase Carry", sets: 3, reps: "30m/side", loadPct: 50, rpeCap: 6, restSec: 60,
+        supersetGroup: "C2" },
+      // === SUPERSET C3: Quad ↔ Back ===
+      { name: "Goblet Squat", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "C3" },
+      { name: "Lat Pulldown", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "C3" },
     ],
   },
   // Block 5: intentionally undefined — falls through to Block 4 via the
@@ -315,113 +420,59 @@ export function isHsrLift(name: string): boolean {
 const SUPERSET_INTRA_REST_SEC = 0;
 
 /**
- * Pairing-Rule für ein Block × Session-Pair. Sprint v1.4 — table-driven
- * replaces the hardcoded if/else chain that only handled Block 2-4 partially.
+ * Apply Superset-Pairing rules to the exercises array.
  *
- * `exercise1` runs first with restSec=0 (immediate transition). `exercise2`
- * runs with the partnerRestSec (matches the heavier partner so we don't
- * drop recovery in the chain).
- */
-type PairingRule = {
-  exercise1: string;
-  exercise2: string;
-  group: string;
-  rationale: string;
-  /** Rest after exercise2 finishes the pair (cycle rest). Defaults to 90s. */
-  partnerRestSec?: number;
-};
-
-const PAIRING_RULES: Record<number, Partial<Record<StrengthSlot, PairingRule[]>>> = {
-  2: {
-    strength_a: [
-      { exercise1: "Incline DB Press", exercise2: "Face Pulls", group: "A1",
-        rationale: "Push + Rear Pull: low antagonist conflict, time-efficient." },
-    ],
-    strength_b: [
-      { exercise1: "Barbell Row", exercise2: "Single-Leg Hip Thrust", group: "B1",
-        rationale: "Pull + Hip-hinge: different muscle groups, no antagonist conflict.",
-        partnerRestSec: 120 },
-    ],
-    strength_c: [], // Push-ups + Chin-ups remain Straight Sets in Block 2
-  },
-  3: {
-    strength_a: [
-      { exercise1: "Bench Press", exercise2: "Face Pulls", group: "A1",
-        rationale: "Push + Rear Pull: low antagonist conflict, time-efficient." },
-    ],
-    strength_b: [
-      { exercise1: "Pull-ups", exercise2: "Nordic Curls", group: "B1",
-        rationale: "Pull + Knee-flexion: different muscle patterns.",
-        partnerRestSec: 120 },
-    ],
-    strength_c: [
-      { exercise1: "DB Bench Press", exercise2: "DB Row", group: "C1",
-        rationale: "Classic antagonist pair: Push + Pull, balanced fatigue." },
-    ],
-  },
-  4: {
-    strength_a: [
-      { exercise1: "Incline DB Press", exercise2: "Band Pull-Aparts", group: "A1",
-        rationale: "Push + Rear Pull: low fatigue interaction." },
-    ],
-    strength_b: [
-      { exercise1: "Barbell Row", exercise2: "Nordic Curls", group: "B1",
-        rationale: "Pull + Knee-flexion: different patterns.",
-        partnerRestSec: 120 },
-    ],
-    strength_c: [
-      { exercise1: "Push-ups", exercise2: "Chin-ups", group: "C1",
-        rationale: "BW Push + BW Pull: low fatigue interaction, time-efficient." },
-    ],
-  },
-};
-
-/**
- * Apply Superset-Pairing rules in-place on a copy of `exercises`.
+ * Sprint v1.5 — Template-driven: the template defines `supersetGroup`
+ * directly on each exercise. This function:
+ *   1. Strips supersetGroup from any HSR-Lift (safety net — HSR must NEVER
+ *      be paired; Kongsgaard 2009 tendon-loading needs full rest).
+ *   2. Assigns supersetOrder (1 = first of pair, 2 = second) by encounter
+ *      order within each group.
+ *   3. Sets restSec=0 on exercise1 (immediate transition) and a longer
+ *      restSec on exercise2 (cycle rest) — defaults to 60s, raised to 120s
+ *      for heavy compound partners.
  *
- * Block 1 + Block 5 → pure Straight Sets (no pairs). HSR-Lifts NEVER paired
- * (Kongsgaard 2009: full rest is the tendon-loading stimulus).
+ * Block 1 + Block 5 are NOT special-cased anymore — the template decides.
+ * If a template lists supersetGroups, they apply; if not, straight sets.
  *
  * Pure function — input array is not mutated; returns a new array.
  */
 export function applySupersetPairing(
   exercises: Exercise[],
-  blockNumber: number,
-  sessionType: "strength_a" | "strength_b" | "strength_c",
+  // blockNumber + sessionType kept for backward compatibility with callers
+  // and for future block-specific rules; currently unused since pairing is
+  // template-driven.
+  _blockNumber: number,
+  _sessionType: "strength_a" | "strength_b" | "strength_c",
 ): Exercise[] {
-  // Block 1 + Block 5 → pure Straight Sets, no modification.
-  if (blockNumber === 1 || blockNumber === 5) {
-    return exercises.map((ex) => ({ ...ex }));
-  }
-
-  const rules = PAIRING_RULES[blockNumber]?.[sessionType] ?? [];
-  if (rules.length === 0) return exercises.map((ex) => ({ ...ex }));
+  // Count seen-so-far per group to assign supersetOrder.
+  const seen: Record<string, number> = {};
 
   return exercises.map((ex) => {
-    // HSR-Lifts NEVER paired — full rest is the active ingredient.
-    if (isHsrLift(ex.name)) return { ...ex };
-
-    for (const rule of rules) {
-      if (ex.name === rule.exercise1) {
-        return {
-          ...ex,
-          supersetGroup: rule.group,
-          supersetOrder: 1,
-          supersetRationale: rule.rationale,
-          restSec: SUPERSET_INTRA_REST_SEC,
-        };
-      }
-      if (ex.name === rule.exercise2) {
-        return {
-          ...ex,
-          supersetGroup: rule.group,
-          supersetOrder: 2,
-          supersetRationale: rule.rationale,
-          restSec: rule.partnerRestSec ?? 90,
-        };
-      }
+    // HSR-Guard: strip supersetGroup from heavy compound lifts.
+    if (isHsrLift(ex.name)) {
+      const { supersetGroup: _g, supersetOrder: _o, supersetRationale: _r, ...rest } = ex;
+      void _g; void _o; void _r;
+      return { ...rest };
     }
-    return { ...ex };
+
+    if (!ex.supersetGroup) return { ...ex };
+
+    const group = ex.supersetGroup;
+    seen[group] = (seen[group] ?? 0) + 1;
+    const order = seen[group];
+
+    // Order 1 = immediate transition, order 2+ = cycle rest.
+    // For very heavy partners (loadPct >= 65%), bump cycle rest to 120s
+    // so we don't burn the heavy compound by under-resting.
+    const isHeavy = (ex.loadPct ?? 0) >= 65;
+    const restSec = order === 1 ? SUPERSET_INTRA_REST_SEC : (isHeavy ? 120 : 60);
+
+    return {
+      ...ex,
+      supersetOrder: order,
+      restSec,
+    };
   });
 }
 

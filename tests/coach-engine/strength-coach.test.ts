@@ -190,9 +190,10 @@ describe("Exercise tempo + rest defaults", () => {
   it("every non-isometric exercise has restSec defined", () => {
     const allExercises = plan.sessions.flatMap((s) => s.exercises ?? []);
     allExercises.forEach((ex) => {
-      // restSec is required on all template exercises
+      // restSec is required on all template exercises. Sprint v1.5: order-1
+      // of a superset can be 0 (immediate transition to the antagonist).
       expect(ex.restSec).toBeDefined();
-      expect(ex.restSec).toBeGreaterThan(0);
+      expect(ex.restSec).toBeGreaterThanOrEqual(0);
     });
   });
 });
