@@ -492,6 +492,11 @@ export function generateWeekRunPlan(
   vdot: number,
   weekStartDate: Date,
   hrCtx?: { hrMax?: number; hrRest?: number },
+  /** Sprint v1.5 follow-up: when set, this WeeklyPlan was created via
+   *  resetBlock (post-illness ramp-up) and the athlete already has a
+   *  calibrated VDOT → skip the calibration run, use a normal Threshold-
+   *  Run on Tuesday instead. null/undefined = default (calibration as usual). */
+  loadOverrideWeek?: 1 | 2 | 3 | 4 | null,
 ): WeekRunPlan {
   const paces = vdotToPaces(vdot);
   const blockNumber = phaseConfig.blockNumber;
@@ -520,7 +525,9 @@ export function generateWeekRunPlan(
 
   // Tue: Quality day depends on block
   let qualityDay: SessionPlan;
-  if (blockNumber === 1 && weekNumber === 1) {
+  // Sprint v1.5 follow-up: skip calibration when loadOverrideWeek is set
+  // (post-reset W1; athlete already has known VDOT).
+  if (blockNumber === 1 && weekNumber === 1 && loadOverrideWeek == null) {
     qualityDay = withHrTarget(
       {
         date: dateAt(1),

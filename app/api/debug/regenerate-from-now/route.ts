@@ -117,6 +117,11 @@ export async function POST(req: NextRequest) {
       effectiveVdot,
       plan.startDate,
       hrCtx,
+      // Sprint v1.5 follow-up: skip the W1 calibration run when this row
+      // was created via Block-Reset (athlete has known VDOT).
+      (plan as { loadOverrideWeek?: number | null }).loadOverrideWeek as
+        | 1 | 2 | 3 | 4 | null
+        | undefined ?? null,
     );
     const strengthPlan: WeekStrengthPlan = generateWeekStrengthPlan(
       phaseConfig,

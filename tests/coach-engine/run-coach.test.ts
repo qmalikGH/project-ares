@@ -170,6 +170,19 @@ describe("generateWeekRunPlan", () => {
     expect(plan.sessions[1].type).toBe("threshold_run");
   });
 
+  it("Sprint v1.5: Block 1 W1 with loadOverrideWeek skips calibration → threshold_run", () => {
+    // loadOverrideWeek=2 signals this is a post-resetBlock ramp-up week.
+    // VDOT is already known → no calibration run needed.
+    const plan = generateWeekRunPlan(block1Config, 1, 42, monday, undefined, 2);
+    expect(plan.sessions[1].type).toBe("threshold_run");
+  });
+
+  it("Sprint v1.5: Block 1 W1 with loadOverrideWeek=null still inserts calibration_run", () => {
+    // Fresh macrocycle start (no override) → calibration as usual.
+    const plan = generateWeekRunPlan(block1Config, 1, 42, monday, undefined, null);
+    expect(plan.sessions[1].type).toBe("calibration_run");
+  });
+
   it("Block 4 Tue is VO2max intervals", () => {
     const plan = generateWeekRunPlan(block4Config, 13, 46, monday);
     expect(plan.sessions[1].type).toBe("vo2max_intervals");
