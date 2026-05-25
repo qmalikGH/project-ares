@@ -22,6 +22,10 @@ export type ExerciseShape = {
   notes?: string;
   /** Sprint v0.13: true for warmup/ramp-up/activation sets. */
   isWarmup?: boolean;
+  /** Sprint v1.6: superset pairing label (e.g. "A1", "B2"). Exercises with the
+   *  same supersetGroup are rendered as a grouped block with an amber border. */
+  supersetGroup?: string | null;
+  supersetOrder?: number | null;
 };
 
 export type RunInterval = {
@@ -178,69 +182,145 @@ export function Pill({
 }
 
 // ============================================
-// Exercise list (Direction C, Sprint v0.11)
+// Exercise list (Direction C, Sprint v0.11 + Superset-UI Sprint v1.6)
 //
 // Layout:
 //   HEX BAR DEADLIFT                                       (uppercase sans)
 //   4 × 5 @ 98 kg                                  82%     (mono, %right)
 //   Tempo 3-3-1 · Pause 3min · RPE ≤ 8                     (xs tertiary)
 //
+// Supersets are grouped with an amber left-border and a "Superset A1" label.
 // When `loadAbs` is missing (no 1RM set), falls back to "4 × 5 @ 82%".
 // ============================================
+
+// --- Superset grouping logic ---
+
+type ExerciseGroup =
+  | { type: "single"; exercises: [ExerciseShape] }
+  | { type: "superset"; supersetGroup: string; exercises: ExerciseShape[] };
+
+/** Groups consecutive exercises with the same `supersetGroup` into blocks. */
+export function groupBySupersets(exercises: ExerciseShape[]): ExerciseGroup[] {
+  const groups: ExerciseGroup[] = [];
+  let currentSuperset: { supersetGroup: string; exercises: ExerciseShape[] } | null = null;
+
+  for (const ex of exercises) {
+    if (ex.supersetGroup) {
+      if (currentSuperset && currentSuperset.supersetGroup === ex.supersetGroup) {
+        currentSuperset.exercises.push(ex);
+      } else {
+        // Flush previous superset if any
+        if (currentSuperset) {
+          groups.push({ type: "superset", ...currentSuperset });
+        }
+        currentSuperset = { supersetGroup: ex.supersetGroup, exercises: [ex] };
+      }
+    } else {
+      // Flush previous superset if any
+      if (currentSuperset) {
+        groups.push({ type: "superset", ...currentSuperset });
+        currentSuperset = null;
+      }
+      groups.push({ type: "single", exercises: [ex] });
+    }
+  }
+  // Flush last superset
+  if (currentSuperset) {
+    groups.push({ type: "superset", ...currentSuperset });
+  }
+
+  return groups;
+}
+
+// --- Single exercise row (extracted from old ExerciseList) ---
+
+function ExerciseItem({ exercise: ex }: { exercise: ExerciseShape }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-foreground-secondary)]">
+        {ex.name}
+      </span>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="num-md text-[var(--color-foreground)]">
+          {ex.sets} × {ex.reps}
+          {ex.loadAbs !== undefined && ex.loadAbs > 0 ? (
+            <>
+              <span className="text-[var(--color-foreground-tertiary)]">
+                {" @ "}
+              </span>
+              {ex.loadAbs} kg
+            </>
+          ) : ex.loadPct ? (
+            <>
+              <span className="text-[var(--color-foreground-tertiary)]">
+                {" @ "}
+              </span>
+              {ex.loadPct}%
+            </>
+          ) : null}
+        </span>
+        {ex.loadAbs !== undefined && ex.loadAbs > 0 && ex.loadPct ? (
+          <span className="num text-xs text-[var(--color-foreground-muted)]">
+            {ex.loadPct}%
+          </span>
+        ) : null}
+      </div>
+      {(ex.tempo || ex.restSec || ex.rpeCap) && (
+        <div className="text-xs text-[var(--color-foreground-tertiary)] flex flex-wrap gap-x-3">
+          {ex.tempo && <span>Tempo {ex.tempo}</span>}
+          {ex.restSec !== undefined && (
+            <span>
+              Pause{" "}
+              {ex.restSec >= 60
+                ? `${Math.round(ex.restSec / 60)}min`
+                : `${ex.restSec}s`}
+            </span>
+          )}
+          {ex.rpeCap !== undefined && <span>RPE ≤ {ex.rpeCap}</span>}
+        </div>
+      )}
+      {ex.notes && (
+        <div className="text-xs italic text-[var(--color-foreground-muted)]">
+          {ex.notes}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Main ExerciseList with superset grouping ---
+
 export function ExerciseList({ exercises }: { exercises: ExerciseShape[] }) {
+  const groups = groupBySupersets(exercises);
+
   return (
     <ul className="mt-2 flex flex-col gap-3">
-      {exercises.map((ex, i) => (
-        <li key={i} className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-foreground-secondary)]">
-            {ex.name}
-          </span>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="num-md text-[var(--color-foreground)]">
-              {ex.sets} × {ex.reps}
-              {ex.loadAbs !== undefined && ex.loadAbs > 0 ? (
-                <>
-                  <span className="text-[var(--color-foreground-tertiary)]">
-                    {" @ "}
-                  </span>
-                  {ex.loadAbs} kg
-                </>
-              ) : ex.loadPct ? (
-                <>
-                  <span className="text-[var(--color-foreground-tertiary)]">
-                    {" @ "}
-                  </span>
-                  {ex.loadPct}%
-                </>
-              ) : null}
+      {groups.map((group, i) =>
+        group.type === "superset" ? (
+          <li
+            key={i}
+            className="border-l-2 border-amber-500 pl-3 flex flex-col gap-2 py-1"
+          >
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">
+              Superset {group.supersetGroup}
             </span>
-            {ex.loadAbs !== undefined && ex.loadAbs > 0 && ex.loadPct ? (
-              <span className="num text-xs text-[var(--color-foreground-muted)]">
-                {ex.loadPct}%
-              </span>
-            ) : null}
-          </div>
-          {(ex.tempo || ex.restSec || ex.rpeCap) && (
-            <div className="text-xs text-[var(--color-foreground-tertiary)] flex flex-wrap gap-x-3">
-              {ex.tempo && <span>Tempo {ex.tempo}</span>}
-              {ex.restSec !== undefined && (
-                <span>
-                  Pause{" "}
-                  {ex.restSec >= 60
-                    ? `${Math.round(ex.restSec / 60)}min`
-                    : `${ex.restSec}s`}
-                </span>
-              )}
-              {ex.rpeCap !== undefined && <span>RPE ≤ {ex.rpeCap}</span>}
-            </div>
-          )}
-          {ex.notes && (
-            <div className="text-xs italic text-[var(--color-foreground-muted)]">
-              {ex.notes}
-            </div>
-          )}
-        </li>
-      ))}
+            {group.exercises.map((ex, j) => (
+              <React.Fragment key={j}>
+                <ExerciseItem exercise={ex} />
+                {j < group.exercises.length - 1 && (
+                  <div className="text-center text-[10px] text-[var(--color-foreground-muted)] select-none">
+                    ↕
+                  </div>
+                )}
+              </React.Fragment>
+            ))}
+          </li>
+        ) : (
+          <li key={i}>
+            <ExerciseItem exercise={group.exercises[0]} />
+          </li>
+        ),
+      )}
     </ul>
   );
 }

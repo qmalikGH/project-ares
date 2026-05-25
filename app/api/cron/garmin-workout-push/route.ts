@@ -15,6 +15,7 @@ import { db } from "@/lib/db/client";
 import { userTomorrowForUser } from "@/lib/date";
 import { vdotToPaces } from "@/lib/coach-engine/run-coach";
 import { pushWorkoutToGarmin } from "@/lib/garmin/workout-sync";
+import { materializeWorkouts } from "@/lib/coach-engine/materialize";
 import type { SessionPlan } from "@/lib/coach-engine/types";
 
 function authorized(req: Request): boolean {
@@ -56,13 +57,27 @@ export async function GET(req: Request) {
       // Each user can have multiple sessions per day (run AM + strength PM).
       // Push every PLANNED run-style session — buildGarminWorkout filters
       // strength/rest/etc to null automatically.
-      const tomorrowWorkouts = await db.workout.findMany({
+      let tomorrowWorkouts = await db.workout.findMany({
         where: {
           userId: settings.userId,
           date: { gte: tomorrowKey, lt: dayAfter },
           status: "planned",
         },
       });
+
+      // Sprint v1.6: fallback — materialize Workout rows if none found.
+      // This handles the case where regenerate-from-now updated the
+      // WeeklyPlan JSON but no Workout rows were created yet.
+      if (tomorrowWorkouts.length === 0) {
+        await materializeWorkouts(settings.userId, tomorrowKey, dayAfter);
+        tomorrowWorkouts = await db.workout.findMany({
+          where: {
+            userId: settings.userId,
+            date: { gte: tomorrowKey, lt: dayAfter },
+            status: "planned",
+          },
+        });
+      }
 
       if (tomorrowWorkouts.length === 0) {
         results.push({

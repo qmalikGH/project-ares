@@ -276,6 +276,10 @@ model Workout {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Sprint v1.6: enables upsert by (userId, date, type) for materializeWorkouts().
+  // Pre-migration: check for duplicates and delete older rows first.
+  @@unique([userId, date, type])
 }
 
 // ============================================

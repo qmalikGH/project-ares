@@ -26,6 +26,7 @@ import {
   planWeekSchedule,
 } from "@/lib/coach-engine/schedule-strategy";
 import { resyncFutureWorkoutsToGarmin } from "@/lib/garmin/workout-sync";
+import { materializeWorkouts } from "@/lib/coach-engine/materialize";
 import { getEffectiveVdot } from "@/lib/db/queries/settings";
 import type {
   PhaseConfig,
@@ -171,6 +172,10 @@ export async function POST(req: NextRequest) {
     };
   }
 
+  // Sprint v1.6: Materialize Workout rows so the Garmin-push cron and
+  // session-start flow always find them. Must run BEFORE Garmin re-sync.
+  const materialized = await materializeWorkouts(userId, today0);
+
   // Best-effort Garmin re-sync.
   const garminResync =
     userSettings?.garminWorkoutPushEnabled
@@ -180,6 +185,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     status: "ok",
     regenerated,
+    materialized,
     constraints: {
       forcedRestDaysIso: userSettings?.forcedRestDays ?? "default",
       preferredLongRunDayIso: userSettings?.preferredLongRunDay ?? "default",

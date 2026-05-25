@@ -14,6 +14,7 @@ import { RECIPE_TEMPLATES } from "@/lib/nutrition/recipe-templates";
 import { dbConfigToEngineConfig, seedDayTypeConfigs, forceReseedDayTypeConfigs } from "@/lib/nutrition/seed-day-type-configs";
 import { buildSlotsForTargets, templateDayPlan } from "@/lib/nutrition/template";
 import type { DayType, DayTypeConfig } from "@/lib/nutrition/types";
+import { materializeWorkouts } from "@/lib/coach-engine/materialize";
 
 const TherapyPhaseSchema = z.object({
   phase: z.enum(["REACTIVE", "DISREPAIR", "REMODELING", "SPORT_SPECIFIC"]),
@@ -933,6 +934,15 @@ async function resetCurrentBlock(
     });
   }
 
+  // Sprint v1.6: Materialize Workout rows for the new 4-week block so the
+  // Garmin-push cron finds them without needing a manual script.
+  const newPhaseEndForMaterialize = addWeeks(nextMonday, 4);
+  const materialized = await materializeWorkouts(
+    userId,
+    nextMonday,
+    newPhaseEndForMaterialize,
+  );
+
   return {
     ok: true,
     details: {
@@ -944,6 +954,7 @@ async function resetCurrentBlock(
       createdRows: newRows.length,
       newStartDate: nextMonday.toISOString().slice(0, 10),
       weeksAdded,
+      materialized,
     },
   };
 }

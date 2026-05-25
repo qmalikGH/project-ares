@@ -7,6 +7,7 @@ import {
   SESSION_LABEL,
   prettyPhase,
   slotLabel,
+  groupBySupersets,
 } from "@/components/training/shared";
 import type {
   ExerciseShape,
@@ -348,6 +349,104 @@ function RunStructureRows({ structure, color }: { structure: RunStructure; color
   );
 }
 
+// Sprint v1.6: Strength exercise list with superset grouping + weight ratios.
+// Extracted from SessionHeroCard's inline rendering for maintainability.
+function StrengthExerciseListInline({
+  exercises,
+  currentWeightKg,
+}: {
+  exercises: ExerciseShape[];
+  currentWeightKg?: number | null;
+}) {
+  // Separate warmups from work sets, then group work sets by superset.
+  const warmups = exercises.filter((e) => e.isWarmup);
+  const workSets = exercises.filter((e) => !e.isWarmup);
+  const groups = groupBySupersets(workSets);
+
+  return (
+    <ul className="flex flex-col gap-3 mt-1">
+      {/* Warmups first (compact, ungrouped) */}
+      {warmups.map((ex, i) => {
+        const prevEx = i > 0 ? warmups[i - 1] : null;
+        const isFirstWarmup = !prevEx || prevEx.name !== ex.name;
+        return (
+          <li key={`wu-${i}`} className="flex flex-col gap-0.5">
+            {isFirstWarmup && <span className="label">Warmup · {ex.name}</span>}
+            <div className="flex items-baseline gap-2 text-[var(--color-foreground-muted)]">
+              <span className="num text-xs">
+                {ex.sets}×{ex.reps}
+                {ex.loadAbs !== undefined && ex.loadAbs > 0 ? <> @ {ex.loadAbs} kg</> : ex.loadPct ? <> @ {ex.loadPct}%</> : null}
+              </span>
+              {ex.rpeCap !== undefined && <span className="text-[10px]">RPE ≤{ex.rpeCap}</span>}
+            </div>
+          </li>
+        );
+      })}
+
+      {/* Work sets — grouped by superset */}
+      {groups.map((group, gi) =>
+        group.type === "superset" ? (
+          <li key={`ss-${gi}`} className="border-l-2 border-amber-500 pl-3 flex flex-col gap-2 py-1">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">
+              Superset {group.supersetGroup}
+            </span>
+            {group.exercises.map((ex, j) => (
+              <div key={j}>
+                <InlineExerciseRow ex={ex} currentWeightKg={currentWeightKg} />
+                {j < group.exercises.length - 1 && (
+                  <div className="text-center text-[10px] text-[var(--color-foreground-muted)] select-none mt-1">↕</div>
+                )}
+              </div>
+            ))}
+          </li>
+        ) : (
+          <li key={`s-${gi}`}>
+            <InlineExerciseRow ex={group.exercises[0]} currentWeightKg={currentWeightKg} />
+          </li>
+        ),
+      )}
+    </ul>
+  );
+}
+
+function InlineExerciseRow({ ex, currentWeightKg }: { ex: ExerciseShape; currentWeightKg?: number | null }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-foreground-secondary)]">
+        {ex.name}
+      </span>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="num-md text-[var(--color-foreground)]">
+          {ex.sets} × {ex.reps}
+          {ex.loadAbs !== undefined && ex.loadAbs > 0 ? (
+            <><span className="text-[var(--color-foreground-tertiary)]">{" @ "}</span>{ex.loadAbs} kg</>
+          ) : ex.loadPct ? (
+            <><span className="text-[var(--color-foreground-tertiary)]">{" @ "}</span>{ex.loadPct}%</>
+          ) : null}
+        </span>
+        {ex.loadAbs !== undefined && ex.loadAbs > 0 && ex.loadPct ? (
+          <span className="num text-xs text-[var(--color-foreground-muted)]">
+            {ex.loadPct}%
+            {currentWeightKg && currentWeightKg > 0 && (
+              <span className="ml-1 text-[var(--color-session-calibration)]">
+                · {(ex.loadAbs / currentWeightKg).toFixed(2)}×
+              </span>
+            )}
+          </span>
+        ) : null}
+      </div>
+      {(ex.tempo || ex.restSec !== undefined || ex.rpeCap !== undefined) && (
+        <div className="text-xs text-[var(--color-foreground-tertiary)] flex flex-wrap gap-x-3">
+          {ex.tempo && <span>Tempo {ex.tempo}</span>}
+          {ex.restSec !== undefined && <span>Pause {ex.restSec >= 60 ? `${Math.round(ex.restSec / 60)}min` : `${ex.restSec}s`}</span>}
+          {ex.rpeCap !== undefined && <span>RPE ≤ {ex.rpeCap}</span>}
+        </div>
+      )}
+      {ex.notes && <p className="text-xs italic text-[var(--color-foreground-muted)]">{ex.notes}</p>}
+    </div>
+  );
+}
+
 function SessionHeroCard({
   final,
   workoutState,
@@ -479,61 +578,10 @@ function SessionHeroCard({
             </p>
           )}
           {final.exercises && final.exercises.length > 0 && (
-            <ul className="flex flex-col gap-3 mt-1">
-              {final.exercises.map((ex, i) => {
-                if (ex.isWarmup) {
-                  const prevEx = final.exercises![i - 1];
-                  const isFirstWarmup = !prevEx || !prevEx.isWarmup || prevEx.name !== ex.name;
-                  return (
-                    <li key={i} className="flex flex-col gap-0.5">
-                      {isFirstWarmup && <span className="label">Warmup · {ex.name}</span>}
-                      <div className="flex items-baseline gap-2 text-[var(--color-foreground-muted)]">
-                        <span className="num text-xs">
-                          {ex.sets}×{ex.reps}
-                          {ex.loadAbs !== undefined && ex.loadAbs > 0 ? <> @ {ex.loadAbs} kg</> : ex.loadPct ? <> @ {ex.loadPct}%</> : null}
-                        </span>
-                        {ex.rpeCap !== undefined && <span className="text-[10px]">RPE ≤{ex.rpeCap}</span>}
-                      </div>
-                    </li>
-                  );
-                }
-                return (
-                  <li key={i} className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-foreground-secondary)]">
-                      {ex.name}
-                    </span>
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="num-md text-[var(--color-foreground)]">
-                        {ex.sets} × {ex.reps}
-                        {ex.loadAbs !== undefined && ex.loadAbs > 0 ? (
-                          <><span className="text-[var(--color-foreground-tertiary)]">{" @ "}</span>{ex.loadAbs} kg</>
-                        ) : ex.loadPct ? (
-                          <><span className="text-[var(--color-foreground-tertiary)]">{" @ "}</span>{ex.loadPct}%</>
-                        ) : null}
-                      </span>
-                      {ex.loadAbs !== undefined && ex.loadAbs > 0 && ex.loadPct ? (
-                        <span className="num text-xs text-[var(--color-foreground-muted)]">
-                          {ex.loadPct}%
-                          {currentWeightKg && currentWeightKg > 0 && (
-                            <span className="ml-1 text-[var(--color-session-calibration)]">
-                              · {(ex.loadAbs / currentWeightKg).toFixed(2)}×
-                            </span>
-                          )}
-                        </span>
-                      ) : null}
-                    </div>
-                    {(ex.tempo || ex.restSec !== undefined || ex.rpeCap !== undefined) && (
-                      <div className="text-xs text-[var(--color-foreground-tertiary)] flex flex-wrap gap-x-3">
-                        {ex.tempo && <span>Tempo {ex.tempo}</span>}
-                        {ex.restSec !== undefined && <span>Pause {ex.restSec >= 60 ? `${Math.round(ex.restSec / 60)}min` : `${ex.restSec}s`}</span>}
-                        {ex.rpeCap !== undefined && <span>RPE ≤ {ex.rpeCap}</span>}
-                      </div>
-                    )}
-                    {ex.notes && <p className="text-xs italic text-[var(--color-foreground-muted)]">{ex.notes}</p>}
-                  </li>
-                );
-              })}
-            </ul>
+            <StrengthExerciseListInline
+              exercises={final.exercises}
+              currentWeightKg={currentWeightKg}
+            />
           )}
         </>
       )}

@@ -27,6 +27,14 @@ vi.mock("@/lib/db/client", () => ({
       findMany: weeklyPlanFindMany,
       update: weeklyPlanUpdate,
     },
+    // Sprint v1.6: materializeWorkouts() is now called inside resetCurrentBlock.
+    workout: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      findMany: vi.fn().mockResolvedValue([]),
+      create: vi.fn().mockImplementation(({ data }) => ({ id: `wk-${Date.now()}`, ...data })),
+      update: vi.fn(),
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
     // Other handlers are out of scope for this test but coaching-update
     // pulls these — leave them as silent vi.fn() so the import doesn't fail.
     userSettings: { findUnique: vi.fn(), upsert: vi.fn() },
