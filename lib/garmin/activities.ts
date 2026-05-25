@@ -18,6 +18,9 @@ interface RawActivity {
   activityName?: string;
   startTimeLocal?: string;
   startTimeGMT?: string;
+  // The list endpoint (getActivities) returns these flat. The single-activity
+  // endpoint (getActivity) nests them inside summaryDTO + uses activityTypeDTO
+  // instead of activityType. We normalise via `unwrapActivity` before reading.
   duration?: number;
   movingDuration?: number;
   distance?: number;
@@ -31,7 +34,54 @@ interface RawActivity {
   steps?: number;
   lapCount?: number;
   activityType?: { typeKey?: string };
+  activityTypeDTO?: { typeKey?: string };
+  summaryDTO?: {
+    distance?: number;
+    duration?: number;
+    movingDuration?: number;
+    averageHR?: number;
+    maxHR?: number;
+    averageSpeed?: number;
+    maxSpeed?: number;
+    elevationGain?: number;
+    elevationLoss?: number;
+    calories?: number;
+    startTimeLocal?: string;
+    startTimeGMT?: string;
+  };
   splitSummaries?: RawSplit[];
+}
+
+/**
+ * Normalise the two Garmin response shapes (list endpoint flat vs single-
+ * activity endpoint with summaryDTO) into a single flat RawActivity. Top-
+ * level fields win when present; otherwise we fall back to summaryDTO.
+ *
+ * Without this, getActivityDetail() persisted executedSession with null
+ * distance/duration/HR even when Garmin had the data — see Sprint v1.5
+ * follow-up "Garmin Importer Top-Level-Fields" (2026-05-25 incident).
+ */
+function unwrapActivity(a: RawActivity): RawActivity {
+  if (!a.summaryDTO) return a;
+  const s = a.summaryDTO;
+  return {
+    ...a,
+    distance: a.distance ?? s.distance,
+    duration: a.duration ?? s.duration,
+    movingDuration: a.movingDuration ?? s.movingDuration,
+    averageHR: a.averageHR ?? s.averageHR,
+    maxHR: a.maxHR ?? s.maxHR,
+    averageSpeed: a.averageSpeed ?? s.averageSpeed,
+    maxSpeed: a.maxSpeed ?? s.maxSpeed,
+    elevationGain: a.elevationGain ?? s.elevationGain,
+    elevationLoss: a.elevationLoss ?? s.elevationLoss,
+    calories: a.calories ?? s.calories,
+    startTimeLocal: a.startTimeLocal ?? s.startTimeLocal,
+    startTimeGMT: a.startTimeGMT ?? s.startTimeGMT,
+    // activityTypeDTO is the single-endpoint variant; classifyActivity reads
+    // activityType, so mirror the typeKey across.
+    activityType: a.activityType ?? a.activityTypeDTO,
+  };
 }
 
 interface RawSplit {
@@ -152,7 +202,10 @@ export interface ActivityDetail extends ActivitySummary {
  */
 export async function getActivityDetail(activityId: number): Promise<ActivityDetail> {
   const client = (await getGarminClient()) as unknown as GarminAPI;
-  const raw = (await client.getActivity({ activityId })) as RawActivity;
+  const rawNested = (await client.getActivity({ activityId })) as RawActivity;
+  // getActivity nests metrics inside summaryDTO; getActivities returns them
+  // flat. Normalise so toSummary always sees the same shape.
+  const raw = unwrapActivity(rawNested);
 
   const summary = toSummary(raw);
 
