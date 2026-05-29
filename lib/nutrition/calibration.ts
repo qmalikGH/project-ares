@@ -12,8 +12,8 @@ import { db } from "@/lib/db/client";
 import { dayKey } from "@/lib/db/queries/sensors";
 import { cascadeNutritionUpdate } from "./cascade";
 import { getDayType } from "./day-type";
-import type { DayTypeTargets } from "./day-type";
-import { buildSlotsForTargets } from "./template";
+import { ATHLETE_WEIGHT_KG } from "./day-type-configs";
+import { TDEE_PLAUSIBILITY_FLOOR, gartheMaxDeficit } from "./constants";
 import type { CalibrationResult, DayType } from "./types";
 
 export const CALIBRATION_WINDOW_DAYS = 14;
@@ -74,8 +74,14 @@ export function filterCleanTDEE(
       // Rest day: no workout planned AND TDEE above illness floor
       return !statuses && r.totalKilocalories > REST_DAY_TDEE_FLOOR;
     } else {
-      // Training day: at least one completed session
-      return statuses != null && statuses.includes("completed");
+      // Training day: a completed session AND a plausible (non-wear) total.
+      // Sprint v1.8 #4: exclude corrupt Garmin days (e.g. 1534 kcal) even when
+      // a workout is marked completed — they'd otherwise poison the average.
+      return (
+        statuses != null &&
+        statuses.includes("completed") &&
+        r.totalKilocalories > TDEE_PLAUSIBILITY_FLOOR
+      );
     }
   });
 }
@@ -200,6 +206,21 @@ export async function calibrateMealPlan(userId: string): Promise<CalibrationResu
     };
   }
 
+  // ── Sprint v1.8 #4: Garthe rate-cap ──
+  // Clamp the deficit so the implied loss rate stays ≤ 0.7 %/week at current
+  // body mass. As weight drops the −600 would eventually exceed the ceiling;
+  // clamp the stored deficitKcal (SoT) down so ALL stores stay consistent.
+  const settings = await db.userSettings.findUnique({
+    where: { userId },
+    select: { currentWeightKg: true, targetWeightKg: true },
+  });
+  const weightKg = settings?.currentWeightKg ?? settings?.targetWeightKg ?? ATHLETE_WEIGHT_KG;
+  const gartheCap = gartheMaxDeficit(weightKg);
+  if (plan.deficitKcal > gartheCap) {
+    await db.mealPlan.update({ where: { id: plan.id }, data: { deficitKcal: gartheCap } });
+    plan.deficitKcal = gartheCap;
+  }
+
   // ── Coaching override protection ──
   const overrideLogs = await db.coachingLog.findMany({
     where: { userId, action: "updateCalorieTargets" },
@@ -225,37 +246,12 @@ export async function calibrateMealPlan(userId: string): Promise<CalibrationResu
     const avgTDEE = dayType === "rest" ? Math.min(rawTDEE, REST_DAY_TDEE_CAP) : rawTDEE;
 
     const m = computeMacros(avgTDEE, plan.deficitKcal);
-    const targets: DayTypeTargets = {
-      tdeeEstimate: avgTDEE,
-      calorieTarget: m.calorieTarget,
-      proteinG: m.proteinG,
-      carbsG: m.carbsG,
-      fatG: m.fatG,
-    };
 
-    // Cascade: rebuild meal slots from calibrated targets so portions
-    // always match the new calorie target (protein-first, carbs fill rest).
-    const slots = buildSlotsForTargets(dayType, targets);
+    // Sprint v1.8 #6: DayPlan rows are no longer written here — the unified
+    // cascadeNutritionUpdate() (called below) syncs DayPlan + ComputedMealSlot
+    // from the updated DayTypeConfig, keeping all deficit stores consistent.
 
-    const dayPlans = await db.dayPlan.findMany({
-      where: { mealPlanId: plan.id, dayType },
-      select: { id: true },
-    });
-    for (const dp of dayPlans) {
-      await db.dayPlan.update({
-        where: { id: dp.id },
-        data: {
-          tdeeEstimate: avgTDEE,
-          calorieTarget: m.calorieTarget,
-          proteinG: m.proteinG,
-          carbsG: m.carbsG,
-          fatG: m.fatG,
-          slots: slots as unknown as object,
-        },
-      });
-    }
-
-    // v1.2: Also update DayTypeConfig (tdeeEstimate + recalculated calorieTarget)
+    // v1.2: Update DayTypeConfig (tdeeEstimate + recalculated calorieTarget)
     const existingConfig = await db.dayTypeConfig.findUnique({
       where: { planId_dayType: { planId: plan.id, dayType } },
     });
