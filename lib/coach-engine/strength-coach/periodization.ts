@@ -84,6 +84,20 @@ const HSR_LIFTS: ReadonlySet<string> = new Set([
   "RDL",
 ]);
 
+/**
+ * Sprint v1.7 — heavy "main lifts" that may run at RPE 9 in W3 (athletic,
+ * heavy-compound character). HSR is already exempt via HSR_LIFTS. Every other
+ * non-HSR exercise is an ACCESSORY: its rpeCap is capped at the block baseline
+ * (no W3 +1 → 9 bump) — accessory intensity = quality, not failure.
+ */
+const MAIN_LIFTS: ReadonlySet<string> = new Set([
+  "Bench Press",
+  "Incline DB Press",
+  "DB Bench Press",
+  "Barbell Row",
+  "Pull-ups",
+]);
+
 /** NRS threshold semantics, per Escriche-Escuder 2020 + Sprague 2020. */
 const NRS_HOLD_LOWER = 4;
 const NRS_STEP_BACK_THRESHOLD = 5; // strictly greater steps back
@@ -231,6 +245,13 @@ export function computePeriodizationAdjustment(
 export function applyPeriodization(
   exercises: Exercise[],
   adjustment: PeriodizationAdjustment,
+  /**
+   * Sprint v1.7 — when provided, ACCESSORY exercises (not HSR, not MAIN_LIFTS)
+   * have their rpeCap capped at this value, so the W3 +1 bump never pushes them
+   * to 9. Main lifts + HSR keep the [5,10] clamp (may reach 9 in W3). Omit to
+   * preserve legacy behavior (all non-HSR clamp to [5,10]).
+   */
+  accessoryRpeCap?: number,
 ): Exercise[] {
   return exercises.map((ex) => {
     const isHsr = HSR_LIFTS.has(ex.name);
@@ -258,9 +279,13 @@ export function applyPeriodization(
         ? Math.round(ex.loadPct * effectiveLoadMult * 10) / 10
         : ex.loadPct;
     const newSets = Math.max(2, Math.round(ex.sets * effectiveSetMult));
+    // Sprint v1.7: accessories cap at accessoryRpeCap (no W3→9); main lifts + HSR keep [5,10].
+    const isAccessory = !isHsr && !MAIN_LIFTS.has(ex.name);
+    const upperRpeCap =
+      accessoryRpeCap !== undefined && isAccessory ? accessoryRpeCap : 10;
     const newRpeCap =
       ex.rpeCap !== undefined
-        ? Math.max(5, Math.min(10, ex.rpeCap + adjustment.rpeCapDelta))
+        ? Math.max(5, Math.min(upperRpeCap, ex.rpeCap + adjustment.rpeCapDelta))
         : ex.rpeCap;
 
     const next: Exercise & { periodizationNote?: string } = {

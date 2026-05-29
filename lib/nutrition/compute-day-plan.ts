@@ -20,6 +20,11 @@
 
 import { findRecipeTemplate } from "./recipe-templates";
 import { scaleVariableSlots } from "./scale-variable-slots";
+import {
+  PROTEIN_HARD_FLOOR_PER_KG,
+  FAT_FLOOR_PER_KG,
+  FAT_MAX_G,
+} from "./constants";
 import type {
   DayTypeConfig,
   RecipeTemplate,
@@ -27,6 +32,7 @@ import type {
   MacroTotals,
   ValidationResult,
   FixedSlotItem,
+  ScaledRecipe,
 } from "./types";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -40,8 +46,40 @@ const CALORIE_TOLERANCE = 30;
 const MIN_REMAINING_BUDGET = 400;
 
 /** Maximum daily food cost in EUR.
- *  Increased from 15 → 16 in v1.2 (higher calorie targets = more food). */
-const MAX_DAILY_COST = 16.0;
+ *  v1.2: 15 → 16. v1.7: 16 → 18 (liquid egg white ~€0.011/ml adds real cost
+ *  as the protein-density lever; Q sources it at dm). */
+const MAX_DAILY_COST = 18.0;
+
+/**
+ * Per-ingredient hard portion floors (Sprint v1.7). A protein/carb source must
+ * reach its floor OR be omitted entirely (no sliver). Eggs handled separately
+ * (whole units). egg_white_liquid in 50ml steps.
+ */
+const PORTION_FLOORS: Record<string, number> = {
+  chicken_breast: 150,
+  beef_mince: 100,
+  rice_dry: 40,
+  egg_white_liquid: 50,
+};
+
+/**
+ * Assert a scaled slot ships no sub-floor protein/carb source or absurd portion.
+ * Omitted components aren't in `components`, so anything present below its floor
+ * is a real sliver → LOUD error. Exported for direct unit testing.
+ */
+export function validatePortionSanity(slot: ScaledRecipe, label: string): string[] {
+  const errs: string[] = [];
+  for (const c of slot.components) {
+    const floor = PORTION_FLOORS[c.ingredientId];
+    if (floor !== undefined && c.amount > 0 && c.amount < floor) {
+      errs.push(`${label}: ${c.ingredientId} ${c.amount}${c.unit} below floor ${floor} (sub-floor sliver)`);
+    }
+    if (c.ingredientId === "eggs" && !Number.isInteger(c.amount)) {
+      errs.push(`${label}: eggs ${c.amount} is not a whole number`);
+    }
+  }
+  return errs;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -191,14 +229,16 @@ export function computeDayPlan(
     );
   }
 
-  // 7b. Functional protein minimum (2.0 g/kg)
-  // dayTotals.protein already excludes non-functional protein (e.g. collagen)
-  // since Step 6 — collagen has no leucine, doesn't contribute to MPS.
+  // 7b. Functional protein HARD floor (Sprint v1.7: two-tier protein).
+  // Hard floor = 1.8 g/kg (~166g): below this the plan FAILS. The soft target
+  // (2.2 g/kg, maximize-toward) lives in scale-variable-slots and is NOT a hard
+  // fail — FFM protection is a weekly-average + per-meal job (Helms/Morton).
+  // dayTotals.protein already excludes non-functional protein (e.g. collagen).
   const functionalProtein = dayTotals.protein;
-  const minProtein = Math.round(athleteWeightKg * 2.0);
+  const minProtein = Math.round(athleteWeightKg * PROTEIN_HARD_FLOOR_PER_KG);
   if (functionalProtein < minProtein) {
     errors.push(
-      `Functional protein ${functionalProtein}g < minimum ${minProtein}g (${athleteWeightKg}kg × 2.0, excludes ${nonFunctionalProtein}g non-functional)`,
+      `Functional protein ${functionalProtein}g < hard floor ${minProtein}g (${athleteWeightKg}kg × ${PROTEIN_HARD_FLOOR_PER_KG}, excludes ${nonFunctionalProtein}g non-functional)`,
     );
   }
 
@@ -237,6 +277,23 @@ export function computeDayPlan(
       `Dinner protein ${Math.round(scaledDinner.totals.protein)}g > ${PROTEIN_CAP_PER_SLOT}g soft cap`,
     );
   }
+
+  // 7h. Fat guard-rails (Sprint v1.7). Floor protects hormones/satiety after
+  // the −600 cut + Eiklar swap (Eiklar verdrängt Voll-Ei-Fett); cap unchanged.
+  // Floor = hard error (hormones/satiety protection after the cut, Sprint v1.7).
+  const minFat = Math.round(athleteWeightKg * FAT_FLOOR_PER_KG);
+  if (dayTotals.fat < minFat) {
+    errors.push(`Fat ${dayTotals.fat}g < floor ${minFat}g (${athleteWeightKg}kg × ${FAT_FLOOR_PER_KG})`);
+  }
+  // Cap = soft warning (was never enforced pre-v1.7; production days sit ~50–62g).
+  if (dayTotals.fat > FAT_MAX_G) {
+    warnings.push(`Fat ${dayTotals.fat}g > soft cap ${FAT_MAX_G}g`);
+  }
+
+  // 7i. Portion sanity (Sprint v1.7) — fail LOUD on sub-floor protein sources
+  // or absurd portions, instead of silently shipping a sliver.
+  errors.push(...validatePortionSanity(scaledMainMeal, "MainMeal"));
+  errors.push(...validatePortionSanity(scaledDinner, "Dinner"));
 
   const validation: ValidationResult = {
     valid: errors.length === 0,

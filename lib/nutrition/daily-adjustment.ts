@@ -13,9 +13,11 @@
 import { db } from "@/lib/db/client";
 import { dayKey } from "@/lib/db/queries/sensors";
 import { getDayType } from "./day-type";
+import { DEFICIT_KCAL } from "./constants";
 import type { DailyAdjustment, DayType, SlotAdjustment } from "./types";
 
-export const DEFICIT_KCAL = 500;
+// Re-export for back-compat (build-export.ts imports DEFICIT_KCAL from here).
+export { DEFICIT_KCAL };
 export const ADJUSTMENT_THRESHOLD_KCAL = 100;
 
 const SKYR_KCAL = 130;

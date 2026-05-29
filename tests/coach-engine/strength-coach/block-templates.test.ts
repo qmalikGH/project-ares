@@ -48,11 +48,12 @@ describe("BLOCK_TEMPLATES", () => {
     const namesB1A = BLOCK_TEMPLATES[1]!.strength_a.map((e) => e.name);
     const namesB2A = BLOCK_TEMPLATES[2]!.strength_a.map((e) => e.name);
     expect(namesB1A).toContain("Bench Press");
-    expect(namesB1A).toContain("Reverse Lunge");
+    // Sprint v1.7: Reverse Lunge removed in quad cut; DB Shoulder Press added.
+    expect(namesB1A).toContain("DB Shoulder Press");
     expect(namesB2A).toContain("Incline DB Press");
     expect(namesB2A).toContain("Bulgarian Split Squat");
     expect(namesB2A).not.toContain("Bench Press");
-    expect(namesB2A).not.toContain("Reverse Lunge");
+    expect(namesB2A).toContain("DB Shoulder Press");
 
     const namesB1B = BLOCK_TEMPLATES[1]!.strength_b.map((e) => e.name);
     const namesB2B = BLOCK_TEMPLATES[2]!.strength_b.map((e) => e.name);

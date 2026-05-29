@@ -75,7 +75,7 @@ export interface RecipeTemplate {
 export interface RecipeComponent {
   ingredientId: string; // e.g. "chicken_breast"
   role: "protein" | "carb" | "vegetable";
-  portionUnit: "g" | "stück";
+  portionUnit: "g" | "stück" | "ml"; // ml: Sprint v1.7 liquid egg white
   kcalPerUnit: number; // per 1g or per 1 Stück
   proteinPerUnit: number;
   carbsPerUnit: number;
@@ -102,13 +102,16 @@ export interface ScaledRecipe {
   components: ScaledComponent[];
   sauces: FixedComponent[];
   totals: MacroTotals;
+  /** Sprint v1.7: secondary protein components dropped because budget couldn't
+   *  meet their floor (no sliver). Empty/undefined when nothing was omitted. */
+  omitted?: ScaledComponent[];
 }
 
 export interface ScaledComponent {
   ingredientId: string;
   name: string;
   amount: number; // scaled quantity
-  unit: "g" | "stück";
+  unit: "g" | "stück" | "ml";
   kcal: number;
   protein: number;
   carbs: number;

@@ -95,9 +95,9 @@ describe("applySupersetPairing — order assignment", () => {
 });
 
 describe("applySupersetPairing — Block 1 templates (Sprint v1.5: now uses pairings)", () => {
-  it("StrA: Reverse Lunge + Face Pulls paired as A1", () => {
+  it("StrA: DB Shoulder Press + Face Pulls paired as A1 (Sprint v1.7)", () => {
     const result = applySupersetPairing(BLOCK_TEMPLATES[1]!.strength_a, 1, "strength_a");
-    expect(find(result, "Reverse Lunge")?.supersetGroup).toBe("A1");
+    expect(find(result, "DB Shoulder Press")?.supersetGroup).toBe("A1");
     expect(find(result, "Face Pulls")?.supersetGroup).toBe("A1");
   });
 
@@ -113,10 +113,13 @@ describe("applySupersetPairing — Block 1 templates (Sprint v1.5: now uses pair
     expect(find(result, "Seated Cable Row")?.supersetGroup).toBe("B2");
   });
 
-  it("StrC: Walking Lunge + Lat Pulldown paired as C3", () => {
+  it("StrC: DB Row + Broad Jumps + Lat Pulldown paired as C1 (Sprint v1.7: Lat Pulldown re-homed, C3 removed)", () => {
     const result = applySupersetPairing(BLOCK_TEMPLATES[1]!.strength_c, 1, "strength_c");
-    expect(find(result, "Walking Lunge")?.supersetGroup).toBe("C3");
-    expect(find(result, "Lat Pulldown")?.supersetGroup).toBe("C3");
+    expect(find(result, "DB Row")?.supersetGroup).toBe("C1");
+    expect(find(result, "Broad Jumps")?.supersetGroup).toBe("C1");
+    expect(find(result, "Lat Pulldown")?.supersetGroup).toBe("C1");
+    // Walking Lunge removed in the quad cut.
+    expect(find(result, "Walking Lunge")).toBeUndefined();
   });
 
   it("Hex Bar Deadlift NOT paired in any Block 1 session", () => {

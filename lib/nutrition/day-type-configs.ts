@@ -5,6 +5,7 @@
 // Every change cascades automatically through the system.
 
 import type { DayTypeConfig, FixedSlotItem } from "./types";
+import { DEFICIT_KCAL } from "./constants";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Shared fixed slot items (reused across day types)
@@ -60,8 +61,8 @@ const FLEX_DESSERT_ON = { enabled: true, items: [SKYR] };
 export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
   {
     dayType: "strength_run", // Mo, Do, Fr — easy AM + Kraft PM
-    calorieTarget: 2853, // Intake = TDEE 3353 − 500 deficit
-    macroTargets: { proteinG: 190, carbsG: 310, fatG: 70 },
+    calorieTarget: 3353 - DEFICIT_KCAL, // v1.7: TDEE 3353 − 600 = 2753
+    macroTargets: { proteinG: 200, carbsG: 310, fatG: 70 },
     fixedSlots: {
       morning: MORNING,
       preTraining: PRE_TRAINING,
@@ -79,8 +80,8 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
   },
   {
     dayType: "threshold", // Di — Abend-Run only
-    calorieTarget: 2439, // Intake = TDEE 2939 − 500 deficit
-    macroTargets: { proteinG: 190, carbsG: 280, fatG: 70 },
+    calorieTarget: 2939 - DEFICIT_KCAL, // v1.7: TDEE 2939 − 600 = 2339
+    macroTargets: { proteinG: 200, carbsG: 280, fatG: 70 },
     fixedSlots: {
       morning: MORNING,
       preTraining: PRE_TRAINING,
@@ -99,8 +100,8 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
   },
   {
     dayType: "long_run", // Sa — Abend-Run only
-    calorieTarget: 2668, // Intake = TDEE 3168 − 500 deficit
-    macroTargets: { proteinG: 190, carbsG: 310, fatG: 70 },
+    calorieTarget: 3168 - DEFICIT_KCAL, // v1.7: TDEE 3168 − 600 = 2568
+    macroTargets: { proteinG: 200, carbsG: 310, fatG: 70 },
     fixedSlots: {
       morning: MORNING,
       preTraining: PRE_TRAINING,
@@ -123,8 +124,8 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
   },
   {
     dayType: "rest", // Mi, So — kein Training
-    calorieTarget: 2000, // Intake = TDEE 2500 (capped) − 500 deficit
-    macroTargets: { proteinG: 190, carbsG: 180, fatG: 70 },
+    calorieTarget: 2500 - DEFICIT_KCAL, // v1.7: TDEE 2500 (capped) − 600 = 1900
+    macroTargets: { proteinG: 200, carbsG: 180, fatG: 70 },
     fixedSlots: {
       morning: MORNING,
       preTraining: null, // no training → no pre-training slot

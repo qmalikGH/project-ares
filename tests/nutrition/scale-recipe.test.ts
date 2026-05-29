@@ -171,12 +171,13 @@ describe("scaleRecipe", () => {
     expect(eggs!.name).toContain("Stück");
   });
 
-  // ── v1.3: Multi-protein (Strategy B: Fixed Secondary + Flexible Primary) ──
+  // ── v1.7: Multi-protein blend — egg white PRIMARY (flexible); whole eggs (2)
+  //    + chicken (150g) FIXED secondaries. ──
 
-  describe("egg_chicken_rice_asia (multi-protein)", () => {
+  describe("egg_chicken_rice_asia (multi-protein blend)", () => {
     const template = findRecipeTemplate("egg_chicken_rice_asia");
 
-    it("returns BOTH protein components in output", () => {
+    it("returns whole-egg + chicken protein components in output", () => {
       const result = scaleRecipe(template, 657);
       const eggs = result.components.find((c) => c.ingredientId === "eggs");
       const chicken = result.components.find((c) => c.ingredientId === "chicken_breast");
@@ -184,22 +185,25 @@ describe("scaleRecipe", () => {
       expect(chicken).toBeDefined();
     });
 
-    it("chicken (secondary) is at minimumAmount 125g", () => {
+    it("chicken (secondary) is at minimumAmount 150g (v1.7 floor)", () => {
       const result = scaleRecipe(template, 657);
       const chicken = result.components.find((c) => c.ingredientId === "chicken_breast");
-      expect(chicken!.amount).toBe(125);
+      expect(chicken!.amount).toBe(150);
     });
 
-    it("eggs (primary) scale flexibly with remaining budget", () => {
-      const low = scaleRecipe(template, 500);
-      const high = scaleRecipe(template, 800);
-      const lowEggs = low.components.find((c) => c.ingredientId === "eggs")!.amount;
-      const highEggs = high.components.find((c) => c.ingredientId === "eggs")!.amount;
-      expect(highEggs).toBeGreaterThan(lowEggs);
+    it("whole eggs stay fixed at 2 (yolk/choline; egg white carries the flex)", () => {
+      const result = scaleRecipe(template, 657);
+      const eggs = result.components.find((c) => c.ingredientId === "eggs");
+      expect(eggs!.amount).toBe(2);
+    });
+
+    it("total protein scales up with budget (egg white is the flex lever)", () => {
+      const low = scaleRecipe(template, 500).totals.protein;
+      const high = scaleRecipe(template, 800).totals.protein;
+      expect(high).toBeGreaterThan(low);
     });
 
     it("threshold dinner (657 kcal): protein >= 40g", () => {
-      // Sprint v1.3 Rechenprobe: 657 kcal → ~47g protein
       const result = scaleRecipe(template, 657);
       expect(result.totals.protein).toBeGreaterThanOrEqual(40);
     });
@@ -230,7 +234,9 @@ describe("scaleRecipe", () => {
     const singleProteinTemplates = RECIPE_TEMPLATES.filter(
       (t) => t.components.filter((c) => c.role === "protein").length === 1,
     );
-    expect(singleProteinTemplates.length).toBeGreaterThanOrEqual(8);
+    // v1.7: egg recipes are now multi-protein (egg white + whole eggs), so only
+    // the meat-only recipes remain single-protein (chicken×2, hack×2 = 4).
+    expect(singleProteinTemplates.length).toBeGreaterThanOrEqual(4);
     for (const t of singleProteinTemplates) {
       const result = scaleRecipe(t, 700);
       expect(result.components.length).toBeGreaterThan(0);
