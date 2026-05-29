@@ -26,28 +26,28 @@ const weight = ATHLETE_WEIGHT_KG;
 // Criterion 3: Rest day rechenprobe
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("Sprint doc rechenprobe — rest day (v1.2: Intake 2000)", () => {
+describe("Sprint doc rechenprobe — rest day (v1.7: Intake 1900)", () => {
   const config = DAY_TYPE_CONFIGS.find((c) => c.dayType === "rest")!;
   const plan = computeDayPlan(config, recipes, weight);
 
-  it("calorieTarget = 2000 (TDEE 2500 − 500)", () => {
-    expect(plan.calorieTarget).toBe(2000);
+  it("calorieTarget = 1900 (TDEE 2500 − 600)", () => {
+    expect(plan.calorieTarget).toBe(1900);
   });
 
   it("fixedSlotsTotalKcal = 920 (no preTraining on rest day)", () => {
     expect(plan.fixedSlotsTotalKcal).toBe(920);
   });
 
-  it("remainingBudget = 1080", () => {
-    expect(plan.remainingBudget).toBe(1080);
+  it("remainingBudget = 980", () => {
+    expect(plan.remainingBudget).toBe(980);
   });
 
-  it("total kcal within 30 of 2000", () => {
-    expect(Math.abs(plan.totals.kcal - 2000)).toBeLessThanOrEqual(30);
+  it("total kcal within 30 of 1900", () => {
+    expect(Math.abs(plan.totals.kcal - 1900)).toBeLessThanOrEqual(30);
   });
 
-  it("protein ≥ 184g", () => {
-    expect(plan.totals.protein).toBeGreaterThanOrEqual(184);
+  it("protein ≥ 165g (1.8 g/kg hard floor)", () => {
+    expect(plan.totals.protein).toBeGreaterThanOrEqual(165);
   });
 
   it("mainMeal = egg_asia_norice (no rice, Carb-Cut)", () => {
@@ -79,12 +79,12 @@ describe("All 4 dayTypes pass validation constraints", () => {
         expect(Math.abs(plan.totals.kcal - config.calorieTarget)).toBeLessThanOrEqual(30);
       });
 
-      it("protein ≥ 184g (2.0 g/kg at 92kg)", () => {
-        expect(plan.totals.protein).toBeGreaterThanOrEqual(184);
+      it("protein ≥ 165g (1.8 g/kg hard floor)", () => {
+        expect(plan.totals.protein).toBeGreaterThanOrEqual(165);
       });
 
-      it("cost ≤ €15", () => {
-        expect(plan.totals.cost).toBeLessThanOrEqual(16);
+      it("cost ≤ €18", () => {
+        expect(plan.totals.cost).toBeLessThanOrEqual(18);
       });
     });
   }

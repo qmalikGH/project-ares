@@ -71,21 +71,21 @@ describe("DAY_TYPE_CONFIGS", () => {
 // Calorie targets match sprint spec
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("Calorie targets (v1.2 — Intake = TDEE − 500)", () => {
-  it("strength_run = 2853 (TDEE 3353 − 500)", () => {
-    expect(findDayTypeConfig("strength_run").calorieTarget).toBe(2853);
+describe("Calorie targets (v1.7 — Intake = TDEE − 600)", () => {
+  it("strength_run = 2753 (TDEE 3353 − 600)", () => {
+    expect(findDayTypeConfig("strength_run").calorieTarget).toBe(2753);
   });
 
-  it("threshold = 2439 (TDEE 2939 − 500)", () => {
-    expect(findDayTypeConfig("threshold").calorieTarget).toBe(2439);
+  it("threshold = 2339 (TDEE 2939 − 600)", () => {
+    expect(findDayTypeConfig("threshold").calorieTarget).toBe(2339);
   });
 
-  it("long_run = 2668 (TDEE 3168 − 500)", () => {
-    expect(findDayTypeConfig("long_run").calorieTarget).toBe(2668);
+  it("long_run = 2568 (TDEE 3168 − 600)", () => {
+    expect(findDayTypeConfig("long_run").calorieTarget).toBe(2568);
   });
 
-  it("rest = 2000 (TDEE 2500 capped − 500)", () => {
-    expect(findDayTypeConfig("rest").calorieTarget).toBe(2000);
+  it("rest = 1900 (TDEE 2500 capped − 600)", () => {
+    expect(findDayTypeConfig("rest").calorieTarget).toBe(1900);
   });
 });
 

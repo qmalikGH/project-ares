@@ -156,11 +156,11 @@ describe("backward-computed portions", () => {
     }
   });
 
-  it("total protein meets minimum (184g at 92kg × 2.0 g/kg)", () => {
+  it("total protein meets hard floor (165g at 92kg × 1.8 g/kg)", () => {
     for (const dayType of ALL_DAY_TYPES) {
       const plan = templateDayPlan(dayType);
       const totals = sumSlotMacros(plan.slots);
-      expect(totals.protein).toBeGreaterThanOrEqual(184);
+      expect(totals.protein).toBeGreaterThanOrEqual(165);
     }
   });
 });
@@ -174,23 +174,23 @@ describe("templateDayPlan", () => {
     const plan = templateDayPlan("strength_run");
     expect(plan.dayType).toBe("strength_run");
     expect(plan.tdeeEstimate).toBe(3353);
-    expect(plan.calorieTarget).toBe(2853);
-    expect(plan.proteinG).toBe(190);
+    expect(plan.calorieTarget).toBe(2753);
+    expect(plan.proteinG).toBe(200);
   });
 
-  it("rest day-type targets 2000 kcal (v1.2: Intake = TDEE 2500 − 500)", () => {
+  it("rest day-type targets 1900 kcal (v1.7: Intake = TDEE 2500 − 600)", () => {
     const plan = templateDayPlan("rest");
-    expect(plan.calorieTarget).toBe(2000);
+    expect(plan.calorieTarget).toBe(1900);
   });
 
-  it("threshold targets 2439 kcal (v1.2: Intake = TDEE 2939 − 500)", () => {
+  it("threshold targets 2339 kcal (v1.7: Intake = TDEE 2939 − 600)", () => {
     const plan = templateDayPlan("threshold");
-    expect(plan.calorieTarget).toBe(2439);
+    expect(plan.calorieTarget).toBe(2339);
   });
 
-  it("long_run targets 2668 kcal (v1.2: Intake = TDEE 3168 − 500)", () => {
+  it("long_run targets 2568 kcal (v1.7: Intake = TDEE 3168 − 600)", () => {
     const plan = templateDayPlan("long_run");
-    expect(plan.calorieTarget).toBe(2668);
+    expect(plan.calorieTarget).toBe(2568);
   });
 
   it("is deterministic — same day-type always produces identical output", () => {

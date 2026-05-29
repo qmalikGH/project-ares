@@ -82,9 +82,10 @@ const BLOCK_TEMPLATES: BlockTemplateMap = {
       // === COMPOUNDS (sequential, full rest) ===
       { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, rpeCap: 8, tempo: "3-3-1", restSec: 180 },
       { name: "Bench Press", sets: 3, reps: 8, loadPct: 75, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
-      // === SUPERSET A1: Lower-acc ↔ Shoulder ===
-      { name: "Reverse Lunge", sets: 3, reps: "10/leg", loadPct: 60, rpeCap: 7, tempo: "2-1-1", restSec: 60,
-        supersetGroup: "A1" },
+      // === SUPERSET A1: Overhead-Push ↔ Rear Delt (Sprint v1.7) ===
+      { name: "DB Shoulder Press", sets: 3, reps: 10, loadPct: 55, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "A1",
+        notes: "Overhead-Push: vorderer/seitl. Delta + Schulterstabilität (athletisch, Sprint v1.7)." },
       { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, tempo: "1-2-1", restSec: 60,
         supersetGroup: "A1",
         notes: "Schulter-Gesundheit: Posterior Delt + External Rotation." },
@@ -127,25 +128,21 @@ const BLOCK_TEMPLATES: BlockTemplateMap = {
       // === COMPOUNDS ===
       { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 },
       { name: "DB Bench Press", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "2-1-1", restSec: 90 },
-      // === SUPERSET C1: Back ↔ Plyo (bestehend DB Row, jetzt gepairt) ===
+      // === SUPERSET C1: Back ↔ Plyo ↔ Vertical Pull (Sprint v1.7: Lat Pulldown re-homed nach Quad-Cut) ===
       { name: "DB Row", sets: 3, reps: 10, loadPct: 60, rpeCap: 7, tempo: "2-1-1", restSec: 60,
         supersetGroup: "C1" },
       { name: "Broad Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 60,
         supersetGroup: "C1",
-        notes: "Plyo (knee-friendly alternative to box jumps)." },
+        notes: "Plyo (knee-friendly alternative to box jumps). RFD-Komponente — nicht kürzen." },
+      { name: "Lat Pulldown", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "C1",
+        notes: "Vertikal Pull. Langfrist-Transfer: Schwimmen (Ironman), Laufhaltung." },
       // === SUPERSET C2: Prävention ↔ Carry ===
       { name: "Single-Leg Calf Raises", sets: 3, reps: "12/leg", rpeCap: 7, tempo: "2-2-2", restSec: 60,
         supersetGroup: "C2",
         notes: "Soleus-fokussiert für Lauf-Stoßdämpfung." },
       { name: "Farmer's Carry", sets: 3, reps: "30m", loadPct: 60, rpeCap: 6, restSec: 60,
         supersetGroup: "C2" },
-      // === SUPERSET C3: Quad ↔ Back — Sprint v1.5 NEW ===
-      { name: "Walking Lunge", sets: 3, reps: "10/leg", rpeCap: 7, tempo: "2-1-1", restSec: 60,
-        supersetGroup: "C3",
-        notes: "Dynamic Quad + Glute. Lauf-spezifisch." },
-      { name: "Lat Pulldown", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
-        supersetGroup: "C3",
-        notes: "Vertikal Pull. Langfrist-Transfer: Schwimmen (Ironman), Laufhaltung." },
     ],
   },
   // ===========================================================================
@@ -164,12 +161,15 @@ const BLOCK_TEMPLATES: BlockTemplateMap = {
       { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, tempo: "1-2-1", restSec: 60,
         supersetGroup: "A1",
         notes: "Schulter-Gesundheit." },
-      // === SUPERSET A2: Prävention ↔ Core ===
+      // === SUPERSET A2: Prävention ↔ Core ↔ Overhead-Push (Sprint v1.7: DB Shoulder Press) ===
       { name: "Tibialis Anterior Raises", sets: 3, reps: 15, rpeCap: 6, tempo: "2-1-2", restSec: 60,
         supersetGroup: "A2",
         notes: "Shin-Splint-Prävention (Marques 2025)." },
       { name: "Dead Bug", sets: 3, reps: "10/side", rpeCap: 6, tempo: "2-2-2", restSec: 60,
         supersetGroup: "A2" },
+      { name: "DB Shoulder Press", sets: 3, reps: 10, loadPct: 55, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "A2",
+        notes: "Overhead-Push: vorderer/seitl. Delta + Schulterstabilität (athletisch, Sprint v1.7)." },
       // === SUPERSET A3: Quad ↔ Back — Rotation (B1=BSS+DB Row → B2=Walking Lunge+Lat Pulldown) ===
       { name: "Walking Lunge", sets: 3, reps: "10/leg", rpeCap: 7, tempo: "2-1-1", restSec: 60,
         supersetGroup: "A3",
@@ -181,18 +181,15 @@ const BLOCK_TEMPLATES: BlockTemplateMap = {
     strength_b: [
       { name: "Romanian Deadlift", sets: 3, reps: 8, loadPct: 70, rpeCap: 7, tempo: "3-3-1", restSec: 180 },
       { name: "Barbell Row", sets: 4, reps: 8, loadPct: 65, rpeCap: 8, tempo: "2-1-1", restSec: 120 },
-      // === SUPERSET B1: Glute ↔ Shoulder ===
+      // === SUPERSET B1: Glute ↔ Shoulder ↔ Horizontal Pull (Sprint v1.7: Cable Row re-homed nach Quad-Cut) ===
       { name: "Single-Leg Hip Thrust", sets: 3, reps: "10/leg", loadPct: 50, rpeCap: 7, tempo: "2-1-1", restSec: 60,
         supersetGroup: "B1" },
       { name: "Face Pulls", sets: 3, reps: 15, rpeCap: 6, tempo: "1-2-1", restSec: 60,
         supersetGroup: "B1",
         notes: "Schulter-Gesundheit." },
-      // === SUPERSET B2: Quad ↔ Back — Rotation (B1=Goblet+Cable → B2=Step-ups+Cable Row) ===
-      { name: "Step-ups", sets: 3, reps: "8/leg", rpeCap: 7, tempo: "2-1-1", restSec: 60,
-        supersetGroup: "B2",
-        notes: "Box knee-height. Lauf-spezifisch (Balsalobre-Fernandez 2016)." },
       { name: "Seated Cable Row", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
-        supersetGroup: "B2" },
+        supersetGroup: "B1",
+        notes: "Horizontal Pull. Rhomboids + Lats." },
       { name: "Short Foot Exercise", sets: 2, reps: "30sec hold", rpeCap: 5, restSec: 30,
         notes: "Intrinsic foot muscles (Newsham 2023)." },
     ],
@@ -200,24 +197,22 @@ const BLOCK_TEMPLATES: BlockTemplateMap = {
       { name: "Hex Bar Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180 },
       { name: "Push-ups", sets: 3, reps: 12, rpeCap: 7, tempo: "2-1-1", restSec: 90,
         notes: "Weighted vest if BW too easy." },
-      // === SUPERSET C1: Pull ↔ Plyo ===
+      // === SUPERSET C1: Pull ↔ Plyo ↔ Horizontal Pull (Sprint v1.7: DB Row re-homed nach Quad-Cut) ===
       { name: "Chin-ups", sets: 3, reps: 8, rpeCap: 7, tempo: "2-1-1", restSec: 60,
         supersetGroup: "C1",
         notes: "Supinated Grip — Biceps + Lat. Rotation von DB Row." },
       { name: "Box Jumps", sets: 3, reps: 5, rpeCap: 7, tempo: "X-X-X", restSec: 60,
         supersetGroup: "C1",
-        notes: "Low box ~30cm, reactive plyo." },
+        notes: "Low box ~30cm, reactive plyo. RFD-Komponente — nicht kürzen." },
+      { name: "DB Row", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
+        supersetGroup: "C1",
+        notes: "Horizontal Pull." },
       // === SUPERSET C2: Prävention ↔ Carry ===
       { name: "Single-Leg Calf Raises", sets: 3, reps: "12/leg", rpeCap: 7, tempo: "2-2-2", restSec: 60,
         supersetGroup: "C2",
         notes: "Soleus-fokussiert." },
       { name: "Suitcase Carry", sets: 3, reps: "30m/side", loadPct: 50, rpeCap: 6, restSec: 60,
         supersetGroup: "C2" },
-      // === SUPERSET C3: Quad ↔ Back — Rotation (B1=Walking Lunge+Lat Pulldown → B2=Goblet+DB Row) ===
-      { name: "Goblet Squat", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
-        supersetGroup: "C3" },
-      { name: "DB Row", sets: 3, reps: 10, rpeCap: 7, tempo: "2-1-1", restSec: 60,
-        supersetGroup: "C3" },
     ],
   },
   // ===========================================================================
@@ -576,7 +571,8 @@ export function generateWeekStrengthPlan(
       strengthMode: phaseConfig.strengthMode,
       loadOverrideWeek,
     });
-    exercises = applyPeriodization(exercises, periodAdjustment);
+    // Sprint v1.7: pass block baseline RPE-cap so accessories don't get the W3→9 bump.
+    exercises = applyPeriodization(exercises, periodAdjustment, phaseConfig.strengthRpeCap);
 
     // Sprint v0.7: layer Superset-Pairing for Block 2-4 (HSR-protected).
     // Runs AFTER periodization so the periodization-adjusted loads/sets are

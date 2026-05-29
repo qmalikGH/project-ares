@@ -12,6 +12,7 @@
 //           maxima exhausted).
 
 import { scaleRecipe } from "./scale-recipe";
+import { PROTEIN_SOFT_TARGET_PER_KG } from "./constants";
 import type { RecipeTemplate, ScaledRecipe } from "./types";
 
 const CALORIE_TOLERANCE = 30;
@@ -66,8 +67,9 @@ export function scaleVariableSlots(args: ScaleVariableSlotsArgs): ScaleVariableS
     + scaledDinnerUncapped.totals.protein
     + scaledMainMealUncapped.totals.protein;
 
-  // Effective target: must satisfy BOTH macro target AND functional minimum (2.0 g/kg)
-  const minFunctionalProteinG = Math.round(athleteWeightKg * 2.0);
+  // Effective target: maximize toward the SOFT protein target (2.2 g/kg, v1.7).
+  // This drives Pass-2 capping; it is NOT a hard fail (that lives in computeDayPlan).
+  const minFunctionalProteinG = Math.round(athleteWeightKg * PROTEIN_SOFT_TARGET_PER_KG);
   const effectiveProteinTarget = Math.max(
     proteinTargetG,
     minFunctionalProteinG + nonFunctionalProteinG,

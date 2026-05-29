@@ -22,7 +22,8 @@ import type { BlockNumber, WeekStrengthPlan } from "@/lib/coach-engine/types";
 
 const monday = new Date("2026-04-27T00:00:00.000Z");
 
-const PUSH = new Set(["Bench Press", "DB Bench Press", "Incline DB Press", "Push-ups"]);
+// Sprint v1.7: DB Shoulder Press = vertical/overhead push → upper_push bucket.
+const PUSH = new Set(["Bench Press", "DB Bench Press", "Incline DB Press", "Push-ups", "DB Shoulder Press"]);
 // Sprint v1.5: Pull pool now includes Cable Row + Lat Pulldown.
 const PULL = new Set(["Pull-ups", "Chin-ups", "Barbell Row", "DB Row", "Seated Cable Row", "Lat Pulldown"]);
 const SHOULDERS = new Set(["Face Pulls", "Band Pull-Aparts"]);
@@ -116,9 +117,13 @@ describe("Volume audit — Block 1 + 2 (linear_progression)", () => {
       it("shoulders >= 4 sets", () => {
         expect(counts.shoulders).toBeGreaterThanOrEqual(4);
       });
-      // Sprint v1.5: Quad volume target 10+ (was 3 pre-v1.5)
-      it("quads >= 10 sets (Sprint v1.5 hypertrophy target)", () => {
-        expect(quads).toBeGreaterThanOrEqual(10);
+      // Sprint v1.7: Quad-Cut 12→~6 (athletischer Charakter, BSS + 1 Rotation;
+      // schützt das Laufen, lokale Interferenz minimiert).
+      it("quads >= 6 sets (Sprint v1.7 quad cut)", () => {
+        expect(quads).toBeGreaterThanOrEqual(6);
+      });
+      it("quads <= 8 sets (Sprint v1.7 — kein Hypertrophie-Volumen)", () => {
+        expect(quads).toBeLessThanOrEqual(8);
       });
       it("lower_body >= 13 sets (HSR + Quads + Hip)", () => {
         expect(counts.lower_body).toBeGreaterThanOrEqual(13);
@@ -238,5 +243,64 @@ describe("Volume audit — Structural invariants", () => {
       expect(rdl?.loadPct, `Block ${b} RDL loadPct`).toBe(b1RdlB?.loadPct);
       expect(rdl?.tempo, `Block ${b} RDL tempo`).toBe(b1RdlB?.tempo);
     }
+  });
+
+  // Sprint v1.7 — Shoulder press is present as a real overhead-push movement.
+  it("DB Shoulder Press present in Block 1 & 2 templates (~3 sets)", async () => {
+    const { BLOCK_TEMPLATES } = await import("@/lib/coach-engine/strength-coach");
+    for (const b of [1, 2] as const) {
+      const all = [
+        ...(BLOCK_TEMPLATES[b]?.strength_a ?? []),
+        ...(BLOCK_TEMPLATES[b]?.strength_b ?? []),
+        ...(BLOCK_TEMPLATES[b]?.strength_c ?? []),
+      ];
+      const press = all.find((e) => e.name === "DB Shoulder Press");
+      expect(press, `Block ${b} missing DB Shoulder Press`).toBeTruthy();
+      expect(press?.sets, `Block ${b} DB Shoulder Press sets`).toBe(3);
+    }
+  });
+
+  // Sprint v1.7 — Plyos are the RFD component; must survive the quad cut.
+  it("Plyos preserved after quad cut (Broad Jumps B1, Box Jumps B2)", async () => {
+    const { BLOCK_TEMPLATES } = await import("@/lib/coach-engine/strength-coach");
+    const names = (b: 1 | 2) =>
+      [
+        ...(BLOCK_TEMPLATES[b]?.strength_a ?? []),
+        ...(BLOCK_TEMPLATES[b]?.strength_b ?? []),
+        ...(BLOCK_TEMPLATES[b]?.strength_c ?? []),
+      ].map((e) => e.name);
+    expect(names(1)).toContain("Broad Jumps");
+    expect(names(2)).toContain("Box Jumps");
+  });
+
+  // Sprint v1.7 — Accessory-RPE capped at 8 (no W3→9); main lifts may reach 9.
+  const MAIN_LIFTS = new Set([
+    "Bench Press", "Incline DB Press", "DB Bench Press", "Barbell Row", "Pull-ups",
+  ]);
+  const HSR = new Set(["Hex Bar Deadlift", "Romanian Deadlift", "RDL"]);
+
+  it("Accessory rpeCap <= 8 in W3 (no W3→9 bump on accessories)", () => {
+    for (const b of [1, 2] as const) {
+      for (const session of generateW3(b).sessions) {
+        for (const ex of session.exercises ?? []) {
+          if (ex.isWarmup || ex.rpeCap === undefined) continue;
+          if (HSR.has(ex.name) || MAIN_LIFTS.has(ex.name)) continue;
+          expect(
+            ex.rpeCap,
+            `Block ${b} ${session.type} ${ex.name} accessory rpeCap > 8`,
+          ).toBeLessThanOrEqual(8);
+        }
+      }
+    }
+  });
+
+  it("Main lifts may reach RPE 9 in W3 (athletic heavy character preserved)", () => {
+    let foundNine = false;
+    for (const b of [1, 2] as const) {
+      for (const ex of generateW3(b).sessions.flatMap((s) => s.exercises ?? [])) {
+        if (!ex.isWarmup && MAIN_LIFTS.has(ex.name) && ex.rpeCap === 9) foundNine = true;
+      }
+    }
+    expect(foundNine, "expected >= 1 main lift at RPE 9 in W3").toBe(true);
   });
 });

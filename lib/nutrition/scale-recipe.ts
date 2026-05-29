@@ -35,7 +35,10 @@ function clamp(value: number, min: number, max: number): number {
 /** Compute macros for a component at a given amount. */
 function computeComponentMacros(comp: RecipeComponent, amount: number): ScaledComponent {
   const label = INGREDIENT_LABELS[comp.ingredientId] ?? comp.ingredientId;
-  const unitLabel = comp.portionUnit === "g" ? `${amount}g` : `${amount} Stück`;
+  const unitLabel =
+    comp.portionUnit === "g" ? `${amount}g`
+    : comp.portionUnit === "ml" ? `${amount}ml`
+    : `${amount} Stück`;
   return {
     ingredientId: comp.ingredientId,
     name: `${label} ${unitLabel}`,
@@ -125,15 +128,30 @@ export function scaleRecipe(template: RecipeTemplate, targetKcal: number, protei
   // 5b. Strategy B: Multi-protein — secondary proteins at fixed minimumAmount.
   //     Primary (index 0) scales flexibly with the remaining budget.
   //     When only 1 protein component exists, this is a no-op (identical to v1.2).
+  //
+  //     Sprint v1.7 — OMIT logic: a secondary protein is dropped entirely (no
+  //     sliver) when the budget can't fit it at its floor after reserving the
+  //     primary + carb minimums. "Hähnchen ≥150g ODER weg."
   const secondaryComponents: ScaledComponent[] = [];
+  const omittedComponents: ScaledComponent[] = [];
   let secondaryKcal = 0;
 
   if (proteinComps.length > 1) {
+    const primaryMinKcal = proteinComp.minimumAmount * proteinComp.kcalPerUnit;
+    const carbMinKcal = carbComp ? carbComp.minimumAmount * carbComp.kcalPerUnit : 0;
+    // kcal available for secondaries beyond the mandatory primary + carb + veg minimums.
+    let secHeadroom = remaining - primaryMinKcal - carbMinKcal;
     for (let i = 1; i < proteinComps.length; i++) {
       const sec = proteinComps[i];
-      const secAmount = sec.minimumAmount; // Fixed (e.g. chicken 75g from batch)
-      secondaryComponents.push(computeComponentMacros(sec, secAmount));
-      secondaryKcal += secAmount * sec.kcalPerUnit;
+      const secKcal = sec.minimumAmount * sec.kcalPerUnit;
+      if (secKcal > secHeadroom) {
+        // No room at the floor → omit (no sub-floor sliver).
+        omittedComponents.push(computeComponentMacros(sec, 0));
+        continue;
+      }
+      secondaryComponents.push(computeComponentMacros(sec, sec.minimumAmount));
+      secondaryKcal += secKcal;
+      secHeadroom -= secKcal;
     }
   }
 
@@ -252,7 +270,10 @@ export function scaleRecipe(template: RecipeTemplate, targetKcal: number, protei
 
   // 9. Build scaled components
   const scaledComponents: ScaledComponent[] = [];
-  scaledComponents.push(computeComponentMacros(proteinComp, proteinAmount));
+  // Sprint v1.7: skip a 0-amount primary (egg white can scale to 0 = omitted).
+  if (proteinAmount > 0) {
+    scaledComponents.push(computeComponentMacros(proteinComp, proteinAmount));
+  }
   // Secondary protein components (Strategy B: fixed at minimumAmount)
   scaledComponents.push(...secondaryComponents);
   if (carbComp && carbAmount > 0) {
@@ -271,5 +292,6 @@ export function scaleRecipe(template: RecipeTemplate, targetKcal: number, protei
     components: scaledComponents,
     sauces: [...template.sauces],
     totals,
+    ...(omittedComponents.length > 0 ? { omitted: omittedComponents } : {}),
   };
 }

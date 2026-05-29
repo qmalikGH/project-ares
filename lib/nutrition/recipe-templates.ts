@@ -6,7 +6,42 @@
 //
 // 6 recipes: 3 mainMeal (with rice), 3 dinner (without rice).
 
-import type { RecipeTemplate } from "./types";
+import type { RecipeTemplate, RecipeComponent } from "./types";
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sprint v1.7 — Liquid egg white (Pumperlgsund Freiland 483ml, dm €5,25).
+// Protein-dense, fat-free flex lever. Used as the PRIMARY (scaling) protein in
+// egg recipes; whole eggs become a fixed secondary (≥2–3 for yolk/choline).
+// Per 100ml: ~48 kcal, ~11g protein, ~0g fat. 50ml steps.
+// ═══════════════════════════════════════════════════════════════════════════
+const EGG_WHITE: RecipeComponent = {
+  ingredientId: "egg_white_liquid",
+  role: "protein",
+  portionUnit: "ml",
+  kcalPerUnit: 0.48,
+  proteinPerUnit: 0.11,
+  carbsPerUnit: 0.007,
+  fatPerUnit: 0,
+  costPerUnit: 0.01087, // €5.25 / 483ml
+  minimumAmount: 0, // 0 = omittable; scales in 50ml steps
+  maximumAmount: 400,
+  stepSize: 50,
+};
+
+/** Whole eggs as a FIXED secondary (3× for yolk/choline/flavor); egg white carries the flex. */
+const WHOLE_EGGS: RecipeComponent = {
+  ingredientId: "eggs",
+  role: "protein",
+  portionUnit: "stück",
+  kcalPerUnit: 78,
+  proteinPerUnit: 6,
+  carbsPerUnit: 0.6,
+  fatPerUnit: 5.3,
+  costPerUnit: 0.25,
+  minimumAmount: 3,
+  maximumAmount: 3,
+  stepSize: 1,
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MainMeal recipes (with rice as carb filler)
@@ -25,7 +60,7 @@ const CHICKEN_RICE_ASIA: RecipeTemplate = {
       carbsPerUnit: 0,
       fatPerUnit: 0.01,
       costPerUnit: 0.0092, // €9.20/kg
-      minimumAmount: 100,
+      minimumAmount: 150, // Sprint v1.7: floor 100→150 (kein Sliver)
       maximumAmount: 200, // chicken-only protein 44g (under 50g MPS soft cap). Rice protein doesn't count toward MPS.
       stepSize: 25,
     },
@@ -39,7 +74,7 @@ const CHICKEN_RICE_ASIA: RecipeTemplate = {
       fatPerUnit: 0.01,
       costPerUnit: 0.002, // €2/kg
       minimumAmount: 50, // MINIMUM 50g, never less
-      maximumAmount: 200,
+      maximumAmount: 250, // v1.7: 200→250 — carb sink for high-budget strength day (dense protein freed kcal)
       stepSize: 10,
     },
     {
@@ -110,19 +145,8 @@ const EGG_RICE_ASIA: RecipeTemplate = {
   id: "egg_rice_asia",
   name: "Eier + Reis + TK Asia-Gemüse",
   components: [
-    {
-      ingredientId: "eggs",
-      role: "protein",
-      portionUnit: "stück",
-      kcalPerUnit: 78, // 78 kcal per egg (size M)
-      proteinPerUnit: 6,
-      carbsPerUnit: 0.6,
-      fatPerUnit: 5.3,
-      costPerUnit: 0.25, // €3/12er REWE
-      minimumAmount: 3,
-      maximumAmount: 8,
-      stepSize: 1,
-    },
+    EGG_WHITE,
+    WHOLE_EGGS,
     {
       ingredientId: "rice_dry",
       role: "carb",
@@ -161,19 +185,8 @@ const EGG_ASIA_NORICE: RecipeTemplate = {
   id: "egg_asia_norice",
   name: "Eier + TK Asia-Gemüse",
   components: [
-    {
-      ingredientId: "eggs",
-      role: "protein",
-      portionUnit: "stück",
-      kcalPerUnit: 78,
-      proteinPerUnit: 6,
-      carbsPerUnit: 0.6,
-      fatPerUnit: 5.3,
-      costPerUnit: 0.25,
-      minimumAmount: 3,
-      maximumAmount: 8,
-      stepSize: 1,
-    },
+    EGG_WHITE,
+    WHOLE_EGGS,
     {
       ingredientId: "tk_asia_gemuse",
       role: "vegetable",
@@ -195,19 +208,8 @@ const EGG_BROKKOLI_NORICE: RecipeTemplate = {
   id: "egg_brokkoli_norice",
   name: "Eier + TK Brokkoli",
   components: [
-    {
-      ingredientId: "eggs",
-      role: "protein",
-      portionUnit: "stück",
-      kcalPerUnit: 78,
-      proteinPerUnit: 6,
-      carbsPerUnit: 0.6,
-      fatPerUnit: 5.3,
-      costPerUnit: 0.25,
-      minimumAmount: 3,
-      maximumAmount: 8,
-      stepSize: 1,
-    },
+    EGG_WHITE,
+    WHOLE_EGGS,
     {
       ingredientId: "tk_brokkoli",
       role: "vegetable",
@@ -268,6 +270,7 @@ const EGG_CHICKEN_RICE_ASIA: RecipeTemplate = {
   id: "egg_chicken_rice_asia",
   name: "Eier + Hähnchen + Reis + TK Asia-Gemüse",
   components: [
+    EGG_WHITE, // v1.7 primary flex lever (protein density without yolk fat)
     {
       ingredientId: "eggs",
       role: "protein",
@@ -277,8 +280,8 @@ const EGG_CHICKEN_RICE_ASIA: RecipeTemplate = {
       carbsPerUnit: 0.6,
       fatPerUnit: 5.3,
       costPerUnit: 0.25,
-      minimumAmount: 2,
-      maximumAmount: 6,
+      minimumAmount: 2, // fixed secondary (≥2 whole eggs for yolk/choline)
+      maximumAmount: 2,
       stepSize: 1,
     },
     {
@@ -290,8 +293,8 @@ const EGG_CHICKEN_RICE_ASIA: RecipeTemplate = {
       carbsPerUnit: 0,
       fatPerUnit: 0.01,
       costPerUnit: 0.0092,
-      minimumAmount: 125, // v1.3: was 75 — ensure dinner gets meaningful chicken portion
-      maximumAmount: 150,
+      minimumAmount: 150, // Sprint v1.7: floor 125→150 (kein Sliver)
+      maximumAmount: 175,
       stepSize: 25,
     },
     {
@@ -303,7 +306,7 @@ const EGG_CHICKEN_RICE_ASIA: RecipeTemplate = {
       carbsPerUnit: 0.78,
       fatPerUnit: 0.01,
       costPerUnit: 0.002,
-      minimumAmount: 50,
+      minimumAmount: 40, // v1.7: 50→40 (Reis ≥~40g od. weg; eases clamp overshoot)
       maximumAmount: 150,
       stepSize: 10, // 10g for ±30 kcal precision (same as all rice components)
     },
@@ -338,7 +341,7 @@ const CHICKEN_RICE_BROKKOLI: RecipeTemplate = {
       carbsPerUnit: 0,
       fatPerUnit: 0.01,
       costPerUnit: 0.0092,
-      minimumAmount: 100,
+      minimumAmount: 150, // Sprint v1.7: floor 100→150 (kein Sliver)
       maximumAmount: 275, // 2026-05-16: was 400 — cap at 60.5g chicken-protein (needed for rest day functional min; long_run gets capped by engine to ~50g via raised rice ceiling)
       stepSize: 25,
     },
@@ -377,19 +380,8 @@ const EGG_RICE_BROKKOLI: RecipeTemplate = {
   id: "egg_rice_brokkoli",
   name: "Eier + Reis + TK Brokkoli",
   components: [
-    {
-      ingredientId: "eggs",
-      role: "protein",
-      portionUnit: "stück",
-      kcalPerUnit: 78,
-      proteinPerUnit: 6,
-      carbsPerUnit: 0.6,
-      fatPerUnit: 5.3,
-      costPerUnit: 0.25,
-      minimumAmount: 3,
-      maximumAmount: 8,
-      stepSize: 1,
-    },
+    EGG_WHITE,
+    WHOLE_EGGS,
     {
       ingredientId: "rice_dry",
       role: "carb",
@@ -453,6 +445,7 @@ export const INGREDIENT_LABELS: Record<string, string> = {
   chicken_breast: "Hähnchenbrust",
   beef_mince: "Rinderhack",
   eggs: "Eier",
+  egg_white_liquid: "Eiklar (flüssig)",
   rice_dry: "Reis",
   tk_asia_gemuse: "TK Asia-Gemüse",
   tk_brokkoli: "TK Brokkoli",
