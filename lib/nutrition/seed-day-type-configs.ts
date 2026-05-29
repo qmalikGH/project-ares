@@ -61,7 +61,7 @@ export function dbConfigToEngineConfig(row: PrismaDayTypeConfigRow): DayTypeConf
 }
 
 /** Convert a nested engine DayTypeConfig → flat Prisma create data. */
-function engineConfigToDbData(planId: string, config: DayTypeConfig) {
+export function engineConfigToDbData(planId: string, config: DayTypeConfig) {
   return {
     planId,
     dayType: config.dayType,

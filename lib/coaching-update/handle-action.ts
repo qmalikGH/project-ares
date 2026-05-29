@@ -9,6 +9,7 @@ import { buildAllDayPlans } from "@/lib/nutrition/build-all-day-plans";
 import { calibrateMealPlan } from "@/lib/nutrition/calibration";
 import { cascadeNutritionUpdate } from "@/lib/nutrition/cascade";
 import { ATHLETE_WEIGHT_KG } from "@/lib/nutrition/day-type-configs";
+import { DEFICIT_KCAL } from "@/lib/nutrition/constants";
 import type { DayTypeTargets } from "@/lib/nutrition/day-type";
 import { RECIPE_TEMPLATES } from "@/lib/nutrition/recipe-templates";
 import { dbConfigToEngineConfig, seedDayTypeConfigs, forceReseedDayTypeConfigs } from "@/lib/nutrition/seed-day-type-configs";
@@ -689,27 +690,18 @@ export async function handleCoachingAction(
       });
       if (!plan) return { success: false, status: 404, error: "no_active_meal_plan" };
 
+      // Sprint v1.8 #6: deficitKcal is the source of truth — align to the code
+      // constant so reseed always lands all 4 stores at the same deficit.
+      await db.mealPlan.update({
+        where: { id: plan.id },
+        data: { deficitKcal: DEFICIT_KCAL },
+      });
+
       // Overwrite all DayTypeConfig rows with code constants
       const updated = await forceReseedDayTypeConfigs(plan.id);
 
-      // Backward-compat: also refresh DayPlan rows with new targets + slots
-      for (const dayType of SEED_DAY_TYPES) {
-        const template = templateDayPlan(dayType);
-        await db.dayPlan.updateMany({
-          where: { mealPlanId: plan.id, dayType },
-          data: {
-            tdeeEstimate: template.tdeeEstimate,
-            calorieTarget: template.calorieTarget,
-            proteinG: template.proteinG,
-            carbsG: template.carbsG,
-            fatG: template.fatG,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            slots: template.slots as any,
-          },
-        });
-      }
-
-      // Cascade: recompute all ComputedMealSlots from fresh configs
+      // Cascade: unified path recomputes ComputedMealSlot AND DayPlan rows
+      // (DayPlan no longer refreshed manually here — cascade owns it).
       const cascadeResult = await cascadeNutritionUpdate(plan.id, "seed", reason);
 
       const log = await db.coachingLog.create({

@@ -22,6 +22,7 @@ import {
   groupTDEEByDayType,
 } from "@/lib/nutrition/calibration";
 import type { TDEERow, WorkoutRow, CoachingOverrideRow } from "@/lib/nutrition/calibration";
+import { TDEE_PLAUSIBILITY_FLOOR, gartheMaxDeficit } from "@/lib/nutrition/constants";
 
 const MON = new Date("2026-05-04T00:00:00.000Z"); // strength_run
 const TUE = new Date("2026-05-05T00:00:00.000Z"); // threshold
@@ -193,6 +194,20 @@ describe("filterCleanTDEE", () => {
     expect(filterCleanTDEE(rows, workouts)).toHaveLength(1);
   });
 
+  // Sprint v1.8 #4: non-wear / corrupt Garmin days excluded even on a
+  // completed training day (would otherwise poison the rolling average).
+  it("excludes training day with completed workout but implausibly low TDEE (non-wear)", () => {
+    const rows = [tdee("2026-05-04", 1534)]; // observed non-wear value
+    const workouts = [workout("2026-05-04", "completed")];
+    expect(filterCleanTDEE(rows, workouts)).toHaveLength(0);
+  });
+
+  it("keeps a plausible training day just above the floor", () => {
+    const rows = [tdee("2026-05-04", TDEE_PLAUSIBILITY_FLOOR + 1)];
+    const workouts = [workout("2026-05-04", "completed")];
+    expect(filterCleanTDEE(rows, workouts)).toHaveLength(1);
+  });
+
   // ── Rest days ──
 
   it("includes rest day with no workout and TDEE above floor", () => {
@@ -314,5 +329,24 @@ describe("dayTypesWithCoachOverride", () => {
     expect(result.has("strength_run")).toBe(true);
     expect(result.has("rest")).toBe(true);
     expect(result.has("threshold")).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sprint v1.8 #4 — Garthe rate-cap
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("gartheMaxDeficit", () => {
+  it("allows the −600 deficit at 90kg (cap ≈ 693)", () => {
+    expect(gartheMaxDeficit(90)).toBeGreaterThanOrEqual(600);
+    expect(gartheMaxDeficit(90)).toBe(693);
+  });
+
+  it("caps below −600 once weight drops under ~77kg", () => {
+    expect(gartheMaxDeficit(75)).toBeLessThan(600);
+  });
+
+  it("scales linearly with body mass", () => {
+    expect(gartheMaxDeficit(80)).toBe(Math.round((0.007 * 80 * 7700) / 7));
   });
 });

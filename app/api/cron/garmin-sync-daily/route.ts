@@ -6,6 +6,10 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db/client";
 import { userTodayForUser } from "@/lib/date";
 import { syncGarminForDate, classifyError } from "@/lib/garmin/sync";
+import { calibrateMealPlan } from "@/lib/nutrition/calibration";
+
+/** Sprint v1.8 #4: damp dynamic-deficit recompute to ~once per week. */
+const RECALIBRATION_INTERVAL_MS = 7 * 86400000;
 
 function authorized(req: Request): boolean {
   const auth = req.headers.get("authorization") ?? "";
@@ -29,6 +33,7 @@ export async function GET(req: Request) {
     status: string;
     errors: number;
     syncedFor?: string;
+    recalibrated?: string;
   }> = [];
 
   for (const user of users) {
@@ -95,11 +100,31 @@ export async function GET(req: Request) {
         });
       }
 
+      // Sprint v1.8 #4 — Dynamic deficit: weekly damped re-calibration. Recompute
+      // rolling Garmin-TDEE targets only if ≥7 days since last calibration, so
+      // targets track measured TDEE without day-to-day jitter. calibrateMealPlan
+      // routes through the unified cascade (all 4 deficit stores stay consistent).
+      let recalibrated: string | undefined;
+      try {
+        const plan = await db.mealPlan.findFirst({
+          where: { userId: user.id, status: "active" },
+          select: { calibratedAt: true },
+        });
+        const lastCal = plan?.calibratedAt?.getTime() ?? 0;
+        if (Date.now() - lastCal >= RECALIBRATION_INTERVAL_MS) {
+          const cal = await calibrateMealPlan(user.id);
+          recalibrated = cal.status;
+        }
+      } catch (calErr) {
+        recalibrated = `error: ${calErr instanceof Error ? calErr.message : String(calErr)}`;
+      }
+
       results.push({
         userId: user.id,
         status: result.status,
         errors: result.errors.length,
         syncedFor: yesterday.toISOString().slice(0, 10),
+        recalibrated,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

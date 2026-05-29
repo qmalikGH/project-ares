@@ -30,6 +30,7 @@ import type {
 import { getDayType } from "@/lib/nutrition/day-type";
 import { ensureNutritionIntegrity } from "@/lib/nutrition/ensure-integrity";
 import { DEFICIT_KCAL } from "@/lib/nutrition/daily-adjustment";
+import { TDEE_PLAUSIBILITY_FLOOR } from "@/lib/nutrition/constants";
 import type { DailyAdjustment } from "@/lib/nutrition/types";
 
 // ── Pure helpers ──────────────────────────────────────────────────────────
@@ -525,6 +526,9 @@ async function buildCalories(userId: string): Promise<CaloriesSection> {
   const buckets = { strength_run: [] as number[], threshold: [] as number[], long_run: [] as number[], rest: [] as number[] };
   for (const r of rows) {
     if (r.totalKilocalories == null) continue;
+    // Sprint v1.8 #4: exclude non-wear/corrupt days (e.g. 1534 kcal) so the
+    // displayed averages aren't skewed — same floor the calibration uses.
+    if (r.totalKilocalories <= TDEE_PLAUSIBILITY_FLOOR) continue;
     const dayType = DAY_TYPE_BY_WEEKDAY[(r.date as Date).getUTCDay()];
     buckets[dayType].push(r.totalKilocalories);
   }

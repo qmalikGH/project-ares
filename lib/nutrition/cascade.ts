@@ -18,7 +18,10 @@ import { buildAllDayPlans } from "./build-all-day-plans";
 import { ATHLETE_WEIGHT_KG } from "./day-type-configs";
 import { RECIPE_TEMPLATES } from "./recipe-templates";
 import { dbConfigToEngineConfig } from "./seed-day-type-configs";
-import type { ComputedDayPlan, FixedSlotItem } from "./types";
+import { buildSlotsForTargets } from "./template";
+import { DEFICIT_KCAL } from "./constants";
+import type { DayTypeTargets } from "./day-type";
+import type { ComputedDayPlan, DayType, FixedSlotItem } from "./types";
 
 export type CascadeTrigger = "config_change" | "recipe_change" | "calibration" | "manual" | "seed" | "weight_change";
 
@@ -92,7 +95,7 @@ export async function cascadeNutritionUpdate(
   // ── Load athlete weight ──
   const plan = await db.mealPlan.findUnique({
     where: { id: planId },
-    select: { userId: true },
+    select: { userId: true, deficitKcal: true },
   });
   if (!plan) {
     return { success: false, errors: ["MealPlan not found"], trigger, reason };
@@ -117,10 +120,39 @@ export async function cascadeNutritionUpdate(
     mapDayPlanToSlotRows(planId, dayType, dayPlan, allNewSlots);
   }
 
+  // ── Sprint v1.8 #6: also sync DayPlan rows so all 4 deficit stores stay
+  // consistent (DayTypeConfig, ComputedMealSlot, DayPlan, MealPlan.deficitKcal).
+  // DayPlan.slots uses the MealSlots shape (buildSlotsForTargets), derived from
+  // the SAME DB configs the ComputedMealSlots come from. Computed outside the
+  // transaction (pure); only the writes are transactional.
+  const dayPlanOps = dbConfigs.map((cfg) => {
+    const tdee = cfg.tdeeEstimate ?? cfg.calorieTarget + (plan.deficitKcal ?? DEFICIT_KCAL);
+    const targets: DayTypeTargets = {
+      tdeeEstimate: tdee,
+      calorieTarget: cfg.calorieTarget,
+      proteinG: cfg.proteinG,
+      carbsG: cfg.carbsG,
+      fatG: cfg.fatG,
+    };
+    const slots = buildSlotsForTargets(cfg.dayType as DayType, targets);
+    return db.dayPlan.updateMany({
+      where: { mealPlanId: planId, dayType: cfg.dayType },
+      data: {
+        tdeeEstimate: tdee,
+        calorieTarget: cfg.calorieTarget,
+        proteinG: cfg.proteinG,
+        carbsG: cfg.carbsG,
+        fatG: cfg.fatG,
+        slots: slots as unknown as object,
+      },
+    });
+  });
+
   // ── Transactional write ──
   await db.$transaction([
     db.computedMealSlot.deleteMany({ where: { planId } }),
     db.computedMealSlot.createMany({ data: allNewSlots }),
+    ...dayPlanOps,
     db.coachingLog.create({
       data: {
         userId: plan.userId,
