@@ -35,9 +35,9 @@ describe("scaleRecipe", () => {
       expect(rice!.amount).toBeGreaterThanOrEqual(50);
     });
 
-    it("rice is in 10g steps", () => {
+    it("rice is in 125g cook-bag steps (v1.9)", () => {
       const rice = result.components.find((c) => c.ingredientId === "rice_dry");
-      expect(rice!.amount % 10).toBe(0);
+      expect(rice!.amount % 125).toBe(0);
     });
 
     it("vegetable is at minimum (150g)", () => {
@@ -46,8 +46,10 @@ describe("scaleRecipe", () => {
       expect(veg!.amount).toBe(150);
     });
 
-    it("total kcal is within 50 of target", () => {
-      expect(Math.abs(result.totals.kcal - 814)).toBeLessThanOrEqual(50);
+    it("total kcal is within one rice-bag of target (v1.9: 125g quantization)", () => {
+      // Budget-driven rice now snaps to 125g bags, so an isolated recipe can be
+      // off by up to ~half a bag; the day-level engine absorbs this via protein.
+      expect(Math.abs(result.totals.kcal - 814)).toBeLessThanOrEqual(230);
     });
   });
 
@@ -171,13 +173,13 @@ describe("scaleRecipe", () => {
     expect(eggs!.name).toContain("Stück");
   });
 
-  // ── v1.7: Multi-protein blend — egg white PRIMARY (flexible); whole eggs (2)
-  //    + chicken (150g) FIXED secondaries. ──
+  // ── Multi-protein (v1.9 revert): eggs PRIMARY (scaling) + chicken (150g) FIXED
+  //    secondary. Egg white removed. ──
 
-  describe("egg_chicken_rice_asia (multi-protein blend)", () => {
+  describe("egg_chicken_rice_asia (multi-protein)", () => {
     const template = findRecipeTemplate("egg_chicken_rice_asia");
 
-    it("returns whole-egg + chicken protein components in output", () => {
+    it("returns egg + chicken protein components in output", () => {
       const result = scaleRecipe(template, 657);
       const eggs = result.components.find((c) => c.ingredientId === "eggs");
       const chicken = result.components.find((c) => c.ingredientId === "chicken_breast");
@@ -185,19 +187,19 @@ describe("scaleRecipe", () => {
       expect(chicken).toBeDefined();
     });
 
-    it("chicken (secondary) is at minimumAmount 150g (v1.7 floor)", () => {
+    it("chicken (secondary) is at minimumAmount 150g (v1.7 floor kept)", () => {
       const result = scaleRecipe(template, 657);
       const chicken = result.components.find((c) => c.ingredientId === "chicken_breast");
       expect(chicken!.amount).toBe(150);
     });
 
-    it("whole eggs stay fixed at 2 (yolk/choline; egg white carries the flex)", () => {
-      const result = scaleRecipe(template, 657);
-      const eggs = result.components.find((c) => c.ingredientId === "eggs");
-      expect(eggs!.amount).toBe(2);
+    it("eggs (primary) scale flexibly with budget", () => {
+      const lowEggs = scaleRecipe(template, 500).components.find((c) => c.ingredientId === "eggs")!.amount;
+      const highEggs = scaleRecipe(template, 800).components.find((c) => c.ingredientId === "eggs")!.amount;
+      expect(highEggs).toBeGreaterThanOrEqual(lowEggs);
     });
 
-    it("total protein scales up with budget (egg white is the flex lever)", () => {
+    it("total protein scales up with budget", () => {
       const low = scaleRecipe(template, 500).totals.protein;
       const high = scaleRecipe(template, 800).totals.protein;
       expect(high).toBeGreaterThan(low);
@@ -208,9 +210,9 @@ describe("scaleRecipe", () => {
       expect(result.totals.protein).toBeGreaterThanOrEqual(40);
     });
 
-    it("total kcal within 50 of target", () => {
+    it("total kcal within one rice-bag of target (v1.9: 125g quantization)", () => {
       const result = scaleRecipe(template, 657);
-      expect(Math.abs(result.totals.kcal - 657)).toBeLessThanOrEqual(50);
+      expect(Math.abs(result.totals.kcal - 657)).toBeLessThanOrEqual(230);
     });
 
     it("rice and vegetable are also present", () => {

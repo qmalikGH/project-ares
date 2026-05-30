@@ -181,7 +181,8 @@ export interface ActualSessionData {
   calories?: number | null;
   splits?: SplitData[];
   exercises?: ActualExercise[];
-  kneePainNrs?: number;
+  /** Sprint v1.9: shin pain (active injury) replaces knee pain. */
+  shinPainNrs?: number;
 }
 
 export interface TrainingSession {

@@ -14,6 +14,9 @@ import type { RecipeTemplate, RecipeComponent } from "./types";
 // egg recipes; whole eggs become a fixed secondary (≥2–3 for yolk/choline).
 // Per 100ml: ~48 kcal, ~11g protein, ~0g fat. 50ml steps.
 // ═══════════════════════════════════════════════════════════════════════════
+// Sprint v1.9 #1: egg white reverted out of all active recipes (not sourceable
+// at Q's stores; drove day cost > €16). Definition KEPT (inactive) for a future
+// online-sourcing reactivation — do NOT delete.
 const EGG_WHITE: RecipeComponent = {
   ingredientId: "egg_white_liquid",
   role: "protein",
@@ -23,13 +26,14 @@ const EGG_WHITE: RecipeComponent = {
   carbsPerUnit: 0.007,
   fatPerUnit: 0,
   costPerUnit: 0.01087, // €5.25 / 483ml
-  minimumAmount: 0, // 0 = omittable; scales in 50ml steps
+  minimumAmount: 0,
   maximumAmount: 400,
   stepSize: 50,
 };
+void EGG_WHITE; // kept for future reactivation; not used in active recipes
 
-/** Whole eggs as a FIXED secondary (3× for yolk/choline/flavor); egg white carries the flex. */
-const WHOLE_EGGS: RecipeComponent = {
+/** Whole eggs as the PRIMARY (scaling) protein in egg recipes — Sprint v1.9 revert. */
+const EGGS_PRIMARY: RecipeComponent = {
   ingredientId: "eggs",
   role: "protein",
   portionUnit: "stück",
@@ -39,7 +43,7 @@ const WHOLE_EGGS: RecipeComponent = {
   fatPerUnit: 5.3,
   costPerUnit: 0.25,
   minimumAmount: 3,
-  maximumAmount: 3,
+  maximumAmount: 8,
   stepSize: 1,
 };
 
@@ -75,7 +79,7 @@ const CHICKEN_RICE_ASIA: RecipeTemplate = {
       costPerUnit: 0.002, // €2/kg
       minimumAmount: 50, // MINIMUM 50g, never less
       maximumAmount: 250, // v1.7: 200→250 — carb sink for high-budget strength day (dense protein freed kcal)
-      stepSize: 10,
+      stepSize: 125, // v1.9: 125g cook-bag quantization
     },
     {
       ingredientId: "tk_asia_gemuse",
@@ -122,7 +126,7 @@ const HACK_RICE_BROKKOLI: RecipeTemplate = {
       costPerUnit: 0.002,
       minimumAmount: 50,
       maximumAmount: 200,
-      stepSize: 10,
+      stepSize: 125, // v1.9: 125g cook-bag quantization
     },
     {
       ingredientId: "tk_brokkoli",
@@ -145,8 +149,7 @@ const EGG_RICE_ASIA: RecipeTemplate = {
   id: "egg_rice_asia",
   name: "Eier + Reis + TK Asia-Gemüse",
   components: [
-    EGG_WHITE,
-    WHOLE_EGGS,
+    EGGS_PRIMARY,
     {
       ingredientId: "rice_dry",
       role: "carb",
@@ -158,7 +161,7 @@ const EGG_RICE_ASIA: RecipeTemplate = {
       costPerUnit: 0.002,
       minimumAmount: 50,
       maximumAmount: 200,
-      stepSize: 10,
+      stepSize: 125, // v1.9: 125g cook-bag quantization
     },
     {
       ingredientId: "tk_asia_gemuse",
@@ -185,8 +188,7 @@ const EGG_ASIA_NORICE: RecipeTemplate = {
   id: "egg_asia_norice",
   name: "Eier + TK Asia-Gemüse",
   components: [
-    EGG_WHITE,
-    WHOLE_EGGS,
+    EGGS_PRIMARY,
     {
       ingredientId: "tk_asia_gemuse",
       role: "vegetable",
@@ -208,8 +210,7 @@ const EGG_BROKKOLI_NORICE: RecipeTemplate = {
   id: "egg_brokkoli_norice",
   name: "Eier + TK Brokkoli",
   components: [
-    EGG_WHITE,
-    WHOLE_EGGS,
+    EGGS_PRIMARY,
     {
       ingredientId: "tk_brokkoli",
       role: "vegetable",
@@ -270,8 +271,8 @@ const EGG_CHICKEN_RICE_ASIA: RecipeTemplate = {
   id: "egg_chicken_rice_asia",
   name: "Eier + Hähnchen + Reis + TK Asia-Gemüse",
   components: [
-    EGG_WHITE, // v1.7 primary flex lever (protein density without yolk fat)
     {
+      // Sprint v1.9: eggs back as PRIMARY scaling protein (egg white reverted out).
       ingredientId: "eggs",
       role: "protein",
       portionUnit: "stück",
@@ -280,8 +281,8 @@ const EGG_CHICKEN_RICE_ASIA: RecipeTemplate = {
       carbsPerUnit: 0.6,
       fatPerUnit: 5.3,
       costPerUnit: 0.25,
-      minimumAmount: 2, // fixed secondary (≥2 whole eggs for yolk/choline)
-      maximumAmount: 2,
+      minimumAmount: 2,
+      maximumAmount: 6,
       stepSize: 1,
     },
     {
@@ -308,7 +309,7 @@ const EGG_CHICKEN_RICE_ASIA: RecipeTemplate = {
       costPerUnit: 0.002,
       minimumAmount: 40, // v1.7: 50→40 (Reis ≥~40g od. weg; eases clamp overshoot)
       maximumAmount: 150,
-      stepSize: 10, // 10g for ±30 kcal precision (same as all rice components)
+      stepSize: 125, // v1.9: 125g cook-bag quantization (same as all rice components)
     },
     {
       ingredientId: "tk_asia_gemuse",
@@ -356,7 +357,7 @@ const CHICKEN_RICE_BROKKOLI: RecipeTemplate = {
       costPerUnit: 0.002,
       minimumAmount: 50,
       maximumAmount: 180, // 2026-05-16: was 100 — bigger carb sink so engine can absorb freed kcal when chicken caps
-      stepSize: 10, // 10g for ±30 kcal precision
+      stepSize: 125, // v1.9: 125g cook-bag quantization
     },
     {
       ingredientId: "tk_brokkoli",
@@ -380,8 +381,7 @@ const EGG_RICE_BROKKOLI: RecipeTemplate = {
   id: "egg_rice_brokkoli",
   name: "Eier + Reis + TK Brokkoli",
   components: [
-    EGG_WHITE,
-    WHOLE_EGGS,
+    EGGS_PRIMARY,
     {
       ingredientId: "rice_dry",
       role: "carb",
@@ -393,7 +393,7 @@ const EGG_RICE_BROKKOLI: RecipeTemplate = {
       costPerUnit: 0.002,
       minimumAmount: 50,
       maximumAmount: 200,
-      stepSize: 10, // 10g for ±30 kcal precision
+      stepSize: 125, // v1.9: 125g cook-bag quantization
     },
     {
       ingredientId: "tk_brokkoli",

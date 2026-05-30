@@ -71,8 +71,10 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
       flexDessert: FLEX_DESSERT_ON,
     },
     variableSlots: {
-      mainMeal: { recipeId: "chicken_rice_asia", budgetRatio: 0.55 },
-      dinner: { recipeId: "egg_asia_norice", budgetRatio: 0.45 },
+      // v1.9: more budget to the egg dinner (eggs flex 3–8 → push protein) since
+      // both slots now carry 1 rice bag; egg_asia_norice → egg_rice_asia.
+      mainMeal: { recipeId: "chicken_rice_asia", budgetRatio: 0.45 },
+      dinner: { recipeId: "egg_rice_asia", budgetRatio: 0.55 },
     },
     tdeeEstimate: 3353,
     trainingWindow: "both",
@@ -91,8 +93,10 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
     },
     variableSlots: {
       // 50:50 — dinner now has rice (egg_chicken_rice_asia) for Post-WO Carbs.
-      mainMeal: { recipeId: "chicken_rice_asia", budgetRatio: 0.50 },
-      dinner: { recipeId: "egg_chicken_rice_asia", budgetRatio: 0.50 },
+      // v1.9: main carries the rice bag (chicken+rice fills); more budget to main
+      // so its floor (chicken 150 + 1 bag) fits; dinner = eggs+chicken (no rice).
+      mainMeal: { recipeId: "chicken_rice_asia", budgetRatio: 0.58 },
+      dinner: { recipeId: "egg_chicken_rice_asia", budgetRatio: 0.42 },
     },
     tdeeEstimate: 2939,
     trainingWindow: "evening",
@@ -113,10 +117,10 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
       // 0.54/0.46 — mainMeal gets extra budget so hack reaches 225g (25g step
       // boundary), pushing day protein from 184→188g engine / 187g bridge.
       // Dinner still gets enough rice (70g = ~55g carbs) for Post-WO recovery.
-      mainMeal: { recipeId: "hack_rice_brokkoli", budgetRatio: 0.54 },
+      mainMeal: { recipeId: "hack_rice_brokkoli", budgetRatio: 0.50 },
       // Swapped from egg_rice_brokkoli: chicken has ~19g P/100kcal vs eggs ~8g,
       // needed to hit ≥184g functional protein after excluding 14g collagen.
-      dinner: { recipeId: "chicken_rice_brokkoli", budgetRatio: 0.46 },
+      dinner: { recipeId: "chicken_rice_brokkoli", budgetRatio: 0.50 },
     },
     tdeeEstimate: 3168,
     trainingWindow: "evening",
@@ -129,7 +133,9 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
     fixedSlots: {
       morning: MORNING,
       preTraining: null, // no training → no pre-training slot
-      afternoonSnack: AFTERNOON_SNACK,
+      // v1.9: Hummus+Karotten-Snack am Rest-Tag raus (−270 kcal/−15g Fett/−€1);
+      // freies Budget + 1 Reis-Beutel → Engine rebalanciert Richtung Protein.
+      afternoonSnack: { items: [] },
       eveningSnack: EVENING_SNACK,
       flexDessert: FLEX_DESSERT_ON,
     },
@@ -138,8 +144,10 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
       // chicken_rice_brokkoli Dinner (Hähnchen statt Hack, 2x Protein-Effizienz).
       // 0.48/0.52 (not 50:50) — dinner gets extra budget so chicken reaches
       // 275g (25g step boundary), pushing day protein from 180→186g (≥184g).
-      mainMeal: { recipeId: "egg_asia_norice", budgetRatio: 0.48 },
-      dinner: { recipeId: "chicken_rice_brokkoli", budgetRatio: 0.52 },
+      // v1.9: more budget to chicken dinner (protein-dense) after snack removal +
+      // rice bag — keeps day protein up at the deeper carb-cut.
+      mainMeal: { recipeId: "egg_asia_norice", budgetRatio: 0.40 },
+      dinner: { recipeId: "chicken_rice_brokkoli", budgetRatio: 0.60 },
     },
     tdeeEstimate: 2500,
     trainingWindow: "none",

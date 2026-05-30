@@ -35,6 +35,10 @@ export interface ScaleVariableSlotsArgs {
   athleteWeightKg: number;
   /** Non-functional protein in fixed slots (e.g. collagen) — excluded from MPS minimum. */
   nonFunctionalProteinG: number;
+  /** Sprint v1.9: fixed rice grams (125g-bag multiple) for the mainMeal slot; protein fills the rest. */
+  mainMealFixedCarbG?: number;
+  /** Sprint v1.9: fixed rice grams (125g-bag multiple) for the dinner slot. */
+  dinnerFixedCarbG?: number;
 }
 
 export interface ScaleVariableSlotsResult {
@@ -54,14 +58,16 @@ export function scaleVariableSlots(args: ScaleVariableSlotsArgs): ScaleVariableS
     proteinTargetG,
     athleteWeightKg,
     nonFunctionalProteinG,
+    mainMealFixedCarbG,
+    dinnerFixedCarbG,
   } = args;
 
   const dinnerBudget = Math.round(remainingBudget * dinnerBudgetRatio);
 
-  // Pass 1: uncapped scaling (legacy 60/40 split)
-  const scaledDinnerUncapped = scaleRecipe(dinnerTemplate, dinnerBudget);
+  // Pass 1: uncapped scaling (legacy 60/40 split). v1.9: rice fixed per slot.
+  const scaledDinnerUncapped = scaleRecipe(dinnerTemplate, dinnerBudget, undefined, dinnerFixedCarbG);
   const mainMealBudgetRaw = remainingBudget - scaledDinnerUncapped.totals.kcal;
-  const scaledMainMealUncapped = scaleRecipe(mainMealTemplate, mainMealBudgetRaw);
+  const scaledMainMealUncapped = scaleRecipe(mainMealTemplate, mainMealBudgetRaw, undefined, mainMealFixedCarbG);
 
   const uncappedTotalProtein = fixedProteinG
     + scaledDinnerUncapped.totals.protein
@@ -101,7 +107,7 @@ export function scaleVariableSlots(args: ScaleVariableSlotsArgs): ScaleVariableS
     : undefined;
 
   const cappedDinner = dinnerCap !== undefined
-    ? scaleRecipe(dinnerTemplate, dinnerBudget, dinnerCap)
+    ? scaleRecipe(dinnerTemplate, dinnerBudget, dinnerCap, dinnerFixedCarbG)
     : scaledDinnerUncapped;
 
   const mainMealBudget = remainingBudget - cappedDinner.totals.kcal;
@@ -110,8 +116,8 @@ export function scaleVariableSlots(args: ScaleVariableSlotsArgs): ScaleVariableS
     : undefined;
 
   const cappedMainMeal = mainMealCap !== undefined
-    ? scaleRecipe(mainMealTemplate, mainMealBudget, mainMealCap)
-    : scaleRecipe(mainMealTemplate, mainMealBudget);
+    ? scaleRecipe(mainMealTemplate, mainMealBudget, mainMealCap, mainMealFixedCarbG)
+    : scaleRecipe(mainMealTemplate, mainMealBudget, undefined, mainMealFixedCarbG);
 
   // Tolerance check: capping may leave kcal unplaceable when carb/veg maxima exhausted
   const cappedDayKcal = fixedKcal + cappedDinner.totals.kcal + cappedMainMeal.totals.kcal;

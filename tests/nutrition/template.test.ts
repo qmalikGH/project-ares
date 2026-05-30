@@ -81,10 +81,10 @@ describe("templateSlotsForDayType — slot composition", () => {
     }
   });
 
-  it("strength_run: mainMeal=chicken_rice_asia, dinner=egg_asia_norice", () => {
+  it("strength_run: mainMeal=chicken_rice_asia, dinner=egg_rice_asia (v1.9 carb-split)", () => {
     const slots = templateSlotsForDayType("strength_run");
     expect(slots.mainMeal.recipe).toBe("chicken_rice_asia");
-    expect(slots.dinner.recipe).toBe("egg_asia_norice");
+    expect(slots.dinner.recipe).toBe("egg_rice_asia");
   });
 
   it("long_run: mainMeal=hack_rice_brokkoli, dinner=chicken_rice_brokkoli", () => {
@@ -99,11 +99,11 @@ describe("templateSlotsForDayType — slot composition", () => {
     expect(slots.dinner.recipe).toBe("chicken_rice_brokkoli");
   });
 
-  it("afternoonSnack includes Hummus for all day types", () => {
+  it("afternoonSnack includes Hummus for training days (rest snack removed v1.9)", () => {
     for (const dayType of ALL_DAY_TYPES) {
       const slots = templateSlotsForDayType(dayType);
       const hasHummus = slots.afternoonSnack.items.some((i) => i.name.includes("Hummus"));
-      expect(hasHummus, `${dayType} should have Hummus`).toBe(true);
+      expect(hasHummus, `${dayType} hummus presence`).toBe(dayType !== "rest");
     }
   });
 });
@@ -124,18 +124,17 @@ describe("backward-computed portions", () => {
     expect(riceItem).toBeDefined();
   });
 
-  it("strength_run dinner (egg_asia_norice) does NOT contain rice", () => {
+  it("strength_run dinner (egg_rice_asia) DOES contain rice (v1.9 carb-split: 1 bag at dinner)", () => {
     const slots = templateSlotsForDayType("strength_run");
     const dinnerRice = slots.dinner.items.find((i) => i.name.startsWith("Reis"));
-    expect(dinnerRice, "strength_run dinner should have no rice").toBeUndefined();
+    expect(dinnerRice, "strength_run dinner should have 1 rice bag").toBeDefined();
   });
 
-  it("threshold + long_run dinners (v1.2) DO contain rice for Post-WO Carbs", () => {
-    for (const dayType of ["threshold", "long_run"]) {
-      const slots = templateSlotsForDayType(dayType as DayType);
-      const dinnerRice = slots.dinner.items.find((i) => i.name.startsWith("Reis"));
-      expect(dinnerRice, `${dayType} dinner should have rice (Post-WO Carbs)`).toBeDefined();
-    }
+  it("long_run dinner DOES contain rice; threshold dinner does NOT (v1.9 rice at lunch)", () => {
+    const longRice = templateSlotsForDayType("long_run").dinner.items.find((i) => i.name.startsWith("Reis"));
+    expect(longRice, "long_run dinner should have rice").toBeDefined();
+    const thRice = templateSlotsForDayType("threshold").dinner.items.find((i) => i.name.startsWith("Reis"));
+    expect(thRice, "threshold dinner has no rice (bag is at lunch)").toBeUndefined();
   });
 
   it("all computed gram-portions match their ingredient stepSize", () => {
@@ -296,15 +295,19 @@ describe("buildSlotsForTargets — calibration cascade", () => {
 
   it("lower target → smaller portions than default", () => {
     const lowTargets: DayTypeTargets = {
-      tdeeEstimate: 2500,
-      calorieTarget: 2000,
+      // v1.9: long_run carries 2 fixed rice bags (~900 kcal) + fixed slots, so a
+      // feasible "lower" target is ~2400 (2000 is below the rice+protein floor).
+      tdeeEstimate: 3000,
+      calorieTarget: 2400,
       proteinG: 190,
       carbsG: 130,
       fatG: 70,
     };
     const defaultSlots = templateSlotsForDayType("long_run");
     const lowSlots = buildSlotsForTargets("long_run", lowTargets);
-    expect(sumSlotMacros(lowSlots).kcal).toBeLessThan(sumSlotMacros(defaultSlots).kcal - 300);
+    // v1.9: rice is fixed to cook-bags (doesn't shrink with target — protein
+    // absorbs the reduction), so the gap is smaller than the old 300 kcal.
+    expect(sumSlotMacros(lowSlots).kcal).toBeLessThan(sumSlotMacros(defaultSlots).kcal);
   });
 
   it("templateDayPlan with override uses custom targets", () => {
@@ -332,7 +335,7 @@ describe("buildSlotsForWeekday — v2 recipe assignment", () => {
       const dayType = DAY_TYPE_BY_WEEKDAY[wd] as DayType;
       const slots = buildSlotsForWeekday(wd, INITIAL_TARGETS[dayType]);
       expect(slots.mainMeal.recipe).toBe("chicken_rice_asia");
-      expect(slots.dinner.recipe).toBe("egg_asia_norice");
+      expect(slots.dinner.recipe).toBe("egg_rice_asia");
       // MainMeal has chicken
       expect(slots.mainMeal.items.some((i) => i.name.includes("Hähnchenbrust"))).toBe(true);
       // Dinner has eggs

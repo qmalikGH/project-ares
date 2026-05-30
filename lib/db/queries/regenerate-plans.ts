@@ -25,6 +25,7 @@ import {
 } from "@/lib/coach-engine/schedule-strategy";
 import { getEffectiveVdot } from "@/lib/db/queries/settings";
 import { resyncFutureWorkoutsToGarmin } from "@/lib/garmin/workout-sync";
+import { ExecutedSessionSchema } from "@/lib/coach-engine/types";
 import type {
   PhaseConfig,
   SessionPlan,
@@ -32,6 +33,40 @@ import type {
   WeekStrengthData,
   WeekStrengthPlan,
 } from "@/lib/coach-engine/types";
+
+/**
+ * Sprint v1.9 #3: seed prevWeekData from ACTUAL recent completed sessions so the
+ * shin-pain HSR override finally fires (it was previously rebuilt from PLANNED
+ * sessions → always undefined). Shin splints flare after RUNS, so we take the
+ * WORST recent shin-NRS across ALL completed sessions (run + strength) and apply
+ * it to every strength session type; per-type RPE comes from strength sessions.
+ */
+async function loadRecentShinSignal(userId: string, before: Date): Promise<WeekStrengthData | null> {
+  const cutoff = new Date(before.getTime() - 10 * 86400000);
+  const workouts = await db.workout.findMany({
+    where: { userId, status: "completed", date: { gte: cutoff, lte: before } },
+    orderBy: { date: "desc" },
+    select: { type: true, executedSession: true, rpe: true },
+  });
+  let shin: number | undefined;
+  const rpeByType = new Map<string, number>();
+  for (const w of workouts) {
+    const parsed = ExecutedSessionSchema.safeParse(w.executedSession);
+    if (parsed.success) {
+      const s = (parsed.data as { shinPainNrs?: number }).shinPainNrs;
+      if (typeof s === "number") shin = shin === undefined ? s : Math.max(shin, s);
+    }
+    if (["strength_a", "strength_b", "strength_c"].includes(w.type) && !rpeByType.has(w.type) && w.rpe != null) {
+      rpeByType.set(w.type, w.rpe);
+    }
+  }
+  if (shin === undefined && rpeByType.size === 0) return null;
+  const types = ["strength_a", "strength_b", "strength_c"] as const;
+  return {
+    weekNumber: 0,
+    sessions: types.map((t) => ({ type: t, shinPainNrs: shin, rpeReported: rpeByType.get(t) })),
+  };
+}
 
 export interface RegenerateOptions {
   runGarminResync?: boolean;
@@ -103,7 +138,9 @@ export async function regeneratePlansFromNow(
     : null;
 
   let regenerated = 0;
-  let prevWeekData: WeekStrengthData | null = null;
+  // Sprint v1.9 #3: seed from actual recent shin pain so the next week's HSR
+  // progression reacts to it (the dead-wiring fix).
+  let prevWeekData: WeekStrengthData | null = await loadRecentShinSignal(userId, today0);
   for (const plan of plansToRegen) {
     const phaseConfig = plan.phase.config as unknown as PhaseConfig;
     if (!phaseConfig) continue;

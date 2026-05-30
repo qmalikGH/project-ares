@@ -28,12 +28,12 @@ describe("computeDayPlan — rest day rechenprobe (v1.7: Intake 1900)", () => {
     expect(plan.calorieTarget).toBe(1900);
   });
 
-  it("fixed slots total = 920 kcal (morning 320 + afternoon 270 + evening 200 + skyr 130)", () => {
-    expect(plan.fixedSlotsTotalKcal).toBe(920);
+  it("fixed slots total = 650 kcal (v1.9: rest snack removed; morning 320 + evening 200 + skyr 130)", () => {
+    expect(plan.fixedSlotsTotalKcal).toBe(650);
   });
 
-  it("remaining budget = 980", () => {
-    expect(plan.remainingBudget).toBe(980);
+  it("remaining budget = 1250", () => {
+    expect(plan.remainingBudget).toBe(1250);
   });
 
   it("mainMeal uses egg_asia_norice (no rice, Carb-Cut)", () => {
@@ -152,7 +152,7 @@ describe("computeDayPlan — guards", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("computeDayPlan — collagen protein excluded from total + functional check", () => {
-  const minProtein = Math.round(weight * 2.0); // 184g at 92kg
+  const minProtein = Math.round(weight * 1.8); // v1.9: hard floor 1.8 g/kg = 166g at 92kg
 
   it("strength_run: total protein (collagen already excluded) >= 184g", () => {
     const plan = computeDayPlan(configFor("strength_run"), recipes, weight);

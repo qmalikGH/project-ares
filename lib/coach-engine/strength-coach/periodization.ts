@@ -29,8 +29,8 @@ export type WeekInBlock = 1 | 2 | 3 | 4;
 export interface PeriodizationContext {
   weekInBlock: WeekInBlock;
   blockNumber: number;
-  /** Last logged knee pain NRS (0–10) for this session-type in the prior week. null if untracked. */
-  prevPainNrs: number | null;
+  /** Last logged SHIN pain NRS (0–10) for the prior week (active injury, Sprint v1.9). null if untracked. */
+  prevShinPainNrs: number | null;
   /** Last reported RPE for this session-type. null if no prior session. */
   prevRpeReported: number | null;
   /** Phase's RPE-cap baseline (e.g. 8 for Block 1). */
@@ -131,9 +131,9 @@ function loadMultiplierForWeek(week: WeekInBlock): number {
  *   Week 4 (Deload):      85% load,      67% sets,        −1 RPE-cap.
  *
  * Pain override (HSR only — Hex Bar Deadlift, RDL):
- *   prevPainNrs > 5  → step back: HSR loadMultiplier = 0.95 (handled at apply-time)
- *   prevPainNrs 4–5  → hold:      HSR loadMultiplier = 1.00 (no progression even in W2/W3)
- *   prevPainNrs ≤ 3  → progress normally
+ *   prevShinPainNrs > 5  → step back: HSR loadMultiplier = 0.95 (handled at apply-time)
+ *   prevShinPainNrs 4–5  → hold:      HSR loadMultiplier = 1.00 (no progression even in W2/W3)
+ *   prevShinPainNrs ≤ 3  → progress normally
  *
  * RPE-feedback bump (every exercise):
  *   prevRpeReported < baselineRpeCap − 2 → ×1.01 (small bump, last session too easy)
@@ -146,9 +146,9 @@ export function computePeriodizationAdjustment(
 ): PeriodizationAdjustment {
   let painLockedHsr = false;
   let painSteppedBack = false;
-  if (ctx.prevPainNrs !== null) {
-    if (ctx.prevPainNrs > NRS_STEP_BACK_THRESHOLD) painSteppedBack = true;
-    else if (ctx.prevPainNrs >= NRS_HOLD_LOWER) painLockedHsr = true;
+  if (ctx.prevShinPainNrs !== null) {
+    if (ctx.prevShinPainNrs > NRS_STEP_BACK_THRESHOLD) painSteppedBack = true;
+    else if (ctx.prevShinPainNrs >= NRS_HOLD_LOWER) painLockedHsr = true;
   }
 
   let loadMultiplier = 1.0;

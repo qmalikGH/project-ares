@@ -38,6 +38,10 @@ const Schema = z.object({
   durationActualMin: z.number().int().min(1).max(600).optional(),
   notes: z.string().max(2000).optional(),
   trainingScore: z.number().int().min(1).max(10).optional(),
+  // Sprint v1.9: post-session SHIN pain (NRS 0-10) — captured for runs AND
+  // strength; feeds the HSR progression override (active injury = shin splints).
+  shinPainNrs: z.number().int().min(0).max(10).optional(),
+  shinPainNote: z.string().max(500).optional(),
 
   garminActivityId: z.number().int().nullable().optional(),
   strengthExecution: StrengthExecutedSessionSchema.optional(),
@@ -66,7 +70,7 @@ export async function POST(req: Request) {
 
   const userId = await getCurrentUserId();
   const today = await userTodayDynamic();
-  const { rpe, notes, trainingScore, workoutId } = parsed.data;
+  const { rpe, notes, trainingScore, workoutId, shinPainNrs, shinPainNote } = parsed.data;
   let durationActualMin = parsed.data.durationActualMin ?? null;
   let garminActivityIdStr: string | null = null;
 
@@ -174,6 +178,15 @@ export async function POST(req: Request) {
       notes: notes ?? null,
       completedAt: new Date().toISOString(),
     };
+  }
+
+  // Sprint v1.9 #3: attach post-session shin pain to whatever executedSession
+  // shape we built (run / strength / manual) so it feeds the HSR override.
+  if (shinPainNrs !== undefined && executedSession && typeof executedSession === "object") {
+    (executedSession as Record<string, unknown>).shinPainNrs = shinPainNrs;
+    if (shinPainNote !== undefined) {
+      (executedSession as Record<string, unknown>).shinPainNote = shinPainNote;
+    }
   }
 
   const updated = await db.workout.update({

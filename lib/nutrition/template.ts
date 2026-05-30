@@ -20,6 +20,7 @@
 import { DAY_TYPE_BY_WEEKDAY, INITIAL_TARGETS, SLOT_PRESENCE } from "./day-type";
 import { findDayTypeConfig, DAY_TYPE_CONFIGS, ATHLETE_WEIGHT_KG } from "./day-type-configs";
 import { scaleVariableSlots } from "./scale-variable-slots";
+import { RICE_BAG_G, RICE_BAGS } from "./constants";
 import { findRecipeTemplate, RECIPE_TEMPLATES } from "./recipe-templates";
 import type { DayTypeTargets } from "./day-type";
 import type { DayType, MealItem, MealSlot, MealSlots, FixedSlotItem } from "./types";
@@ -119,6 +120,12 @@ function buildSlots(dayType: DayType, targetsOverride?: DayTypeTargets): MealSlo
   const calorieTarget = targetsOverride?.calorieTarget ?? config.calorieTarget;
   const proteinTargetG = targetsOverride?.proteinG ?? config.macroTargets.proteinG;
 
+  // Sprint v1.9: respect a per-day-type afternoon-snack removal in the config
+  // (rest day drops Hummus+Karotten). Keeps this bridge consistent with
+  // computeDayPlan, which reads config.fixedSlots directly.
+  const afternoonSnackPresent =
+    presence.afternoonSnack && (config.fixedSlots.afternoonSnack?.items?.length ?? 0) > 0;
+
   // ── Step 1: Sum fixed slot kcal + protein ──
   // Kollagen (in preTraining) is non-functional protein (no leucine, no MPS)
   // and is EXCLUDED from the visible protein total entirely (doesn't count
@@ -128,7 +135,7 @@ function buildSlots(dayType: DayType, targetsOverride?: DayTypeTargets): MealSlo
   const fixedEntries: { slot: MealSlot; present: boolean; nonFuncP?: number }[] = [
     { slot: morning, present: presence.morning },
     { slot: preTraining, present: presence.preTraining, nonFuncP: KOLLAGEN_PROTEIN_G },
-    { slot: afternoonSnack, present: presence.afternoonSnack },
+    { slot: afternoonSnack, present: afternoonSnackPresent },
     { slot: eveningSnack, present: presence.eveningSnack },
     { slot: skyrDessert, present: presence.postMealDessert },
   ];
@@ -152,6 +159,9 @@ function buildSlots(dayType: DayType, targetsOverride?: DayTypeTargets): MealSlo
   const dinnerTemplate = findRecipeTemplate(config.variableSlots.dinner.recipeId);
   const mainMealTemplate = findRecipeTemplate(config.variableSlots.mainMeal.recipeId);
 
+  // Sprint v1.9: same rice-bag carb-split as computeDayPlan (kept in sync).
+  const bags = RICE_BAGS[dayType] ?? { mainMeal: 0, dinner: 0 };
+
   const { mainMeal: scaledMainMeal, dinner: scaledDinner } = scaleVariableSlots({
     mainMealTemplate,
     dinnerTemplate,
@@ -163,6 +173,8 @@ function buildSlots(dayType: DayType, targetsOverride?: DayTypeTargets): MealSlo
     proteinTargetG,
     athleteWeightKg: ATHLETE_WEIGHT_KG,
     nonFunctionalProteinG,
+    mainMealFixedCarbG: bags.mainMeal * RICE_BAG_G,
+    dinnerFixedCarbG: bags.dinner * RICE_BAG_G,
   });
 
   const mainMealSlot = presence.mainMeal
@@ -177,7 +189,7 @@ function buildSlots(dayType: DayType, targetsOverride?: DayTypeTargets): MealSlo
     preTraining: presence.preTraining ? preTraining : emptySlot(),
     mainMeal: mainMealSlot,
     postMealDessert: presence.postMealDessert ? skyrDessert : emptySlot(),
-    afternoonSnack: presence.afternoonSnack ? afternoonSnack : emptySlot(),
+    afternoonSnack: afternoonSnackPresent ? afternoonSnack : emptySlot(),
     dinner: dinnerSlot,
     eveningSnack: presence.eveningSnack ? eveningSnack : emptySlot(),
   };
