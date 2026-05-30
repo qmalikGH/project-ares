@@ -194,10 +194,12 @@ export function scaleRecipe(
     const kcalBasedAmount = (primaryRemaining * 0.6) / proteinComp.kcalPerUnit;
     let idealProteinAmount: number;
     if (budgetProteinAmount !== undefined) {
-      // Sprint v1.9.1: AIM for the protein target (capped only by the calorie
-      // budget), instead of min(target, 60%). Protein climbs toward the day
-      // target; rice then fills the rest of the calories.
-      const kcalCappedAmount = primaryRemaining / proteinComp.kcalPerUnit;
+      // Sprint v1.9.1: AIM for the protein target, but RESERVE the carb minimum
+      // so protein can't eat the whole budget and force rice to clamp UP to its
+      // min (which would overshoot calories). Protein leaves room for ≥ rice-min;
+      // rice then fills the rest.
+      const carbMinKcal = carbComp.minimumAmount * carbComp.kcalPerUnit;
+      const kcalCappedAmount = (primaryRemaining - carbMinKcal) / proteinComp.kcalPerUnit;
       idealProteinAmount = Math.min(budgetProteinAmount, kcalCappedAmount);
     } else {
       // Legacy fallback (no target): protein gets 60% of budget as STARTING POINT
