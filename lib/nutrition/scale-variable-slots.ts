@@ -15,9 +15,6 @@ import { scaleRecipe } from "./scale-recipe";
 import { PROTEIN_SOFT_TARGET_PER_KG } from "./constants";
 import type { RecipeTemplate, ScaledRecipe } from "./types";
 
-const CALORIE_TOLERANCE = 30;
-const PROTEIN_EXCESS_THRESHOLD = 10;
-
 export interface ScaleVariableSlotsArgs {
   mainMealTemplate: RecipeTemplate;
   dinnerTemplate: RecipeTemplate;
@@ -35,10 +32,6 @@ export interface ScaleVariableSlotsArgs {
   athleteWeightKg: number;
   /** Non-functional protein in fixed slots (e.g. collagen) — excluded from MPS minimum. */
   nonFunctionalProteinG: number;
-  /** Sprint v1.9: fixed rice grams (125g-bag multiple) for the mainMeal slot; protein fills the rest. */
-  mainMealFixedCarbG?: number;
-  /** Sprint v1.9: fixed rice grams (125g-bag multiple) for the dinner slot. */
-  dinnerFixedCarbG?: number;
 }
 
 export interface ScaleVariableSlotsResult {
@@ -53,78 +46,47 @@ export function scaleVariableSlots(args: ScaleVariableSlotsArgs): ScaleVariableS
     remainingBudget,
     dinnerBudgetRatio,
     fixedProteinG,
-    fixedKcal,
-    calorieTarget,
     proteinTargetG,
     athleteWeightKg,
     nonFunctionalProteinG,
-    mainMealFixedCarbG,
-    dinnerFixedCarbG,
   } = args;
 
-  const dinnerBudget = Math.round(remainingBudget * dinnerBudgetRatio);
+  // Sprint v1.9.1 — Protein-target-driven scaling: aim for the day's protein
+  // target (meat climbs toward it), then rice fills the remaining calories.
+  // Replaces the old 60/40-then-cap which left days well under target.
+  // Work in FUNCTIONAL protein (collagen excluded) consistently. fixedProteinG
+  // is the raw fixed-slot total (incl. collagen) from BOTH callers; subtract the
+  // non-functional part to get functional fixed protein. Recipe protein is all
+  // functional (no collagen), so the variable target is functional too.
+  const softTarget = Math.round(athleteWeightKg * PROTEIN_SOFT_TARGET_PER_KG);
+  const functionalTarget = Math.max(proteinTargetG, softTarget);
+  const functionalFixed = fixedProteinG - nonFunctionalProteinG;
+  const variableTarget = Math.max(0, functionalTarget - functionalFixed);
 
-  // Pass 1: uncapped scaling (legacy 60/40 split). v1.9: rice fixed per slot.
-  const scaledDinnerUncapped = scaleRecipe(dinnerTemplate, dinnerBudget, undefined, dinnerFixedCarbG);
-  const mainMealBudgetRaw = remainingBudget - scaledDinnerUncapped.totals.kcal;
-  const scaledMainMealUncapped = scaleRecipe(mainMealTemplate, mainMealBudgetRaw, undefined, mainMealFixedCarbG);
-
-  const uncappedTotalProtein = fixedProteinG
-    + scaledDinnerUncapped.totals.protein
-    + scaledMainMealUncapped.totals.protein;
-
-  // Effective target: maximize toward the SOFT protein target (2.2 g/kg, v1.7).
-  // This drives Pass-2 capping; it is NOT a hard fail (that lives in computeDayPlan).
-  const minFunctionalProteinG = Math.round(athleteWeightKg * PROTEIN_SOFT_TARGET_PER_KG);
-  const effectiveProteinTarget = Math.max(
-    proteinTargetG,
-    minFunctionalProteinG + nonFunctionalProteinG,
-  );
-
-  // Pass 2: only re-scale if protein overshoots target by >10g
-  if (uncappedTotalProtein <= effectiveProteinTarget + PROTEIN_EXCESS_THRESHOLD) {
-    return { mainMeal: scaledMainMealUncapped, dinner: scaledDinnerUncapped };
-  }
-
-  const remainingProteinG = effectiveProteinTarget - fixedProteinG;
   const dinnerHasCarb = dinnerTemplate.components.some((c) => c.role === "carb");
-  const mainMealHasCarb = mainMealTemplate.components.some((c) => c.role === "carb");
+  const mainHasCarb = mainMealTemplate.components.some((c) => c.role === "carb");
+  const mainBudgetRatio = 1 - dinnerBudgetRatio;
 
-  // Protein from no-carb recipes is fixed (can't be reduced without calorie gap)
-  const uDinP = scaledDinnerUncapped.totals.protein;
-  const uMainP = scaledMainMealUncapped.totals.protein;
-  const fixedRecipeP = (dinnerHasCarb ? 0 : uDinP) + (mainMealHasCarb ? 0 : uMainP);
-  const cappableTarget = Math.max(0, remainingProteinG - fixedRecipeP);
-  const cappableUncapped = (dinnerHasCarb ? uDinP : 0) + (mainMealHasCarb ? uMainP : 0);
-
-  if (cappableUncapped === 0 || cappableTarget >= cappableUncapped) {
-    return { mainMeal: scaledMainMealUncapped, dinner: scaledDinnerUncapped };
+  // Scale the COARSE (no-rice) slot first; the rice-bearing slot goes LAST so its
+  // fine-grained rice absorbs the day's rounding drift → calorie target is hit.
+  if (!mainHasCarb && dinnerHasCarb) {
+    // main (e.g. egg_asia_norice) first, dinner (rice) absorbs.
+    const mainBudget = Math.round(remainingBudget * mainBudgetRatio);
+    const mainProteinTarget = Math.round(variableTarget * mainBudgetRatio);
+    const mainMeal = scaleRecipe(mainMealTemplate, mainBudget, mainProteinTarget);
+    const dinnerBudget = remainingBudget - mainMeal.totals.kcal;
+    const dinnerProteinTarget = Math.max(0, variableTarget - mainMeal.totals.protein);
+    const dinner = scaleRecipe(dinnerTemplate, dinnerBudget, dinnerProteinTarget);
+    return { mainMeal, dinner };
   }
 
-  // Distribute reduction proportionally among carb-containing recipes
-  const dinnerCap = dinnerHasCarb
-    ? Math.round(cappableTarget * uDinP / cappableUncapped)
-    : undefined;
+  // Default: dinner first, main (rice) absorbs the remainder + drift.
+  const dinnerBudget = Math.round(remainingBudget * dinnerBudgetRatio);
+  const dinnerProteinTarget = Math.round(variableTarget * dinnerBudgetRatio);
+  const dinner = scaleRecipe(dinnerTemplate, dinnerBudget, dinnerProteinTarget);
+  const mainMealBudget = remainingBudget - dinner.totals.kcal;
+  const mainProteinTarget = Math.max(0, variableTarget - dinner.totals.protein);
+  const mainMeal = scaleRecipe(mainMealTemplate, mainMealBudget, mainProteinTarget);
 
-  const cappedDinner = dinnerCap !== undefined
-    ? scaleRecipe(dinnerTemplate, dinnerBudget, dinnerCap, dinnerFixedCarbG)
-    : scaledDinnerUncapped;
-
-  const mainMealBudget = remainingBudget - cappedDinner.totals.kcal;
-  const mainMealCap = mainMealHasCarb
-    ? Math.max(0, remainingProteinG - cappedDinner.totals.protein)
-    : undefined;
-
-  const cappedMainMeal = mainMealCap !== undefined
-    ? scaleRecipe(mainMealTemplate, mainMealBudget, mainMealCap, mainMealFixedCarbG)
-    : scaleRecipe(mainMealTemplate, mainMealBudget, undefined, mainMealFixedCarbG);
-
-  // Tolerance check: capping may leave kcal unplaceable when carb/veg maxima exhausted
-  const cappedDayKcal = fixedKcal + cappedDinner.totals.kcal + cappedMainMeal.totals.kcal;
-  if (Math.abs(cappedDayKcal - calorieTarget) <= CALORIE_TOLERANCE) {
-    return { mainMeal: cappedMainMeal, dinner: cappedDinner };
-  }
-
-  // Capping created a worse kcal mismatch — fall back to uncapped
-  return { mainMeal: scaledMainMealUncapped, dinner: scaledDinnerUncapped };
+  return { mainMeal, dinner };
 }

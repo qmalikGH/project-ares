@@ -99,11 +99,11 @@ describe("templateSlotsForDayType — slot composition", () => {
     expect(slots.dinner.recipe).toBe("chicken_rice_brokkoli");
   });
 
-  it("afternoonSnack includes Hummus for training days (rest snack removed v1.9)", () => {
+  it("afternoonSnack includes Hummus for all day types", () => {
     for (const dayType of ALL_DAY_TYPES) {
       const slots = templateSlotsForDayType(dayType);
       const hasHummus = slots.afternoonSnack.items.some((i) => i.name.includes("Hummus"));
-      expect(hasHummus, `${dayType} hummus presence`).toBe(dayType !== "rest");
+      expect(hasHummus, `${dayType} should have Hummus`).toBe(true);
     }
   });
 });
@@ -130,11 +130,11 @@ describe("backward-computed portions", () => {
     expect(dinnerRice, "strength_run dinner should have 1 rice bag").toBeDefined();
   });
 
-  it("long_run dinner DOES contain rice; threshold dinner does NOT (v1.9 rice at lunch)", () => {
-    const longRice = templateSlotsForDayType("long_run").dinner.items.find((i) => i.name.startsWith("Reis"));
-    expect(longRice, "long_run dinner should have rice").toBeDefined();
-    const thRice = templateSlotsForDayType("threshold").dinner.items.find((i) => i.name.startsWith("Reis"));
-    expect(thRice, "threshold dinner has no rice (bag is at lunch)").toBeUndefined();
+  it("threshold + long_run dinners DO contain rice for Post-WO Carbs", () => {
+    for (const dayType of ["threshold", "long_run"] as const) {
+      const rice = templateSlotsForDayType(dayType).dinner.items.find((i) => i.name.startsWith("Reis"));
+      expect(rice, `${dayType} dinner should have rice`).toBeDefined();
+    }
   });
 
   it("all computed gram-portions match their ingredient stepSize", () => {

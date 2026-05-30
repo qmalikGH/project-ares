@@ -95,13 +95,12 @@ function sumTotals(components: ScaledComponent[], sauces: { kcal: number; protei
 export function scaleRecipe(
   template: RecipeTemplate,
   targetKcal: number,
-  proteinBudgetG?: number,
   /**
-   * Sprint v1.9: when set, the carb (rice) component is FIXED to this many grams
-   * (already a 125g-bag multiple) instead of budget-scaled; protein then fills
-   * the kcal remainder. 0 = omit rice entirely.
+   * Sprint v1.9.1: when set, protein is scaled TOWARD this gram target (capped
+   * only by the calorie budget + recipe max); carbs (rice) then fill the kcal
+   * remainder. This makes the day hit its protein target instead of a 60/40 split.
    */
-  fixedCarbAmount?: number,
+  proteinBudgetG?: number,
 ): ScaledRecipe {
   // 1. Sauce kcal (fixed, not scaled)
   const sauceKcal = template.sauces.reduce((s, sauce) => s + sauce.kcal, 0);
@@ -148,10 +147,7 @@ export function scaleRecipe(
 
   if (proteinComps.length > 1) {
     const primaryMinKcal = proteinComp.minimumAmount * proteinComp.kcalPerUnit;
-    // v1.9: reserve the FIXED carb kcal (if set) instead of the recipe min.
-    const carbMinKcal = carbComp
-      ? (fixedCarbAmount ?? carbComp.minimumAmount) * carbComp.kcalPerUnit
-      : 0;
+    const carbMinKcal = carbComp ? carbComp.minimumAmount * carbComp.kcalPerUnit : 0;
     // kcal available for secondaries beyond the mandatory primary + carb + veg minimums.
     let secHeadroom = remaining - primaryMinKcal - carbMinKcal;
     for (let i = 1; i < proteinComps.length; i++) {
@@ -192,37 +188,19 @@ export function scaleRecipe(
     budgetProteinAmount = primaryBudgetG / proteinComp.proteinPerUnit;
   }
 
-  if (carbComp && fixedCarbAmount !== undefined) {
-    // Sprint v1.9: rice FIXED to a 125g-bag multiple; protein fills the
-    // remainder (inverts the usual protein-first/carbs-fill waterfall).
-    carbAmount = clamp(roundToStep(fixedCarbAmount, carbComp.stepSize), 0, carbComp.maximumAmount);
-    const carbKcal = carbAmount * carbComp.kcalPerUnit;
-    proteinAmount = clamp(
-      roundToStep((primaryRemaining - carbKcal) / proteinComp.kcalPerUnit, proteinComp.stepSize),
-      proteinComp.minimumAmount,
-      proteinComp.maximumAmount,
-    );
-    // Leftover (protein capped) → scale vegetables up.
-    if (vegComp) {
-      const usedKcal = proteinAmount * proteinComp.kcalPerUnit + carbKcal;
-      const vegBudget = primaryRemaining - usedKcal;
-      if (vegBudget > vegKcal) {
-        actualVegAmount = clamp(
-          roundToStep(vegBudget / vegComp.kcalPerUnit, vegComp.stepSize),
-          vegComp.minimumAmount,
-          vegComp.maximumAmount,
-        );
-      }
-    }
-  } else if (carbComp) {
-    // Recipe with carb component (has rice): excess shifts from protein → carbs
+  if (carbComp) {
+    // Recipe with carb component (has rice): protein scales toward its target,
+    // carbs (rice) fill the remaining kcal.
     const kcalBasedAmount = (primaryRemaining * 0.6) / proteinComp.kcalPerUnit;
     let idealProteinAmount: number;
     if (budgetProteinAmount !== undefined) {
-      // Macro-aware: take LOWER of budget and 60% kcal split
-      idealProteinAmount = Math.min(budgetProteinAmount, kcalBasedAmount);
+      // Sprint v1.9.1: AIM for the protein target (capped only by the calorie
+      // budget), instead of min(target, 60%). Protein climbs toward the day
+      // target; rice then fills the rest of the calories.
+      const kcalCappedAmount = primaryRemaining / proteinComp.kcalPerUnit;
+      idealProteinAmount = Math.min(budgetProteinAmount, kcalCappedAmount);
     } else {
-      // Legacy fallback: protein gets 60% of budget as STARTING POINT
+      // Legacy fallback (no target): protein gets 60% of budget as STARTING POINT
       idealProteinAmount = kcalBasedAmount;
     }
 

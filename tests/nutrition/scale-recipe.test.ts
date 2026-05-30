@@ -35,9 +35,9 @@ describe("scaleRecipe", () => {
       expect(rice!.amount).toBeGreaterThanOrEqual(50);
     });
 
-    it("rice is in 125g cook-bag steps (v1.9)", () => {
+    it("rice is in 10g steps (v1.9.1: flexible grams)", () => {
       const rice = result.components.find((c) => c.ingredientId === "rice_dry");
-      expect(rice!.amount % 125).toBe(0);
+      expect(rice!.amount % 10).toBe(0);
     });
 
     it("vegetable is at minimum (150g)", () => {

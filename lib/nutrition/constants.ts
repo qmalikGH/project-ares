@@ -47,15 +47,3 @@ export const KCAL_PER_KG = 7700;
 export function gartheMaxDeficit(weightKg: number): number {
   return Math.round((GARTHE_MAX_WEEKLY_RATE * weightKg * KCAL_PER_KG) / 7);
 }
-
-// ── Sprint v1.9 #2 — Rice in 125g cook-bags (carb-split, per day type + slot) ──
-// Training days keep ~250g/day (1 bag lunch + 1 dinner); threshold/rest 1 bag.
-// Shared by computeDayPlan (cascade/ComputedMealSlot) AND template.ts buildSlots
-// (DayPlan.slots + /api/nutrition/today) so both paths stay consistent.
-export const RICE_BAG_G = 125;
-export const RICE_BAGS: Record<string, { mainMeal: number; dinner: number }> = {
-  strength_run: { mainMeal: 1, dinner: 1 }, // dinner recipe = egg_rice_asia (v1.9); split
-  threshold: { mainMeal: 1, dinner: 0 }, // rice at lunch (fills rice-recipe main); dinner = eggs+chicken
-  long_run: { mainMeal: 1, dinner: 1 },
-  rest: { mainMeal: 0, dinner: 1 }, // egg_asia_norice main has no rice; 1 bag at dinner
-};

@@ -79,7 +79,7 @@ const CHICKEN_RICE_ASIA: RecipeTemplate = {
       costPerUnit: 0.002, // €2/kg
       minimumAmount: 50, // MINIMUM 50g, never less
       maximumAmount: 250, // v1.7: 200→250 — carb sink for high-budget strength day (dense protein freed kcal)
-      stepSize: 125, // v1.9: 125g cook-bag quantization
+      stepSize: 10, // v1.9.1: flexible grams (athlete portions freely; 10g = ±36 kcal precision)
     },
     {
       ingredientId: "tk_asia_gemuse",
@@ -126,7 +126,7 @@ const HACK_RICE_BROKKOLI: RecipeTemplate = {
       costPerUnit: 0.002,
       minimumAmount: 50,
       maximumAmount: 200,
-      stepSize: 125, // v1.9: 125g cook-bag quantization
+      stepSize: 10, // v1.9.1: flexible grams (athlete portions freely; 10g = ±36 kcal precision)
     },
     {
       ingredientId: "tk_brokkoli",
@@ -161,7 +161,7 @@ const EGG_RICE_ASIA: RecipeTemplate = {
       costPerUnit: 0.002,
       minimumAmount: 50,
       maximumAmount: 200,
-      stepSize: 125, // v1.9: 125g cook-bag quantization
+      stepSize: 10, // v1.9.1: flexible grams (athlete portions freely; 10g = ±36 kcal precision)
     },
     {
       ingredientId: "tk_asia_gemuse",
@@ -309,7 +309,7 @@ const EGG_CHICKEN_RICE_ASIA: RecipeTemplate = {
       costPerUnit: 0.002,
       minimumAmount: 40, // v1.7: 50→40 (Reis ≥~40g od. weg; eases clamp overshoot)
       maximumAmount: 150,
-      stepSize: 125, // v1.9: 125g cook-bag quantization (same as all rice components)
+      stepSize: 10, // v1.9.1: flexible grams (athlete portions freely; 10g = ±36 kcal precision) (same as all rice components)
     },
     {
       ingredientId: "tk_asia_gemuse",
@@ -357,7 +357,7 @@ const CHICKEN_RICE_BROKKOLI: RecipeTemplate = {
       costPerUnit: 0.002,
       minimumAmount: 50,
       maximumAmount: 180, // 2026-05-16: was 100 — bigger carb sink so engine can absorb freed kcal when chicken caps
-      stepSize: 125, // v1.9: 125g cook-bag quantization
+      stepSize: 10, // v1.9.1: flexible grams (athlete portions freely; 10g = ±36 kcal precision)
     },
     {
       ingredientId: "tk_brokkoli",
@@ -393,7 +393,7 @@ const EGG_RICE_BROKKOLI: RecipeTemplate = {
       costPerUnit: 0.002,
       minimumAmount: 50,
       maximumAmount: 200,
-      stepSize: 125, // v1.9: 125g cook-bag quantization
+      stepSize: 10, // v1.9.1: flexible grams (athlete portions freely; 10g = ±36 kcal precision)
     },
     {
       ingredientId: "tk_brokkoli",

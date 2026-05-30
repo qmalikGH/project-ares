@@ -57,13 +57,12 @@ describe("DAY_TYPE_CONFIGS", () => {
     }
   });
 
-  it("training days have Hummus in afternoonSnack (rest day snack removed in v1.9)", () => {
+  it("all day types have Hummus in afternoonSnack", () => {
     for (const config of DAY_TYPE_CONFIGS) {
       const hasHummus = config.fixedSlots.afternoonSnack.items.some(
         (i) => i.name.includes("Hummus"),
       );
-      // v1.9: rest day drops the afternoon snack (Hummus+Karotten).
-      expect(hasHummus).toBe(config.dayType !== "rest");
+      expect(hasHummus).toBe(true);
     }
   });
 });

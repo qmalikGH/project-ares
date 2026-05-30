@@ -24,8 +24,6 @@ import {
   PROTEIN_HARD_FLOOR_PER_KG,
   FAT_FLOOR_PER_KG,
   FAT_MAX_G,
-  RICE_BAG_G,
-  RICE_BAGS,
 } from "./constants";
 import type {
   DayTypeConfig,
@@ -197,9 +195,6 @@ export function computeDayPlan(
   const mainMealTemplate = findRecipeTemplate(config.variableSlots.mainMeal.recipeId);
   const dinnerTemplate = findRecipeTemplate(config.variableSlots.dinner.recipeId);
 
-  // Sprint v1.9: rice quantized to 125g cook-bags per day type + slot (carb-split).
-  const bags = RICE_BAGS[config.dayType] ?? { mainMeal: 0, dinner: 0 };
-
   const { mainMeal: scaledMainMeal, dinner: scaledDinner } = scaleVariableSlots({
     mainMealTemplate,
     dinnerTemplate,
@@ -211,8 +206,6 @@ export function computeDayPlan(
     proteinTargetG: config.macroTargets.proteinG,
     athleteWeightKg,
     nonFunctionalProteinG: nonFunctionalProtein,
-    mainMealFixedCarbG: bags.mainMeal * RICE_BAG_G,
-    dinnerFixedCarbG: bags.dinner * RICE_BAG_G,
   });
 
   // ── Step 6: Sum all totals ──
