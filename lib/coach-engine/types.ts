@@ -339,8 +339,8 @@ export interface WeekStrengthData {
   sessions: {
     type: "strength_a" | "strength_b" | "strength_c";
     rpeReported?: number;
-    /** Knee pain NRS 0-10, used by HSR pain-override (Sprint v0.10). */
-    kneePainNrs?: number;
+    /** Shin pain NRS 0-10 (active injury), drives HSR pain-override (Sprint v1.9). */
+    shinPainNrs?: number;
   }[];
   loadsByExercise?: Record<string, number>;
 }
@@ -454,6 +454,11 @@ export const RunExecutedSessionSchema = z.object({
     })
     .nullable()
     .optional(),
+
+  // Sprint v1.9: post-run SHIN pain NRS (0-10). Shin splints flare after RUNS
+  // (esp. long/quality), not strength — captured here to feed the safety logic.
+  shinPainNrs: z.number().int().min(0).max(10).optional(),
+  shinPainNote: z.string().max(500).optional(),
 });
 
 /** Strength executed session — manual set-by-set logger. */
@@ -471,10 +476,12 @@ export const StrengthExecutedSessionSchema = z.object({
   maxHr: z.number().nullable(),
   calories: z.number().nullable(),
 
-  // Sprint v0.10: knee-pain NRS (0-10) reported during the strength session.
-  // Drives the pain-guided HSR override in periodization (NRS≤3 progress,
-  // 4-5 hold, >5 step back). Optional — Q's first sessions won't have it,
-  // null/undefined falls back to "no override".
+  // Sprint v1.9: SHIN pain is the active injury (REMODELING shin splints) and
+  // now drives the pain-guided HSR override (NRS≤3 progress, 4-5 hold, >5 step
+  // back). kneePainNrs is DEPRECATED but kept for historical data parsing.
+  shinPainNrs: z.number().int().min(0).max(10).optional(),
+  shinPainNote: z.string().max(500).optional(),
+  /** @deprecated v1.9 — replaced by shinPainNrs; kept so old records still parse. */
   kneePainNrs: z.number().int().min(0).max(10).optional(),
   kneePainNote: z.string().max(500).optional(),
 });

@@ -14,7 +14,7 @@ import {
 const BASE: PeriodizationContext = {
   weekInBlock: 1,
   blockNumber: 1,
-  prevPainNrs: null,
+  prevShinPainNrs: null,
   prevRpeReported: null,
   baselineRpeCap: 8,
   strengthMode: "linear_progression",

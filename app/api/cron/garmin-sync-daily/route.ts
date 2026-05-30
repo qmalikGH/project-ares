@@ -7,6 +7,7 @@ import { db } from "@/lib/db/client";
 import { userTodayForUser } from "@/lib/date";
 import { syncGarminForDate, classifyError } from "@/lib/garmin/sync";
 import { calibrateMealPlan } from "@/lib/nutrition/calibration";
+import { recalibrateHrRest } from "@/lib/coach-engine/hr-calibration";
 
 /** Sprint v1.8 #4: damp dynamic-deficit recompute to ~once per week. */
 const RECALIBRATION_INTERVAL_MS = 7 * 86400000;
@@ -34,6 +35,7 @@ export async function GET(req: Request) {
     errors: number;
     syncedFor?: string;
     recalibrated?: string;
+    hrRecalibrated?: string;
   }> = [];
 
   for (const user of users) {
@@ -119,12 +121,31 @@ export async function GET(req: Request) {
         recalibrated = `error: ${calErr instanceof Error ? calErr.message : String(calErr)}`;
       }
 
+      // Sprint v1.9 #4 — HRrest recalibration: weekly damped, from the rolling
+      // 28d Garmin RHR median. Karvonen zones recompute downstream. Skips manual
+      // overrides; HRmax untouched (→ Sprint 2.0).
+      let hrRecalibrated: string | undefined;
+      try {
+        const us = await db.userSettings.findUnique({
+          where: { userId: user.id },
+          select: { hrZonesUpdatedAt: true },
+        });
+        const lastHr = us?.hrZonesUpdatedAt?.getTime() ?? 0;
+        if (Date.now() - lastHr >= RECALIBRATION_INTERVAL_MS) {
+          const hr = await recalibrateHrRest(user.id);
+          hrRecalibrated = hr.status === "updated" ? `updated:${hr.hrRest}` : hr.status;
+        }
+      } catch (hrErr) {
+        hrRecalibrated = `error: ${hrErr instanceof Error ? hrErr.message : String(hrErr)}`;
+      }
+
       results.push({
         userId: user.id,
         status: result.status,
         errors: result.errors.length,
         syncedFor: yesterday.toISOString().slice(0, 10),
         recalibrated,
+        hrRecalibrated,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

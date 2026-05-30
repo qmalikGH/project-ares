@@ -11,7 +11,7 @@ import type { Exercise } from "@/lib/coach-engine/types";
 const BASE_CTX: PeriodizationContext = {
   weekInBlock: 1,
   blockNumber: 1,
-  prevPainNrs: null,
+  prevShinPainNrs: null,
   prevRpeReported: null,
   baselineRpeCap: 8,
   strengthMode: "linear_progression",
@@ -113,7 +113,7 @@ describe("computePeriodizationAdjustment — pain overrides", () => {
     const adj = computePeriodizationAdjustment({
       ...BASE_CTX,
       weekInBlock: 2,
-      prevPainNrs: 6,
+      prevShinPainNrs: 6,
     });
     expect(adj.painSteppedBack).toBe(true);
     expect(adj.painLockedHsr).toBe(false);
@@ -124,7 +124,7 @@ describe("computePeriodizationAdjustment — pain overrides", () => {
     const adj = computePeriodizationAdjustment({
       ...BASE_CTX,
       weekInBlock: 2,
-      prevPainNrs: 4,
+      prevShinPainNrs: 4,
     });
     expect(adj.painLockedHsr).toBe(true);
     expect(adj.painSteppedBack).toBe(false);
@@ -135,7 +135,7 @@ describe("computePeriodizationAdjustment — pain overrides", () => {
     const adj = computePeriodizationAdjustment({
       ...BASE_CTX,
       weekInBlock: 3,
-      prevPainNrs: 5,
+      prevShinPainNrs: 5,
     });
     expect(adj.painLockedHsr).toBe(true);
     expect(adj.painSteppedBack).toBe(false);
@@ -145,17 +145,17 @@ describe("computePeriodizationAdjustment — pain overrides", () => {
     const adj = computePeriodizationAdjustment({
       ...BASE_CTX,
       weekInBlock: 2,
-      prevPainNrs: 2,
+      prevShinPainNrs: 2,
     });
     expect(adj.painLockedHsr).toBe(false);
     expect(adj.painSteppedBack).toBe(false);
     expect(adj.loadMultiplier).toBeCloseTo(1.025, 3);
   });
 
-  it("prevPainNrs = null → neither flag set", () => {
+  it("prevShinPainNrs = null → neither flag set", () => {
     const adj = computePeriodizationAdjustment({
       ...BASE_CTX,
-      prevPainNrs: null,
+      prevShinPainNrs: null,
     });
     expect(adj.painLockedHsr).toBe(false);
     expect(adj.painSteppedBack).toBe(false);
@@ -207,7 +207,7 @@ describe("applyPeriodization — HSR rules", () => {
     const adj = computePeriodizationAdjustment({
       ...BASE_CTX,
       weekInBlock: 3,
-      prevPainNrs: 6, // step back
+      prevShinPainNrs: 6, // step back
     });
     const [hex] = applyPeriodization([HEX_BAR], adj);
     expect(hex.loadPct).toBeCloseTo(82 * 0.95, 1);
@@ -218,7 +218,7 @@ describe("applyPeriodization — HSR rules", () => {
     const adj = computePeriodizationAdjustment({
       ...BASE_CTX,
       weekInBlock: 2,
-      prevPainNrs: 4,
+      prevShinPainNrs: 4,
     });
     const [hex] = applyPeriodization([HEX_BAR], adj);
     expect(hex.loadPct).toBe(82); // same as W1

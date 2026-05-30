@@ -57,12 +57,13 @@ describe("DAY_TYPE_CONFIGS", () => {
     }
   });
 
-  it("all day types have Hummus in afternoonSnack", () => {
+  it("training days have Hummus in afternoonSnack (rest day snack removed in v1.9)", () => {
     for (const config of DAY_TYPE_CONFIGS) {
       const hasHummus = config.fixedSlots.afternoonSnack.items.some(
         (i) => i.name.includes("Hummus"),
       );
-      expect(hasHummus).toBe(true);
+      // v1.9: rest day drops the afternoon snack (Hummus+Karotten).
+      expect(hasHummus).toBe(config.dayType !== "rest");
     }
   });
 });
@@ -94,10 +95,10 @@ describe("Calorie targets (v1.7 — Intake = TDEE − 600)", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("Recipe assignments (v1.2)", () => {
-  it("strength_run: chicken mainMeal, egg_asia_norice dinner", () => {
+  it("strength_run: chicken mainMeal, egg_rice_asia dinner (v1.9 carb-split)", () => {
     const c = findDayTypeConfig("strength_run");
     expect(c.variableSlots.mainMeal.recipeId).toBe("chicken_rice_asia");
-    expect(c.variableSlots.dinner.recipeId).toBe("egg_asia_norice");
+    expect(c.variableSlots.dinner.recipeId).toBe("egg_rice_asia");
   });
 
   it("threshold: chicken mainMeal, egg_chicken_rice_asia dinner (Lösung C)", () => {

@@ -34,7 +34,7 @@ export function ResultStep({
   const [trainingScore, setTraining] = useState(3);
   // Sprint v0.10: knee-pain NRS during strength sessions. Drives the HSR
   // pain-override in the next week's periodization.
-  const [kneePainNrs, setKneePainNrs] = useState(0);
+  const [shinPainNrs, setShinPainNrs] = useState(0);
   const [duration, setDuration] = useState(
     strengthExecution?.durationActualMin ?? defaultDurationMin,
   );
@@ -52,6 +52,8 @@ export function ResultStep({
         trainingScore,
         notes: notes || undefined,
         workoutId, // pin completion to THIS Workout row (two-a-day fix)
+        // Sprint v1.9: post-session shin pain (runs AND strength) → HSR override.
+        shinPainNrs,
       };
       if (garminActivityId) {
         payload.garminActivityId = garminActivityId;
@@ -66,9 +68,8 @@ export function ResultStep({
           maxHr: null,
           calories: null,
           exercises: strengthExecution.exercises,
-          // Sprint v0.10: pass knee-pain NRS into the strength payload so
-          // the next week's periodization can read prevPainNrs.
-          kneePainNrs,
+          // Sprint v1.9: shin pain (active injury) → next week's HSR override.
+          shinPainNrs,
         };
       } else {
         payload.durationActualMin = duration;
@@ -121,14 +122,12 @@ export function ResultStep({
           value={trainingScore}
           onChange={setTraining}
         />
-        {isStrength && (
-          <SliderRow
-            label="Knieschmerz während der Session (NRS)"
-            hint="0=keine, ≤3 progress, 4-5 hold, >5 step back (Sprint v0.10 HSR-Periodization)"
-            value={kneePainNrs}
-            onChange={setKneePainNrs}
-          />
-        )}
+        <SliderRow
+          label="Schienbein-Schmerz nach der Einheit (NRS)"
+          hint="0=keine, ≤3 progress, 4-5 hold, >5 step back (v1.9: Shin-Splints-Schranke; v.a. nach Läufen)"
+          value={shinPainNrs}
+          onChange={setShinPainNrs}
+        />
         <label className="flex flex-col gap-1.5">
           <span className="text-sm font-medium">Notizen (optional)</span>
           <textarea

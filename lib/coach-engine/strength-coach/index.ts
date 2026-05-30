@@ -565,7 +565,7 @@ export function generateWeekStrengthPlan(
     const periodAdjustment = computePeriodizationAdjustment({
       weekInBlock,
       blockNumber: phaseConfig.blockNumber,
-      prevPainNrs: prevSession?.kneePainNrs ?? null,
+      prevShinPainNrs: prevSession?.shinPainNrs ?? null,
       prevRpeReported: prevSession?.rpeReported ?? null,
       baselineRpeCap: phaseConfig.strengthRpeCap,
       strengthMode: phaseConfig.strengthMode,

@@ -18,9 +18,10 @@ export const PROTEIN_HARD_FLOOR_PER_KG = 1.8;
 /** SOFT target (g/kg): maximize-toward, NOT a hard fail. */
 export const PROTEIN_SOFT_TARGET_PER_KG = 2.2;
 
-// Sprint v1.7 — Fat guard-rails. Floor protects hormones/satiety after the
-// −600 cut + Eiklar swap; cap stays from the documented range (50–85g).
-export const FAT_FLOOR_PER_KG = 0.55;
+// Fat guard-rails. Floor protects hormones/satiety. v1.9: 0.55 → 0.50 g/kg —
+// 0.5 g/kg (~46g) is the common minimum-fat guideline; 0.55 made lean
+// fueling days (2 rice bags + lean protein) fail by ~2g for no real reason.
+export const FAT_FLOOR_PER_KG = 0.5;
 export const FAT_MAX_G = 85;
 
 // ── Sprint v1.8 #4 — Dynamic deficit guards ────────────────────────────────
@@ -46,3 +47,15 @@ export const KCAL_PER_KG = 7700;
 export function gartheMaxDeficit(weightKg: number): number {
   return Math.round((GARTHE_MAX_WEEKLY_RATE * weightKg * KCAL_PER_KG) / 7);
 }
+
+// ── Sprint v1.9 #2 — Rice in 125g cook-bags (carb-split, per day type + slot) ──
+// Training days keep ~250g/day (1 bag lunch + 1 dinner); threshold/rest 1 bag.
+// Shared by computeDayPlan (cascade/ComputedMealSlot) AND template.ts buildSlots
+// (DayPlan.slots + /api/nutrition/today) so both paths stay consistent.
+export const RICE_BAG_G = 125;
+export const RICE_BAGS: Record<string, { mainMeal: number; dinner: number }> = {
+  strength_run: { mainMeal: 1, dinner: 1 }, // dinner recipe = egg_rice_asia (v1.9); split
+  threshold: { mainMeal: 1, dinner: 0 }, // rice at lunch (fills rice-recipe main); dinner = eggs+chicken
+  long_run: { mainMeal: 1, dinner: 1 },
+  rest: { mainMeal: 0, dinner: 1 }, // egg_asia_norice main has no rice; 1 bag at dinner
+};

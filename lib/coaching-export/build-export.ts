@@ -260,7 +260,8 @@ function mapExecutedSession(json: unknown): ActualSessionData | undefined {
         durationSec: s.durationSec,
       })),
     })),
-    kneePainNrs: exec.kneePainNrs,
+    // Sprint v1.9: shin pain is the active-injury signal (legacy knee fallback).
+    shinPainNrs: exec.shinPainNrs ?? exec.kneePainNrs,
   };
 }
 
@@ -483,12 +484,15 @@ async function buildHealth(userId: string, today: Date): Promise<HealthSection> 
     if (!w.executedSession) continue;
     const parsed = ExecutedSessionSchema.safeParse(w.executedSession);
     if (!parsed.success) continue;
-    const exec = parsed.data;
-    if (exec.type === "strength" && exec.kneePainNrs != null) {
+    const exec = parsed.data as { shinPainNrs?: number; kneePainNrs?: number };
+    // Sprint v1.9: shin pain (active injury) is primary; fall back to legacy
+    // knee pain so old records still surface. Captured on runs AND strength.
+    const painNRS = exec.shinPainNrs ?? exec.kneePainNrs;
+    if (painNRS != null) {
       painHistory.push({
         date: formatDateStr(w.date),
         exercise: w.type,
-        painNRS: exec.kneePainNrs,
+        painNRS,
       });
     }
   }
