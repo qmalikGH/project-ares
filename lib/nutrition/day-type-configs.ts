@@ -133,9 +133,8 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
     fixedSlots: {
       morning: MORNING,
       preTraining: null, // no training → no pre-training slot
-      // v1.9: Hummus+Karotten-Snack am Rest-Tag raus (−270 kcal/−15g Fett/−€1);
-      // freies Budget + 1 Reis-Beutel → Engine rebalanciert Richtung Protein.
-      afternoonSnack: { items: [] },
+      // v1.9.1: Hummus+Karotten-Snack am Rest-Tag wieder rein (Q: war ein Irrtum).
+      afternoonSnack: AFTERNOON_SNACK,
       eveningSnack: EVENING_SNACK,
       flexDessert: FLEX_DESSERT_ON,
     },

@@ -28,12 +28,12 @@ describe("computeDayPlan — rest day rechenprobe (v1.7: Intake 1900)", () => {
     expect(plan.calorieTarget).toBe(1900);
   });
 
-  it("fixed slots total = 650 kcal (v1.9: rest snack removed; morning 320 + evening 200 + skyr 130)", () => {
-    expect(plan.fixedSlotsTotalKcal).toBe(650);
+  it("fixed slots total = 920 kcal (morning 320 + afternoon 270 + evening 200 + skyr 130)", () => {
+    expect(plan.fixedSlotsTotalKcal).toBe(920);
   });
 
-  it("remaining budget = 1250", () => {
-    expect(plan.remainingBudget).toBe(1250);
+  it("remaining budget = 980", () => {
+    expect(plan.remainingBudget).toBe(980);
   });
 
   it("mainMeal uses egg_asia_norice (no rice, Carb-Cut)", () => {

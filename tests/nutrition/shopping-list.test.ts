@@ -73,11 +73,10 @@ describe("extractDayNeeds", () => {
     expect(extractDayNeeds(slotsMap[3]!).beetJuiceDays).toBe(0);
   });
 
-  it("Hummus present on training days; rest days (Sun/Wed) snack removed (v1.9)", () => {
+  it("Hummus present on ALL day types (v2 afternoon snack)", () => {
     for (let wd = 0; wd <= 6; wd++) {
       const need = extractDayNeeds(slotsMap[wd]!);
-      const isRest = wd === 0 || wd === 3; // Sun + Wed
-      expect(need.hummusDays, `weekday ${wd}`).toBe(isRest ? 0 : 1);
+      expect(need.hummusDays, `weekday ${wd}`).toBe(1);
     }
   });
 

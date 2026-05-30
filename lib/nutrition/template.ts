@@ -20,7 +20,6 @@
 import { DAY_TYPE_BY_WEEKDAY, INITIAL_TARGETS, SLOT_PRESENCE } from "./day-type";
 import { findDayTypeConfig, DAY_TYPE_CONFIGS, ATHLETE_WEIGHT_KG } from "./day-type-configs";
 import { scaleVariableSlots } from "./scale-variable-slots";
-import { RICE_BAG_G, RICE_BAGS } from "./constants";
 import { findRecipeTemplate, RECIPE_TEMPLATES } from "./recipe-templates";
 import type { DayTypeTargets } from "./day-type";
 import type { DayType, MealItem, MealSlot, MealSlots, FixedSlotItem } from "./types";
@@ -159,22 +158,19 @@ function buildSlots(dayType: DayType, targetsOverride?: DayTypeTargets): MealSlo
   const dinnerTemplate = findRecipeTemplate(config.variableSlots.dinner.recipeId);
   const mainMealTemplate = findRecipeTemplate(config.variableSlots.mainMeal.recipeId);
 
-  // Sprint v1.9: same rice-bag carb-split as computeDayPlan (kept in sync).
-  const bags = RICE_BAGS[dayType] ?? { mainMeal: 0, dinner: 0 };
-
   const { mainMeal: scaledMainMeal, dinner: scaledDinner } = scaleVariableSlots({
     mainMealTemplate,
     dinnerTemplate,
     remainingBudget: remainingKcal,
     dinnerBudgetRatio: config.variableSlots.dinner.budgetRatio,
-    fixedProteinG: fixedProtein,
+    // v1.9.1: pass RAW fixed protein (incl. collagen) so scaleVariableSlots'
+    // functional-protein math matches computeDayPlan exactly.
+    fixedProteinG: fixedProtein + nonFunctionalProteinG,
     fixedKcal,
     calorieTarget,
     proteinTargetG,
     athleteWeightKg: ATHLETE_WEIGHT_KG,
     nonFunctionalProteinG,
-    mainMealFixedCarbG: bags.mainMeal * RICE_BAG_G,
-    dinnerFixedCarbG: bags.dinner * RICE_BAG_G,
   });
 
   const mainMealSlot = presence.mainMeal

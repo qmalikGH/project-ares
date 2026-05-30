@@ -34,12 +34,12 @@ describe("Sprint doc rechenprobe — rest day (v1.7: Intake 1900)", () => {
     expect(plan.calorieTarget).toBe(1900);
   });
 
-  it("fixedSlotsTotalKcal = 650 (v1.9: no preTraining + snack removed on rest day)", () => {
-    expect(plan.fixedSlotsTotalKcal).toBe(650);
+  it("fixedSlotsTotalKcal = 920 (no preTraining on rest day)", () => {
+    expect(plan.fixedSlotsTotalKcal).toBe(920);
   });
 
-  it("remainingBudget = 1250", () => {
-    expect(plan.remainingBudget).toBe(1250);
+  it("remainingBudget = 980", () => {
+    expect(plan.remainingBudget).toBe(980);
   });
 
   it("total kcal within 30 of 1900", () => {
