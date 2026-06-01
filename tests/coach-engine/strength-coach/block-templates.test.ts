@@ -155,4 +155,39 @@ describe("generateWeekStrengthPlan integrates fillAbsoluteLoads", () => {
     const hex = strA!.exercises!.find((e) => e.name === "Hex Bar Deadlift" && !e.isWarmup);
     expect(hex?.loadAbs).toBe(97.5); // 120 × 0.82 = 98.4 → 97.5
   });
+
+  it("stamps progressionMode on exercises (Sprint 2.1)", () => {
+    const plan = generateWeekStrengthPlan(baseConfig(1), 1, monday);
+    const strA = plan.sessions.find((s) => s.type === "strength_a")!;
+    const hex = strA.exercises!.find((e) => e.name === "Hex Bar Deadlift" && !e.isWarmup);
+    const face = strA.exercises!.find((e) => e.name === "Face Pulls");
+    expect(hex?.progressionMode).toBe("training_max");
+    expect(face?.progressionMode).toBe("rep_rpe");
+  });
+});
+
+// Sprint 2.1 — the core fix: a higher Training Max produces a heavier W1
+// working load across blocks. Proves B(n+1)-W1 > B(n)-W1 once the TM climbs.
+describe("inter-block load progression (Sprint 2.1)", () => {
+  const monday = new Date("2026-04-27T00:00:00.000Z");
+
+  it("Hex W1 loadAbs climbs when the Training Max increments", () => {
+    const hexW1 = (tm: number): number => {
+      const plan = generateWeekStrengthPlan(baseConfig(1), 1, monday, null, null, {
+        "Hex Bar Deadlift": tm,
+      });
+      const strA = plan.sessions.find((s) => s.type === "strength_a")!;
+      const hex = strA.exercises!.find(
+        (e) => e.name === "Hex Bar Deadlift" && !e.isWarmup,
+      );
+      return hex!.loadAbs!;
+    };
+
+    // Cycle n: TM 140 → 82% = 114.8 → 115. Cycle n+1: TM 145 (earned +5) → 118.9 → 120.
+    const cycleN = hexW1(140);
+    const cycleNplus1 = hexW1(145);
+    expect(cycleNplus1).toBeGreaterThan(cycleN);
+    expect(cycleN).toBe(115);
+    expect(cycleNplus1).toBe(120);
+  });
 });

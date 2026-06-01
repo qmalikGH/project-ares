@@ -442,6 +442,12 @@ function InlineExerciseRow({ ex, currentWeightKg }: { ex: ExerciseShape; current
           {ex.rpeCap !== undefined && <span>RPE ≤ {ex.rpeCap}</span>}
         </div>
       )}
+      {ex.lastWeek && (
+        <div className="text-xs text-[var(--color-foreground-tertiary)]">
+          letzte Woche: {ex.lastWeek.weightKg} kg × {ex.lastWeek.reps}
+          {ex.lastWeek.rpe !== undefined && ` @RPE ${ex.lastWeek.rpe}`}
+        </div>
+      )}
       {ex.notes && <p className="text-xs italic text-[var(--color-foreground-muted)]">{ex.notes}</p>}
     </div>
   );

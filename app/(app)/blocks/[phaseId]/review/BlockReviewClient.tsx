@@ -18,6 +18,24 @@ interface ReviewResponse {
   };
   aiSummary?: string | null;
   aiCostUsd?: number;
+  tmProposals?: TmProposal[];
+}
+
+interface TmProposal {
+  exerciseName: string;
+  currentTm: number;
+  proposedTm: number;
+  deltaKg: number;
+  reason:
+    | "earned"
+    | "hold_stall"
+    | "reset_double_stall"
+    | "hold_shin"
+    | "stepback_shin"
+    | "initial_rebaseline";
+  actionable: boolean;
+  dataPoints: number;
+  note: string;
 }
 
 interface TestResultResponse {
@@ -122,6 +140,10 @@ export default function BlockReviewClient({ phaseId }: { phaseId: string }) {
             </dl>
           </section>
 
+          {data.tmProposals && data.tmProposals.length > 0 && (
+            <TmProposalsSection phaseId={phaseId} proposals={data.tmProposals} />
+          )}
+
           <Button onClick={generate} variant="outline" disabled={loading}>
             {loading ? "Lade…" : "Neu auswerten"}
           </Button>
@@ -132,6 +154,188 @@ export default function BlockReviewClient({ phaseId }: { phaseId: string }) {
         <p className="text-muted-foreground">Status: {data.status}</p>
       )}
     </div>
+  );
+}
+
+// ============================================
+// Training-Max increment proposals (Sprint 2.1)
+// Inter-block load progression: confirm the earned TM bumps → regenerates plans.
+// ============================================
+const TM_REASON_LABELS: Record<TmProposal["reason"], string> = {
+  earned: "Sauberer Zyklus → Steigerung",
+  initial_rebaseline: "Re-Baseline aus echtem Satz",
+  reset_double_stall: "2× Stall → Re-Set −10%",
+  stepback_shin: "Shin-Schutz → −5%",
+  hold_stall: "Stall → halten",
+  hold_shin: "Shin (4–5) → halten",
+};
+
+function TmProposalsSection({
+  phaseId,
+  proposals,
+}: {
+  phaseId: string;
+  proposals: TmProposal[];
+}) {
+  const actionable = proposals.filter((p) => p.actionable);
+  const holds = proposals.filter((p) => !p.actionable);
+
+  // Default: accept all actionable proposals.
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(actionable.map((p) => p.exerciseName)),
+  );
+  const [busy, setBusy] = useState(false);
+  const [applied, setApplied] = useState<
+    { exerciseName: string; proposedTm: number; deltaKg: number }[] | null
+  >(null);
+  const [regenerated, setRegenerated] = useState<number | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  function toggle(name: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
+
+  async function confirm() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/coach/tm-confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phaseId,
+          acceptedExercises: Array.from(selected),
+        }),
+      });
+      const d = (await res.json()) as {
+        status: string;
+        applied?: { exerciseName: string; proposedTm: number; deltaKg: number }[];
+        regenerated?: number;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(d.error ?? `HTTP ${res.status}`);
+      setApplied(d.applied ?? []);
+      setRegenerated(d.regenerated ?? 0);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="rounded-lg border bg-card p-5 shadow-sm space-y-4">
+      <div>
+        <h2 className="text-sm font-semibold">Training-Max — Zyklus-Steigerung</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Aus den geloggten Arbeitssätzen. Bestätigte Steigerungen heben das TM →
+          die Pläne werden neu berechnet (loadAbs klettert).
+        </p>
+      </div>
+
+      {applied ? (
+        <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-800 dark:text-emerald-300">
+          {applied.length === 0 ? (
+            <span>Keine Steigerung übernommen.</span>
+          ) : (
+            <>
+              <div className="font-semibold">{applied.length} TM aktualisiert:</div>
+              <ul className="mt-1 space-y-0.5">
+                {applied.map((a) => (
+                  <li key={a.exerciseName}>
+                    {a.exerciseName}: {a.proposedTm} kg ({a.deltaKg > 0 ? "+" : ""}
+                    {a.deltaKg} kg)
+                  </li>
+                ))}
+              </ul>
+              {regenerated != null && (
+                <div className="mt-1 opacity-80">
+                  {regenerated} Wochenpläne neu berechnet.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+        <>
+          {actionable.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Keine Steigerung vorgeschlagen — TM bleiben.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {actionable.map((p) => (
+                <li
+                  key={p.exerciseName}
+                  className="flex items-center gap-3 rounded-md border bg-background px-3 py-2"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.has(p.exerciseName)}
+                    onChange={() => toggle(p.exerciseName)}
+                    disabled={busy}
+                    className="size-4"
+                  />
+                  <div className="flex-1">
+                    <div className="text-sm font-medium">{p.exerciseName}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {TM_REASON_LABELS[p.reason]} · {p.note}
+                    </div>
+                  </div>
+                  <div className="text-right text-sm tabular-nums">
+                    <div>
+                      {p.currentTm} → <span className="font-semibold">{p.proposedTm} kg</span>
+                    </div>
+                    <div
+                      className={
+                        p.deltaKg >= 0
+                          ? "text-xs text-emerald-600"
+                          : "text-xs text-orange-600"
+                      }
+                    >
+                      {p.deltaKg > 0 ? "+" : ""}
+                      {p.deltaKg} kg
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {holds.length > 0 && (
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer">
+                {holds.length} ohne Änderung (halten)
+              </summary>
+              <ul className="mt-1 space-y-0.5 pl-4">
+                {holds.map((p) => (
+                  <li key={p.exerciseName}>
+                    {p.exerciseName}: {p.note}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          {err && <p className="text-sm text-destructive">{err}</p>}
+
+          {actionable.length > 0 && (
+            <div className="flex justify-end">
+              <Button onClick={confirm} size="sm" disabled={busy || selected.size === 0}>
+                {busy
+                  ? "Übernehme…"
+                  : `${selected.size} Steigerung${selected.size === 1 ? "" : "en"} bestätigen`}
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

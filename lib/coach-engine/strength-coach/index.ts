@@ -19,6 +19,7 @@ import {
 } from "./periodization";
 import { loadPctToKg } from "./one-rm";
 import { insertWarmupSets } from "./warmup";
+import { progressionModeFor } from "./progression-mode";
 
 // ============================================
 // Templates
@@ -595,6 +596,13 @@ export function generateWeekStrengthPlan(
     if (wallSitNeeded) {
       exercises = [{ ...WALL_SIT }, ...exercises];
     }
+
+    // Sprint 2.1: stamp progressionMode so UI + engine share one source of
+    // truth (TM compounds vs rep/RPE accessories vs none).
+    exercises = exercises.map((e) => ({
+      ...e,
+      progressionMode: progressionModeFor(e.name),
+    }));
 
     // Sprint v0.13: account for warmup time in session duration (~1.5 min per set).
     const warmupCount = exercises.filter((e) => e.isWarmup).length;

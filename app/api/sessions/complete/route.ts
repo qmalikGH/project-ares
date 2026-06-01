@@ -24,6 +24,8 @@ import {
 } from "@/lib/coach-engine/types";
 import { calibrateVDOTFromW1 } from "@/lib/coach-engine/run-coach";
 import { estimateOneRM } from "@/lib/coach-engine/strength-coach/one-rm";
+import { weekInBlockOf } from "@/lib/coach-engine/strength-coach/periodization";
+import type { PhaseConfig } from "@/lib/coach-engine/types";
 import {
   getEffectiveVdot,
   getOrCreateUserSettings,
@@ -221,6 +223,35 @@ export async function POST(req: Request) {
       const sessionDate = sessionStartLocal
         ? new Date(sessionStartLocal)
         : new Date();
+
+      // Sprint 2.1 #0: resolve the periodization snapshot (slot/weekInBlock/
+      // isDeload) at WRITE time so it stays stable against later resetBlock
+      // week-renumbering. slot = the Workout's session type (strength_a/b/c).
+      // weekInBlock comes from the WeeklyPlan covering the workout date, using
+      // config.durationWeeks (the SAME source the plan generator uses) — NOT
+      // the Phase.durationWeeks column (which resetBlock extends).
+      const slot = workout.type;
+      let weekInBlock: number | null = null;
+      let isDeload = false;
+      try {
+        const coveringPlan = await db.weeklyPlan.findFirst({
+          where: {
+            phase: { macrocycle: { userId, status: "active" } },
+            startDate: { lte: workout.date },
+            endDate: { gt: workout.date },
+          },
+          include: { phase: true },
+        });
+        if (coveringPlan) {
+          const cfg = coveringPlan.phase.config as unknown as PhaseConfig;
+          const dur = cfg?.durationWeeks ?? 4;
+          weekInBlock = weekInBlockOf(coveringPlan.weekNumber, dur);
+          isDeload = weekInBlock === 4;
+        }
+      } catch (e) {
+        console.error("[complete] weekInBlock snapshot resolution failed:", e);
+      }
+
       const rows: Array<{
         userId: string;
         exerciseName: string;
@@ -229,6 +260,10 @@ export async function POST(req: Request) {
         rpe: number | null;
         estimatedOneRM: number;
         date: Date;
+        workoutId: string;
+        slot: string;
+        isDeload: boolean;
+        weekInBlock: number | null;
       }> = [];
       for (const ex of parsed.data.strengthExecution.exercises) {
         if (ex.skipped) continue;
@@ -246,6 +281,10 @@ export async function POST(req: Request) {
             rpe: set.rpe ?? null,
             estimatedOneRM: est,
             date: sessionDate,
+            workoutId: workout.id,
+            slot,
+            isDeload,
+            weekInBlock,
           });
         }
       }

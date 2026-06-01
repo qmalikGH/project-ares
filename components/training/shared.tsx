@@ -26,6 +26,9 @@ export type ExerciseShape = {
    *  same supersetGroup are rendered as a grouped block with an amber border. */
   supersetGroup?: string | null;
   supersetOrder?: number | null;
+  /** Sprint 2.1: last non-deload logged top set for this exercise+slot —
+   *  the self-documenting reference the TM progression is computed from. */
+  lastWeek?: { weightKg: number; reps: number; rpe?: number; date: string } | null;
 };
 
 export type RunInterval = {
@@ -277,6 +280,12 @@ function ExerciseItem({ exercise: ex }: { exercise: ExerciseShape }) {
             </span>
           )}
           {ex.rpeCap !== undefined && <span>RPE ≤ {ex.rpeCap}</span>}
+        </div>
+      )}
+      {ex.lastWeek && (
+        <div className="text-xs text-[var(--color-foreground-tertiary)]">
+          letzte Woche: {ex.lastWeek.weightKg} kg × {ex.lastWeek.reps}
+          {ex.lastWeek.rpe !== undefined && ` @RPE ${ex.lastWeek.rpe}`}
         </div>
       )}
       {ex.notes && (
