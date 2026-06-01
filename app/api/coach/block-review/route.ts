@@ -20,6 +20,7 @@ import {
 } from "@/lib/ai-coach/prompts/block-review";
 import { decidePhaseTransition } from "@/lib/coach-engine/periodization";
 import { buildBlockReviewInput } from "@/lib/block-review/compute";
+import { proposalsForPhase } from "@/lib/coach-engine/strength-coach/block-transition";
 import { dayKey } from "@/lib/db/queries/sensors";
 import { userToday } from "@/lib/date";
 import { loadBlockContext } from "@/lib/db/queries/workout-context";
@@ -93,6 +94,10 @@ export async function POST(req: Request) {
   });
 
   const decision = decidePhaseTransition(phase.name as PhaseName, reviewInput);
+
+  // Sprint 2.1: Training-Max increment proposals for the just-finished cycle
+  // (write-free; Q confirms each on the W4 review page via /api/coach/tm-confirm).
+  const tmProposals = await proposalsForPhase(userId, phase.id);
 
   // AI narration
   let aiSummary: string | null = null;
@@ -182,6 +187,7 @@ export async function POST(req: Request) {
     blockReviewId: review.id,
     decision,
     reviewInput,
+    tmProposals,
     aiSummary,
     aiCostUsd,
   });

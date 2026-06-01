@@ -31,6 +31,8 @@ import {
   getSensorDataOnDate,
   dayKey,
 } from "@/lib/db/queries/sensors";
+import { getLastNonDeloadLog } from "@/lib/db/queries/exercise-log";
+import { progressionModeFor } from "@/lib/coach-engine/strength-coach/progression-mode";
 import { userTodayDynamic } from "@/lib/date";
 
 export async function GET() {
@@ -127,6 +129,34 @@ export async function GET() {
       strengthA.notes = strengthA.notes
         ? `${strengthA.notes}\n${proteinNote}`
         : proteinNote;
+    }
+  }
+
+  // Sprint 2.1 #3: attach "last week" (last non-deload logged top set, same
+  // exercise + same slot) to each strength exercise so the today card can show
+  // "Ziel … · letzte Woche: 110 kg ×6 @RPE6". Skip isometrics (progressionMode
+  // "none"). Best-effort — a failed lookup just omits the hint.
+  for (const session of finalSessions) {
+    if (!session.type.startsWith("strength")) continue;
+    const exs = (session as { exercises?: Array<Record<string, unknown>> }).exercises;
+    if (!exs) continue;
+    for (const ex of exs) {
+      const name = ex.name as string;
+      if (ex.isWarmup) continue;
+      if (progressionModeFor(name) === "none") continue;
+      try {
+        const last = await getLastNonDeloadLog(userId, name, session.type);
+        if (last) {
+          ex.lastWeek = {
+            weightKg: last.weightKg,
+            reps: last.repsCompleted,
+            rpe: last.rpe ?? undefined,
+            date: last.date.toISOString(),
+          };
+        }
+      } catch {
+        /* non-fatal */
+      }
     }
   }
 

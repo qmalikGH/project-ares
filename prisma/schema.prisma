@@ -503,7 +503,19 @@ model UserSettings {
 // block-transition review (proposeOneRMUpdates).
 //
 // Written from /api/sessions/complete when the user logs actual weight + reps
-// for a strength exercise. Read during W4 deload to propose 1RM updates.
+// for a strength exercise. Read during W4 deload to propose 1RM updates AND
+// for the "last week" display on the today dashboard.
+//
+// Sprint 2.1 — denormalized snapshot fields written at completion time:
+//   - workoutId:  soft reference to the source Workout (no FK constraint — just
+//                 traceability; Workout deletion leaves an orphan ref, harmless).
+//   - slot:       the strength session type (strength_a/b/c) so "last week" and
+//                 TM-progression match the SAME slot (Hex is 4×5 in A but 3×6 in C).
+//   - isDeload:   true when this set came from a W4 deload week — excluded as a
+//                 progression anchor and from the "last week" reference.
+//   - weekInBlock: 1-4, the periodization week (weekInBlockOf at write time).
+// Snapshot (not read-time join) so it stays stable against later resetBlock
+// week-renumbering.
 model ExerciseLog {
   id              String   @id @default(cuid())
   userId          String
@@ -514,9 +526,14 @@ model ExerciseLog {
   rpe             Float?
   estimatedOneRM  Float
   date            DateTime
+  workoutId       String?
+  slot            String?
+  isDeload        Boolean  @default(false)
+  weekInBlock     Int?
   createdAt       DateTime @default(now())
 
   @@index([userId, exerciseName, date(sort: Desc)])
+  @@index([userId, exerciseName, slot, date(sort: Desc)])
 }
 
 // CoachingLog (Sprint v0.16) — audit trail for the external AI coach's

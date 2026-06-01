@@ -154,6 +154,22 @@ export interface Exercise {
   // ============================================
   /** true for warm-up/ramp-up/activation sets. Undefined/false = working set. */
   isWarmup?: boolean;
+
+  // ============================================
+  // Progression mode (Sprint 2.1)
+  // ============================================
+  /**
+   * How this exercise progresses load over time:
+   *   - "training_max": real compounds (Hex, RDL, Bench, Row, …) — load is
+   *     `%×TM`, the TM increments at the W4 cycle review (5/3/1-style).
+   *   - "rep_rpe": accessories/carries/plyos — progress via reps/RPE or
+   *     "last week + increment", never via a 1RM/TM.
+   *   - "none": isometrics / activation (Wall Sit, Short Foot) — no load
+   *     progression tracked.
+   * Stamped by `generateWeekStrengthPlan` via `progressionModeFor(name)` so
+   * the UI + engine share one source of truth.
+   */
+  progressionMode?: "training_max" | "rep_rpe" | "none";
 }
 
 export interface SessionPlan {
