@@ -284,43 +284,91 @@ function buildEasyRun(session: SessionPlan): GarminStructuredWorkout {
   );
 }
 
+/**
+ * Sprint 2.2 — build a Garmin workout from the session's `structure` (the
+ * SAME interval segments the app tile renders): warmup + repeat(work@HR +
+ * recovery jog) × repeats + cooldown. This is the "one truth" path — the watch
+ * gets exactly what the app shows, not a collapsed continuous block.
+ *
+ * Falls back to a single steady HR-targeted block when no structure is present
+ * (honest steady run) — used as the threshold legacy fallback only.
+ */
+function buildStructuredRun(
+  session: SessionPlan,
+  paceLabel: string,
+  name: string,
+): GarminStructuredWorkout {
+  const hr = session.hrTarget!;
+  const s = session.structure;
+
+  // Fallback: no structure → one steady block (honest "Dauerlauf").
+  if (!s || !s.workIntervals || s.workIntervals.length === 0) {
+    const totalSec = (session.durationMin ?? 50) * 60;
+    const wuSec = 600;
+    const cdSec = 600;
+    const steadySec = Math.max(60, totalSec - wuSec - cdSec);
+    return wrap(name, `Steady · HR ${hr.from}-${hr.to} bpm · ~${paceLabel}/km`, wuSec + steadySec + cdSec, [
+      timeStep({ stepOrder: 1, type: "warmup", durationSec: wuSec, description: "Warmup easy" }),
+      timeStep({ stepOrder: 2, type: "interval", durationSec: steadySec, hrLow: hr.from, hrHigh: hr.to, description: `Steady @ HR ${hr.from}-${hr.to}` }),
+      timeStep({ stepOrder: 3, type: "cooldown", durationSec: cdSec, description: "Cooldown easy" }),
+    ]);
+  }
+
+  const steps: GarminWorkoutStep[] = [];
+  let order = 1;
+  let totalSec = 0;
+
+  if (s.warmupMin && s.warmupMin > 0) {
+    const wuSec = s.warmupMin * 60;
+    steps.push(timeStep({ stepOrder: order++, type: "warmup", durationSec: wuSec, description: `${s.warmupMin}min easy warmup` }));
+    totalSec += wuSec;
+  }
+
+  for (const iv of s.workIntervals) {
+    const workSec = (iv.durationMin ?? 0) * 60;
+    const restSec = (iv.restMin ?? 0) * 60;
+    const childSteps: ExecutableStep[] = [
+      timeStep({
+        stepOrder: 1,
+        type: "interval",
+        durationSec: workSec,
+        hrLow: hr.from,
+        hrHigh: hr.to,
+        description: `Work @ HR ${hr.from}-${hr.to} (~${paceLabel}/km)`,
+      }),
+    ];
+    if (restSec > 0) {
+      childSteps.push(timeStep({ stepOrder: 2, type: "recovery", durationSec: restSec, description: "Easy jog recovery" }));
+    }
+    steps.push(
+      repeatGroup({
+        stepOrder: order++,
+        iterations: iv.repeats,
+        description: `${iv.repeats}× ${iv.durationMin}min @ ~${paceLabel}/km`,
+        steps: childSteps,
+      }),
+    );
+    totalSec += iv.repeats * (workSec + restSec);
+  }
+
+  if (s.cooldownMin && s.cooldownMin > 0) {
+    const cdSec = s.cooldownMin * 60;
+    steps.push(timeStep({ stepOrder: order++, type: "cooldown", durationSec: cdSec, description: `${s.cooldownMin}min cooldown easy` }));
+    totalSec += cdSec;
+  }
+
+  return wrap(name, `Threshold intervals · HR ${hr.from}-${hr.to} bpm · ~${paceLabel}/km`, totalSec, steps);
+}
+
 function buildThresholdRun(
   session: SessionPlan,
   tPace: string,
 ): GarminStructuredWorkout {
-  const totalSec = (session.durationMin ?? 50) * 60;
-  const wuSec = 600;
-  const cdSec = 600;
-  const thresholdSec = Math.max(60, totalSec - wuSec - cdSec);
-  const hr = session.hrTarget!;
-
-  return wrap(
-    `Threshold ${session.durationMin}min`,
-    `Threshold sustained · HR ${hr.from}-${hr.to} bpm · T-pace ~${tPace}/km`,
-    wuSec + thresholdSec + cdSec,
-    [
-      timeStep({
-        stepOrder: 1,
-        type: "warmup",
-        durationSec: wuSec,
-        description: "10min easy warmup",
-      }),
-      timeStep({
-        stepOrder: 2,
-        type: "interval",
-        durationSec: thresholdSec,
-        hrLow: hr.from,
-        hrHigh: hr.to,
-        description: `Threshold @ HR ${hr.from}-${hr.to} (~${tPace}/km)`,
-      }),
-      timeStep({
-        stepOrder: 3,
-        type: "cooldown",
-        durationSec: cdSec,
-        description: "10min cooldown easy",
-      }),
-    ],
-  );
+  const iv = session.structure?.workIntervals?.[0];
+  const name = iv
+    ? `Threshold ${iv.repeats}×${iv.durationMin}min`
+    : `Threshold ${session.durationMin}min`;
+  return buildStructuredRun(session, tPace, name);
 }
 
 function buildTempoRun(
