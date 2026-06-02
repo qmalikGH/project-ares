@@ -312,25 +312,85 @@ function easyRun(
   );
 }
 
+/**
+ * Sprint 2.2 — Threshold structure ladder. Threshold progresses via MORE/LONGER
+ * work blocks (capped total threshold time ~20–30 min), NOT via growing session
+ * duration. Threshold is the quality day for blocks 1–3.
+ *
+ * Ladder: 2×10 → 3×8 → 3×10 → 2×15 (threshold time 20 → 24 → 30 → 30 min).
+ * Deload week (weekInBlock 4) → reduced 2×8, no progression anchor.
+ * Gate: when `greenForProgression` is false (shin NRS > 3 or RHR over baseline),
+ * clamp to the conservative 2×10 floor regardless of block/week.
+ *
+ * Pure — warmup/cooldown fixed at 12/8 min (Q's conservative shins-safe frame).
+ */
+export interface ThresholdLevel {
+  warmupMin: number;
+  cooldownMin: number;
+  reps: number;
+  workMin: number;
+  restMin: number;
+}
+
+export function thresholdStructureFor(
+  blockNumber: number,
+  weekInBlock: number,
+  greenForProgression: boolean,
+): ThresholdLevel {
+  const WU = 12;
+  const CD = 8;
+  // Deload week → reduced volume, no anchor.
+  if (weekInBlock === 4) return { warmupMin: WU, cooldownMin: CD, reps: 2, workMin: 8, restMin: 2 };
+  // Not green → conservative 2×10 floor (shin/RHR protective).
+  if (!greenForProgression) return { warmupMin: WU, cooldownMin: CD, reps: 2, workMin: 10, restMin: 2 };
+
+  // Ladder levels (threshold time capped at ~30 min).
+  const L0 = { reps: 2, workMin: 10, restMin: 2 }; // 20 min
+  const L1 = { reps: 3, workMin: 8, restMin: 2 }; // 24 min
+  const L2 = { reps: 3, workMin: 10, restMin: 3 }; // 30 min
+  const L3 = { reps: 2, workMin: 15, restMin: 3 }; // 30 min
+
+  let lvl: { reps: number; workMin: number; restMin: number };
+  if (blockNumber <= 1) lvl = weekInBlock <= 2 ? L0 : L1; // B1: W1-2 2×10, W3 3×8
+  else if (blockNumber === 2) lvl = weekInBlock === 1 ? L1 : L2; // B2: W1 3×8, W2-3 3×10
+  else lvl = weekInBlock === 1 ? L2 : L3; // B3: W1 3×10, W2-3 2×15
+
+  return { warmupMin: WU, cooldownMin: CD, ...lvl };
+}
+
+/** Total session minutes implied by a threshold level (= Σ structure). */
+export function thresholdDurationMin(level: ThresholdLevel): number {
+  return level.warmupMin + level.reps * (level.workMin + level.restMin) + level.cooldownMin;
+}
+
 function thresholdRun(
   date: Date,
-  durationMin: number,
+  level: ThresholdLevel,
   paces: VDOTPaces,
   hr: HrCtx = {},
 ): SessionPlan {
+  // Sprint 2.2: durationMin is DERIVED from the structure (no more ballooning
+  // session length). Watch + app render the SAME segments from `structure`.
   return withHrTarget(
     {
       date,
       type: "threshold_run",
-      durationMin,
+      durationMin: thresholdDurationMin(level),
       paceTarget: { from: paces.T, to: paces.T },
       intensityZone: 2,
       zoneLabel: getZoneLabel("threshold_run"),
       rpeTarget: 7,
       structure: {
-        warmupMin: 12,
-        workIntervals: [{ repeats: 2, durationMin: 10, paceTarget: { from: paces.T, to: paces.T }, restMin: 2 }],
-        cooldownMin: 8,
+        warmupMin: level.warmupMin,
+        workIntervals: [
+          {
+            repeats: level.reps,
+            durationMin: level.workMin,
+            paceTarget: { from: paces.T, to: paces.T },
+            restMin: level.restMin,
+          },
+        ],
+        cooldownMin: level.cooldownMin,
       },
     },
     "threshold_run",
@@ -497,6 +557,11 @@ export function generateWeekRunPlan(
    *  calibrated VDOT → skip the calibration run, use a normal Threshold-
    *  Run on Tuesday instead. null/undefined = default (calibration as usual). */
   loadOverrideWeek?: 1 | 2 | 3 | 4 | null,
+  /** Sprint 2.2: gate for threshold structural progression. When false
+   *  (recent shin NRS > 3 or RHR over baseline+5), the threshold day is
+   *  clamped to the conservative 2×10 floor. Default true = progress per
+   *  the block/week ladder. Computed by the regenerate path from real data. */
+  greenForProgression: boolean = true,
 ): WeekRunPlan {
   const paces = vdotToPaces(vdot);
   const blockNumber = phaseConfig.blockNumber;
@@ -512,7 +577,10 @@ export function generateWeekRunPlan(
   const easyBaseline = phaseConfig.easyRunBaselineMin ?? 35;
 
   const longRunMin = Math.max(20, Math.round(longBaseline * volumeProg.longRunMultiplier));
-  const qualityRunMin = Math.max(20, Math.round(qualityBaseline * volumeProg.qualityRunMultiplier));
+  // Sprint 2.2: threshold is no longer sized by the volume multiplier — its
+  // duration is derived from the interval structure (thresholdStructureFor).
+  // qualityBaseline is kept only for non-threshold quality types if any.
+  void qualityBaseline;
   const easyRunMin = Math.max(20, Math.round(easyBaseline * volumeProg.easyRunMultiplier));
 
   const dateAt = (offsetDays: number): Date =>
@@ -542,10 +610,11 @@ export function generateWeekRunPlan(
       "calibration_run",
       hr,
     );
-  } else if (blockNumber <= 2) {
-    qualityDay = thresholdRun(dateAt(1), qualityRunMin + 20, paces, hr); // include 10min WU + 10min CD
-  } else if (blockNumber === 3) {
-    qualityDay = thresholdRun(dateAt(1), qualityRunMin + 25, paces, hr);
+  } else if (blockNumber <= 3) {
+    // Sprint 2.2: threshold = structured interval session (capped threshold
+    // time), progressing via the ladder, gated by shin/RHR. Blocks 1–3.
+    const level = thresholdStructureFor(blockNumber, weekInBlock, greenForProgression);
+    qualityDay = thresholdRun(dateAt(1), level, paces, hr);
   } else {
     qualityDay = vo2maxIntervals(dateAt(1), paces, hr);
   }

@@ -141,6 +141,29 @@ export async function regeneratePlansFromNow(
   // Sprint v1.9 #3: seed from actual recent shin pain so the next week's HSR
   // progression reacts to it (the dead-wiring fix).
   let prevWeekData: WeekStrengthData | null = await loadRecentShinSignal(userId, today0);
+
+  // Sprint 2.2: gate for threshold structural progression — only advance the
+  // threshold ladder when shins are calm (NRS ≤ 3) AND resting HR is near
+  // baseline (≤ hrRest + 5). Otherwise clamp to the conservative 2×10 floor.
+  // Computed once from recent data and applied across the regenerated horizon
+  // (shin-protective; re-evaluated on the next regeneration).
+  const recentShin = prevWeekData?.sessions?.[0]?.shinPainNrs ?? null;
+  const shinOk = recentShin == null || recentShin <= 3;
+  const rhrRows = await db.dailySensorData.findMany({
+    where: { userId },
+    orderBy: { date: "desc" },
+    take: 5,
+    select: { garmin: true },
+  });
+  let latestRhr: number | null = null;
+  for (const r of rhrRows) {
+    const v = (r.garmin as { rhr?: number } | null)?.rhr;
+    if (typeof v === "number") { latestRhr = v; break; }
+  }
+  const baselineRhr = userSettings?.hrRest ?? null;
+  const rhrOk = latestRhr == null || baselineRhr == null || latestRhr <= baselineRhr + 5;
+  const greenForProgression = shinOk && rhrOk;
+
   for (const plan of plansToRegen) {
     const phaseConfig = plan.phase.config as unknown as PhaseConfig;
     if (!phaseConfig) continue;
@@ -156,6 +179,7 @@ export async function regeneratePlansFromNow(
       (plan as { loadOverrideWeek?: number | null }).loadOverrideWeek as
         | 1 | 2 | 3 | 4 | null
         | undefined ?? null,
+      greenForProgression,
     );
     const strengthPlan: WeekStrengthPlan = generateWeekStrengthPlan(
       phaseConfig,

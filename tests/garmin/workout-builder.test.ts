@@ -118,24 +118,57 @@ describe("buildGarminWorkout — easy run", () => {
   });
 });
 
-describe("buildGarminWorkout — threshold run", () => {
+describe("buildGarminWorkout — threshold run (Sprint 2.2: structured intervals)", () => {
+  // The watch must get the SAME segments as the app tile — built from
+  // session.structure (warmup + repeat(work + jog recovery) + cooldown),
+  // NOT a single continuous block.
   const w = buildGarminWorkout(
-    s({ type: "threshold_run", durationMin: 50, hrTarget: { from: 172, to: 185 } }),
+    s({
+      type: "threshold_run",
+      durationMin: 44,
+      hrTarget: { from: 172, to: 185 },
+      structure: {
+        warmupMin: 12,
+        workIntervals: [
+          { repeats: 2, durationMin: 10, paceTarget: { from: "5:00", to: "5:00" }, restMin: 2 },
+        ],
+        cooldownMin: 8,
+      },
+    }),
     PACES,
   )!;
 
-  it("has 10min WU + 30min Threshold + 10min CD with HR target", () => {
-    const ss = steps(w) as ExecutableStep[];
+  it("has WU + RepeatGroup(2x) + CD (not one continuous block)", () => {
+    const ss = steps(w);
     expect(ss).toHaveLength(3);
-    expect(ss[0].endConditionValue).toBe(600); // 10min WU
-    expect(ss[1].endConditionValue).toBe(50 * 60 - 1200); // 30min main
-    expect(ss[2].endConditionValue).toBe(600); // 10min CD
-    expect(ss[1].targetValueOne).toBe(172);
-    expect(ss[1].targetValueTwo).toBe(185);
+    expect(ss[0].stepType.stepTypeKey).toBe("warmup");
+    expect(ss[1].stepType.stepTypeKey).toBe("repeat");
+    expect(ss[2].stepType.stepTypeKey).toBe("cooldown");
+    expect((ss[0] as ExecutableStep).endConditionValue).toBe(12 * 60);
+    expect((ss[2] as ExecutableStep).endConditionValue).toBe(8 * 60);
   });
-  it("description references T-pace", () => {
-    expect(w.description).toMatch(/T-pace/);
-    expect(w.description).toMatch(/5:00/); // PACES.T
+
+  it("inner repeat group is 2 iterations of work@HR + jog recovery", () => {
+    const ss = steps(w);
+    const rg = ss[1] as RepeatGroupStep;
+    expect(rg.numberOfIterations).toBe(2);
+    expect(rg.workoutSteps).toHaveLength(2);
+    expect(rg.workoutSteps[0].stepType.stepTypeKey).toBe("interval");
+    expect(rg.workoutSteps[0].endConditionValue).toBe(10 * 60);
+    expect(rg.workoutSteps[0].targetValueOne).toBe(172);
+    expect(rg.workoutSteps[0].targetValueTwo).toBe(185);
+    expect(rg.workoutSteps[1].stepType.stepTypeKey).toBe("recovery");
+    expect(rg.workoutSteps[1].endConditionValue).toBe(2 * 60);
+    expect(rg.workoutSteps[1].targetType.workoutTargetTypeKey).toBe("no.target");
+  });
+
+  it("estimated duration == sum of structure (12 + 2×(10+2) + 8 = 44min)", () => {
+    expect(w.estimatedDurationInSecs).toBe(44 * 60);
+  });
+
+  it("description references the threshold pace", () => {
+    expect(w.description).toMatch(/5:00/);
+    expect(w.description).toMatch(/[Tt]hreshold/);
   });
 });
 
