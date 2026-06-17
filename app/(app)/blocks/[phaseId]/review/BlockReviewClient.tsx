@@ -19,6 +19,7 @@ interface ReviewResponse {
   aiSummary?: string | null;
   aiCostUsd?: number;
   tmProposals?: TmProposal[];
+  unloggedStrengthSessions?: { total: number; byType: Record<string, number> };
 }
 
 interface TmProposal {
@@ -139,6 +140,17 @@ export default function BlockReviewClient({ phaseId }: { phaseId: string }) {
               <dd className="tabular-nums">{data.reviewInput.actualTID.z1}% / {data.reviewInput.actualTID.z2}% / {data.reviewInput.actualTID.z3}%</dd>
             </dl>
           </section>
+
+          {data.unloggedStrengthSessions && data.unloggedStrengthSessions.total > 0 && (
+            <section className="rounded-lg border border-orange-500/30 bg-orange-500/10 p-4 text-sm text-orange-800 dark:text-orange-300">
+              <span className="font-semibold">
+                {data.unloggedStrengthSessions.total} Kraft-Session
+                {data.unloggedStrengthSessions.total === 1 ? "" : "s"} ohne geloggte Arbeitssätze
+              </span>{" "}
+              ({Object.entries(data.unloggedStrengthSessions.byType).map(([t, n]) => `${t}: ${n}`).join(", ")})
+              {" "}— die TM-Vorschläge basieren auf Teildaten. Diese Sessions zählen nicht als „clean".
+            </section>
+          )}
 
           {data.tmProposals && data.tmProposals.length > 0 && (
             <TmProposalsSection phaseId={phaseId} proposals={data.tmProposals} />

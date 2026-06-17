@@ -142,13 +142,21 @@ export async function regeneratePlansFromNow(
   // progression reacts to it (the dead-wiring fix).
   let prevWeekData: WeekStrengthData | null = await loadRecentShinSignal(userId, today0);
 
-  // Sprint 2.2: gate for threshold structural progression — only advance the
-  // threshold ladder when shins are calm (NRS ≤ 3) AND resting HR is near
-  // baseline (≤ hrRest + 5). Otherwise clamp to the conservative 2×10 floor.
-  // Computed once from recent data and applied across the regenerated horizon
-  // (shin-protective; re-evaluated on the next regeneration).
+  // Sprint 2.3: graded run-volume pain governor from the worst recent shin-NRS
+  // (composes the Sprint 2.2 threshold structure-floor gate — ONE signal):
+  //   ≤2 → "progress" (full),
+  //   3  → "hold" (threshold clamped to 2×10 floor, volume normal),
+  //   ≥4 → "regress" (−20% run volume + quality session replaced by easy).
+  // RHR secondary: a calm shin but elevated RHR (> hrRest+5) downgrades
+  // progress → hold. Applied to the IMMINENT week ONLY (index 0); later weeks
+  // re-gate on the next regeneration so a current flare doesn't flatten the
+  // whole horizon. greenForProgression (structure floor) = (gate === progress).
   const recentShin = prevWeekData?.sessions?.[0]?.shinPainNrs ?? null;
-  const shinOk = recentShin == null || recentShin <= 3;
+  let shinVolumeGate: "progress" | "hold" | "regress" = "progress";
+  if (recentShin != null) {
+    if (recentShin >= 4) shinVolumeGate = "regress";
+    else if (recentShin === 3) shinVolumeGate = "hold";
+  }
   const rhrRows = await db.dailySensorData.findMany({
     where: { userId },
     orderBy: { date: "desc" },
@@ -162,11 +170,17 @@ export async function regeneratePlansFromNow(
   }
   const baselineRhr = userSettings?.hrRest ?? null;
   const rhrOk = latestRhr == null || baselineRhr == null || latestRhr <= baselineRhr + 5;
-  const greenForProgression = shinOk && rhrOk;
+  if (shinVolumeGate === "progress" && !rhrOk) shinVolumeGate = "hold";
 
+  const imminentPlanId = plansToRegen[0]?.id;
   for (const plan of plansToRegen) {
     const phaseConfig = plan.phase.config as unknown as PhaseConfig;
     if (!phaseConfig) continue;
+
+    // Modulate only the imminent (soonest) week; later weeks default to full.
+    const weekGate: "progress" | "hold" | "regress" =
+      plan.id === imminentPlanId ? shinVolumeGate : "progress";
+    const weekGreen = weekGate === "progress";
 
     const runPlan = generateWeekRunPlan(
       phaseConfig,
@@ -179,7 +193,8 @@ export async function regeneratePlansFromNow(
       (plan as { loadOverrideWeek?: number | null }).loadOverrideWeek as
         | 1 | 2 | 3 | 4 | null
         | undefined ?? null,
-      greenForProgression,
+      weekGreen,
+      weekGate,
     );
     const strengthPlan: WeekStrengthPlan = generateWeekStrengthPlan(
       phaseConfig,

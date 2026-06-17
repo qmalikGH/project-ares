@@ -144,10 +144,26 @@ export interface PlannedExercise {
   supersetOrder?: number | null;
 }
 
+/** Sprint 2.3 #4 — run interval structure (warmup + N×M work + cooldown), so
+ *  the coach sees the real session shape, not just a duration. From
+ *  SessionPlan.structure (populated for threshold/vo2max by the generator). */
+export interface PlannedSessionStructure {
+  warmupMin?: number;
+  workIntervals?: {
+    repeats: number;
+    durationMin?: number;
+    distanceM?: number;
+    paceTarget?: { from: string; to: string };
+    restMin?: number;
+  }[];
+  cooldownMin?: number;
+}
+
 export interface PlannedSessionData {
   durationMin?: number;
   targetHR?: { from: number; to: number };
   targetPace?: { from: string; to: string };
+  structure?: PlannedSessionStructure;
   exercises?: PlannedExercise[];
 }
 
