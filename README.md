@@ -1,36 +1,93 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Ares — AI Training Coach
 
-## Getting Started
+An AI-powered personal training coach that turns raw **Garmin** data into
+focused, day-by-day coaching. Ares connects wearable data, periodized block
+planning, and workout logging in one mobile-first place — and uses a Claude-based
+coaching engine to translate the numbers into a clear plan for the next session.
 
-First, run the development server:
+The design philosophy is deliberate restraint: where Garmin Connect and
+TrainingPeaks cram in dashboards, Ares shows **one clear thing at a time**.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+> **Status:** Personal project. Built to explore how far an LLM coaching layer
+> can go when it sits directly on top of real, continuous training data.
+
+---
+
+## What it does
+
+- **Garmin integration** — pulls activities, sensor data, and daily metrics from
+  Garmin Connect into a structured Postgres model.
+- **AI coaching engine** — a Claude-backed engine reviews recent training load and
+  generates the next session, adapting periodized *blocks* over time.
+- **Block planning** — periodized, goal-oriented training blocks rather than
+  one-off workouts.
+- **Daily view** — a single focused screen per day: what to do, why, and how it
+  fits the block.
+- **Progress & goals** — trends and goal tracking without dashboard overload.
+- **Nutrition & notifications** — lightweight logging and timely nudges.
+- **Scheduled jobs** — cron endpoints keep data and coaching state fresh.
+
+## Tech stack
+
+| Layer        | Choice                                                            |
+| ------------ | ----------------------------------------------------------------- |
+| Framework    | [Next.js 16](https://nextjs.org) (App Router), React 19           |
+| Language     | TypeScript                                                        |
+| AI           | [Anthropic Claude SDK](https://docs.anthropic.com) (coaching engine) |
+| Data         | PostgreSQL via [Prisma](https://www.prisma.io)                    |
+| Auth         | [NextAuth](https://authjs.dev) (v5)                               |
+| Wearables    | Garmin Connect                                                    |
+| UI           | Tailwind CSS + shadcn/ui + Radix, Recharts                        |
+| Validation   | Zod                                                               |
+| Testing      | Vitest + Testing Library                                          |
+| Deploy       | Vercel                                                            |
+
+## Architecture at a glance
+
+```
+app/(app)/…      → mobile-first screens (today, week, blocks, coach, progress…)
+app/api/…        → route handlers (garmin sync, coach, cron, sessions, goals…)
+lib/garmin       → Garmin Connect ingestion
+lib/coach-engine → periodized planning logic
+lib/ai-coach     → Claude prompt/response layer
+prisma/          → schema + migrations (PostgreSQL)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Getting started
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+# 1. Install
+npm install
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+# 2. Configure environment (see .env.example)
+cp .env.example .env
+#   → fill in DATABASE_URL, ANTHROPIC_API_KEY, Garmin credentials, etc.
 
-## Learn More
+# 3. Set up the database
+npx prisma migrate dev
 
-To learn more about Next.js, take a look at the following resources:
+# 4. Run
+npm run dev          # http://localhost:3000
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Useful scripts
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Command             | Purpose                           |
+| ------------------- | --------------------------------- |
+| `npm run dev`       | Start the dev server              |
+| `npm run build`     | Prisma generate + migrate + build |
+| `npm run test`      | Run the test suite (Vitest)       |
+| `npm run typecheck` | Type-check without emitting       |
+| `npm run lint`      | Lint with ESLint                  |
 
-## Deploy on Vercel
+## Design principles
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. **Breathing room is functional** — space is signal, not waste.
+2. **Phone-first, always** — if it's cramped at 390px, it's broken.
+3. **One job per screen** — secondary data reveals on demand.
+4. **Numbers are the hero** — values take precedence over chrome.
+5. **Earn every pixel** — no decorative elements.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## License
+
+Personal project — all rights reserved. Feel free to browse for reference.
