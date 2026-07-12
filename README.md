@@ -1,5 +1,7 @@
 # Ares — AI Training Coach
 
+### 🔗 [**Live Demo**](https://project-ares-ruddy.vercel.app)
+
 An AI-powered personal training coach that turns raw **Garmin** data into
 focused, day-by-day coaching. Ares connects wearable data, periodized block
 planning, and workout logging in one mobile-first place — and uses a Claude-based
