@@ -112,7 +112,7 @@ async function main() {
 
   // The lib's authenticated http client. Field name might be `client` or `_client`
   // depending on lib version — try common shapes.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const rawClient: { get: <T>(url: string) => Promise<T> } =
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (gc as any).client ??

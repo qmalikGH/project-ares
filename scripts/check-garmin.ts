@@ -18,7 +18,7 @@ async function main() {
     orderBy: { date: "asc" },
   });
   console.log(`\nWorkout rows next 7 days (${workouts.length}):`);
-  for (const w of workouts as any[]) {
+  for (const w of workouts) {
     const day = w.date.toISOString().slice(0,10);
     const hasPS = w.plannedSession ? "✓" : "✗";
     const garmin = w.garminScheduledWorkoutId ? `Garmin:${w.garminScheduledWorkoutId}` : "no-Garmin";

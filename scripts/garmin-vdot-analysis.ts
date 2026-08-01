@@ -62,7 +62,7 @@ async function main() {
   await gc.login();
   console.log("✓ Logged in\n");
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const rawClient: { get: <T>(url: string) => Promise<T> } =
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (gc as any).client ?? (gc as any)._client ?? (gc as any).http;

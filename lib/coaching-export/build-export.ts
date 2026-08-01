@@ -701,20 +701,17 @@ async function buildNutrition(userId: string, today: Date): Promise<NutritionSec
   const cutoff7 = new Date(todayKey.getTime() - 7 * 86400000);
 
   const [plan, todayLog, recentLogs] = await Promise.all([
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     db.mealPlan.findFirst({
       where: { userId, status: "active" },
       include: { dayPlans: true },
-    }) as Promise<any>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }),
     db.dailyNutritionLog.findUnique({
       where: { userId_date: { userId, date: todayKey } },
-    }) as Promise<any>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }),
     db.dailyNutritionLog.findMany({
       where: { userId, date: { gte: cutoff7 } },
       orderBy: { date: "asc" },
-    }) as Promise<any[]>,
+    }),
   ]);
 
   let activePlan: NutritionSection["activePlan"] = null;

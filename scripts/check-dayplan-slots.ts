@@ -2,6 +2,7 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { db } from "@/lib/db/client";
+import type { MealItem, MealSlots } from "@/lib/nutrition/types";
 
 async function main() {
   const plan = await db.mealPlan.findFirst({ where: { status: "active" }, select: { id: true } });
@@ -13,12 +14,13 @@ async function main() {
   console.log("DayPlan long_run keys:", Object.keys(dp ?? {}));
   console.log("\nlong_run targets:", { calorieTarget: dp?.calorieTarget, proteinG: dp?.proteinG, carbsG: dp?.carbsG, fatG: dp?.fatG });
 
-  const slots = (dp as any)?.slots;
+  // DayPlan.slots is a Prisma Json column; its shape is MealSlots.
+  const slots = dp?.slots as unknown as MealSlots | null;
   if (slots) {
     console.log("\nDayPlan.slots JSON:");
     let kcal = 0, p = 0, c = 0, f = 0;
-    for (const [name, val] of Object.entries(slots as Record<string, any>)) {
-      const items = val?.items ?? [];
+    for (const [name, val] of Object.entries(slots)) {
+      const items: MealItem[] = val?.items ?? [];
       let sk = 0, sp = 0, sc = 0, sf = 0;
       for (const item of items) {
         sk += item.kcal ?? 0;

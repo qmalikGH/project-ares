@@ -16,12 +16,12 @@ async function main() {
   const log = await db.dailyNutritionLog.findUnique({
     where: { userId_date: { userId: user.id, date: today } },
   });
+  // Macros (proteinG/carbsG/fatG) live on DayPlan, not DailyNutritionLog —
+  // printing them here only ever yielded undefined.
   console.log("DailyNutritionLog today:", log ? {
     dayType: log.dayType,
     calorieTarget: log.calorieTarget,
-    proteinG: (log as any).proteinG,
-    carbsG: (log as any).carbsG,
-    fatG: (log as any).fatG,
+    garminTDEE: log.garminTDEE,
     adjustment: log.adjustment,
   } : "(none)");
 
