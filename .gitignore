@@ -46,3 +46,6 @@ next-env.d.ts
 
 # Garmin diagnostic raw dumps (Sprint v0.7 discovery — local-only, not for prod)
 garmin-diagnostic-output/
+
+# JSON snapshots taken by scripts/reset-to-block.ts before a destructive reset
+/backups/

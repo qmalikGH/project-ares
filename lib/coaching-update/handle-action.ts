@@ -102,16 +102,24 @@ const AdjustDeficitSchema = z.object({
 
 const ForceReseedSchema = z.object({}).strict();
 
-// Sprint v1.5 — Block Reset: regenerate W1-W4 of current Block.
+// Sprint v1.5 — Block Reset: regenerate W1-W4 of a Block.
 // loadPreset W1 = full ramp-up (no override). W2 = W1 volume + W2 loads.
+//
+// targetBlockNumber re-runs a specific Block instead of the one containing
+// today. Needed after a long layoff, where the calendar has advanced past the
+// Block the athlete actually wants to resume from.
+// dryRun computes the full change set without writing anything (no DB
+// mutation, no CoachingLog entry).
 const ResetBlockSchema = z.object({
   loadPreset: z.enum(["W1", "W2"]).default("W2"),
+  targetBlockNumber: z.number().int().min(1).max(5).optional(),
+  dryRun: z.boolean().default(false),
 }).strict();
 
 const SEED_DAY_TYPES: DayType[] = ["strength_run", "threshold", "long_run", "rest"];
 
 export type ActionResult =
-  | { success: true; logId: string; action: string }
+  | { success: true; logId: string; action: string; details?: unknown }
   | { success: false; status: number; error: string; details?: unknown };
 
 
@@ -722,8 +730,15 @@ export async function handleCoachingAction(
       if (!parsed.success) {
         return { success: false, status: 400, error: "invalid_data", details: parsed.error.flatten() };
       }
-      const result = await resetCurrentBlock(userId, parsed.data.loadPreset, reason);
+      const result = await resetCurrentBlock(userId, parsed.data.loadPreset, reason, {
+        targetBlockNumber: parsed.data.targetBlockNumber,
+        dryRun: parsed.data.dryRun,
+      });
       if (!result.ok) return { success: false, status: result.status, error: result.error };
+      // A dry run must leave no trace — skip the CoachingLog entirely.
+      if (parsed.data.dryRun) {
+        return { success: true, logId: "dry-run", action, details: result.details };
+      }
       const log = await db.coachingLog.create({
         data: {
           userId,
@@ -783,26 +798,33 @@ type ResetBlockResult =
   | { ok: false; status: number; error: string };
 
 /**
- * Reset the current Block for a user:
+ * Reset a Block for a user:
  *  1. Find active Macrocycle.
- *  2. Find the Phase whose date range contains "today" (= current Block).
- *  3. Delete all WeeklyPlan rows for that Phase with startDate >= next Monday.
+ *  2. Pick the target Phase — `targetBlockNumber` when given, otherwise the
+ *     Phase whose date range contains "today" (= current Block).
+ *  3. Delete that Phase's WeeklyPlan rows (see deletion boundary below).
  *  4. Create 4 fresh WeeklyPlan rows (W1–W4) starting next Monday. The first
  *     row receives `loadOverrideWeek=2` when loadPreset is "W2" (ramp-up).
- *  5. Extend the Phase + Macrocycle endDate to account for re-run weeks.
+ *  5. Clear the Phase's completion markers, extend it, and slide every
+ *     subsequent Phase (+ its WeeklyPlan rows) forward by the same delta.
  *
  * The new rows have `plannedSessions: []` placeholders — call
  * `regenerateFuturePlans()` (or `POST /api/debug/regenerate-from-now`) after
  * resetBlock to fill them with concrete sessions (the regenerate helper
  * reads loadOverrideWeek and threads it into the periodization engine).
+ *
+ * With `dryRun` the function performs every read and returns the same details
+ * payload, but issues no writes.
  */
 async function resetCurrentBlock(
   userId: string,
   loadPreset: "W1" | "W2",
   reason: string,
+  opts: { targetBlockNumber?: number; dryRun?: boolean } = {},
 ): Promise<ResetBlockResult> {
   void reason; // reason is logged by the caller via CoachingLog
 
+  const { targetBlockNumber, dryRun = false } = opts;
   const { getNextMonday, addWeeks, userToday } = await import("@/lib/date");
 
   // 1. Active macrocycle
@@ -812,25 +834,43 @@ async function resetCurrentBlock(
   });
   if (!macro) return { ok: false, status: 404, error: "no_active_macrocycle" };
 
-  // 2. Current Phase = the one whose [startDate, plannedEndDate] contains today
+  // 2. Target Phase. Explicit blockNumber wins; otherwise the Phase containing
+  //    today. After a long layoff those differ — the calendar has moved on
+  //    while the athlete has not.
   const today = userToday();
-  const currentPhase = macro.phases.find(
-    (p) => p.startDate <= today && p.plannedEndDate > today,
-  ) ?? macro.phases.find((p) => p.status === "active");
+  const currentPhase = targetBlockNumber != null
+    ? macro.phases.find((p) => p.blockNumber === targetBlockNumber)
+    : (macro.phases.find(
+        (p) => p.startDate <= today && p.plannedEndDate > today,
+      ) ?? macro.phases.find((p) => p.status === "active"));
   if (!currentPhase) {
-    return { ok: false, status: 404, error: "no_current_phase" };
+    return {
+      ok: false,
+      status: 404,
+      error: targetBlockNumber != null ? "target_block_not_found" : "no_current_phase",
+    };
   }
 
   const nextMonday = getNextMonday(today);
 
-  // 3. Delete future WeeklyPlan rows for this phase (from next Monday onwards).
-  //    Past + current-week-up-to-today rows are kept (already executed).
-  const deleted = await db.weeklyPlan.deleteMany({
-    where: {
-      phaseId: currentPhase.id,
-      startDate: { gte: nextMonday },
-    },
-  });
+  // 3. Deletion boundary.
+  //    For the Phase containing today, keep rows before next Monday — the
+  //    current week is already under way and partly executed.
+  //    For any other Phase (a past Block being re-run) that cut-off would
+  //    match nothing and leave the old rows behind, so drop all of them. Only
+  //    WeeklyPlan scaffolding is removed; Workout and ExerciseLog rows — the
+  //    actual training record — are never touched here.
+  const phaseContainsToday =
+    currentPhase.startDate <= today && currentPhase.plannedEndDate > today;
+  const deleteFrom = phaseContainsToday ? nextMonday : currentPhase.startDate;
+
+  const deleteWhere = {
+    phaseId: currentPhase.id,
+    startDate: { gte: deleteFrom },
+  };
+  const deleted = dryRun
+    ? { count: await db.weeklyPlan.count({ where: deleteWhere }) }
+    : await db.weeklyPlan.deleteMany({ where: deleteWhere });
 
   // 4. Generate 4 fresh WeeklyPlan rows (W1–W4 of this Block). plannedSessions
   //    starts as [] — the caller is expected to invoke the regenerate cascade
@@ -864,7 +904,7 @@ async function resetCurrentBlock(
       loadOverrideWeek: w === 0 && loadPreset === "W2" ? 2 : null,
     });
   }
-  await db.weeklyPlan.createMany({ data: newRows });
+  if (!dryRun) await db.weeklyPlan.createMany({ data: newRows });
 
   // 5. Extend the Phase + shift subsequent Phases by the same delta.
   //
@@ -879,13 +919,26 @@ async function resetCurrentBlock(
   const phaseShiftMs = newPhaseEnd.getTime() - oldPhaseEnd.getTime();
   const weeksAdded = Math.round(phaseShiftMs / (7 * 86400000));
 
-  await db.phase.update({
-    where: { id: currentPhase.id },
-    data: {
-      plannedEndDate: newPhaseEnd,
-      durationWeeks: currentPhase.durationWeeks + Math.max(0, weeksAdded),
-    },
-  });
+  // Re-running a Block that was already signed off means clearing its
+  // completion markers, or block-review/route.ts still treats it as finished
+  // and progress.ts keeps reading the stale actualEndDate. The BlockReview row
+  // itself is deliberately NOT deleted — it stays as a record of the first
+  // pass, just detached from the Phase.
+  if (!dryRun) {
+    await db.phase.update({
+      where: { id: currentPhase.id },
+      data: {
+        plannedEndDate: newPhaseEnd,
+        durationWeeks: currentPhase.durationWeeks + Math.max(0, weeksAdded),
+        status: "active",
+        actualEndDate: null,
+        blockReviewId: null,
+      },
+    });
+  }
+
+  const clearedReviews: number[] = [];
+  if (currentPhase.blockReviewId) clearedReviews.push(currentPhase.blockNumber);
 
   if (weeksAdded > 0) {
     // Find subsequent phases (block > current.blockNumber)
@@ -894,11 +947,18 @@ async function resetCurrentBlock(
     );
 
     for (const p of subsequentPhases) {
+      // These now lie in the future again, so any completion marker from the
+      // abandoned run is stale and gets cleared with the same reasoning.
+      if (p.blockReviewId) clearedReviews.push(p.blockNumber);
+      if (dryRun) continue;
       await db.phase.update({
         where: { id: p.id },
         data: {
           startDate: addWeeks(p.startDate, weeksAdded),
           plannedEndDate: addWeeks(p.plannedEndDate, weeksAdded),
+          status: "active",
+          actualEndDate: null,
+          blockReviewId: null,
         },
       });
       // Shift every WeeklyPlan row in that phase
@@ -917,23 +977,23 @@ async function resetCurrentBlock(
       }
     }
 
-    await db.macrocycle.update({
-      where: { id: macro.id },
-      data: {
-        endDate: addWeeks(macro.endDate, weeksAdded),
-        totalWeeks: macro.totalWeeks + weeksAdded,
-      },
-    });
+    if (!dryRun) {
+      await db.macrocycle.update({
+        where: { id: macro.id },
+        data: {
+          endDate: addWeeks(macro.endDate, weeksAdded),
+          totalWeeks: macro.totalWeeks + weeksAdded,
+        },
+      });
+    }
   }
 
   // Sprint v1.6: Materialize Workout rows for the new 4-week block so the
   // Garmin-push cron finds them without needing a manual script.
   const newPhaseEndForMaterialize = addWeeks(nextMonday, 4);
-  const materialized = await materializeWorkouts(
-    userId,
-    nextMonday,
-    newPhaseEndForMaterialize,
-  );
+  const materialized = dryRun
+    ? { created: 0, updated: 0, deleted: 0 }
+    : await materializeWorkouts(userId, nextMonday, newPhaseEndForMaterialize);
 
   return {
     ok: true,
@@ -942,10 +1002,14 @@ async function resetCurrentBlock(
       phaseId: currentPhase.id,
       blockNumber: currentPhase.blockNumber,
       loadPreset,
+      dryRun,
+      targeted: targetBlockNumber != null ? "explicit" : "current",
       deletedRows: deleted.count,
       createdRows: newRows.length,
       newStartDate: nextMonday.toISOString().slice(0, 10),
+      newPhaseEnd: newPhaseEnd.toISOString().slice(0, 10),
       weeksAdded,
+      clearedBlockReviews: clearedReviews,
       materialized,
     },
   };
