@@ -210,6 +210,8 @@ function mapPlannedSession(json: unknown): PlannedSessionData {
     durationMin: s.durationMin,
     targetHR: s.hrTarget ? { from: s.hrTarget.from, to: s.hrTarget.to } : undefined,
     targetPace: s.paceTarget ? { from: s.paceTarget.from, to: s.paceTarget.to } : undefined,
+    // Sprint 2.3 #4: surface the run interval structure to the coach.
+    structure: s.structure,
     exercises: s.exercises?.map((e) => ({
       name: e.name,
       sets: e.sets,
@@ -585,6 +587,8 @@ async function buildUpcoming(userId: string, today: Date): Promise<UpcomingSecti
             planned: {
               durationMin: raw.durationMin,
               targetHR: raw.hrTarget ? { from: raw.hrTarget.from, to: raw.hrTarget.to } : undefined,
+              // Sprint 2.3 #4: run interval structure (warmup / N×M @ pace / cooldown).
+              structure: raw.structure,
               exercises: raw.exercises?.map((e) => ({
                 name: e.name,
                 sets: e.sets,

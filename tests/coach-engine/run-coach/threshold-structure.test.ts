@@ -109,3 +109,45 @@ describe("watch ⇔ app parity — Garmin steps mirror the structure", () => {
     expect(rg.workoutSteps[1].endConditionValue).toBe((iv.restMin ?? 0) * 60);
   });
 });
+
+// Sprint 2.3 #3 — run-volume pain governor (composes with the threshold gate).
+describe("run-volume pain governor (shinVolumeGate)", () => {
+  const longMin = (plan: { sessions: SessionPlan[] }) =>
+    plan.sessions.find((s) => s.type === "long_run")!.durationMin!;
+
+  it("regress (shin≥4): quality cancelled → easy run, long volume −20%", () => {
+    const normal = generateWeekRunPlan(cfg(1), 2, 39, monday, hrCtx, null, true, "progress");
+    const regress = generateWeekRunPlan(cfg(1), 2, 39, monday, hrCtx, null, false, "regress");
+    // Tue quality day becomes an easy run (no threshold intensity on an angry shin).
+    expect(normal.sessions[1].type).toBe("threshold_run");
+    expect(regress.sessions[1].type).toBe("easy_run");
+    expect(regress.sessions.find((s) => s.type === "threshold_run")).toBeUndefined();
+    // Long-run volume reduced ~20%.
+    expect(longMin(regress)).toBeLessThan(longMin(normal));
+  });
+
+  it("regress also cancels vo2max quality in blocks 4-5", () => {
+    const regress = generateWeekRunPlan(cfg(4), 14, 46, monday, hrCtx, null, false, "regress");
+    expect(regress.sessions[1].type).toBe("easy_run");
+    expect(regress.sessions.find((s) => s.type === "vo2max_intervals")).toBeUndefined();
+  });
+
+  it("hold (shin=3): threshold clamped to 2×10 floor, volume UNCHANGED (no double penalty)", () => {
+    const progress = generateWeekRunPlan(cfg(1), 3, 39, monday, hrCtx, null, true, "progress");
+    const hold = generateWeekRunPlan(cfg(1), 3, 39, monday, hrCtx, null, false, "hold");
+    // W3 progress → ladder 3×8; hold → conservative 2×10 floor.
+    expect(progress.sessions.find((s) => s.type === "threshold_run")!.structure?.workIntervals?.[0])
+      .toMatchObject({ repeats: 3, durationMin: 8 });
+    expect(hold.sessions.find((s) => s.type === "threshold_run")!.structure?.workIntervals?.[0])
+      .toMatchObject({ repeats: 2, durationMin: 10 });
+    // Volume identical — hold only touches the structure, not the run volume.
+    expect(longMin(hold)).toBe(longMin(progress));
+  });
+
+  it("progress / no gate: full volume + ladder threshold (back-compat)", () => {
+    const withGate = generateWeekRunPlan(cfg(1), 2, 39, monday, hrCtx, null, true, "progress");
+    const noGate = generateWeekRunPlan(cfg(1), 2, 39, monday, hrCtx, null, true);
+    expect(longMin(withGate)).toBe(longMin(noGate));
+    expect(noGate.sessions[1].type).toBe("threshold_run");
+  });
+});

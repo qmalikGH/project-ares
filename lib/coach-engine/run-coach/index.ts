@@ -562,6 +562,14 @@ export function generateWeekRunPlan(
    *  clamped to the conservative 2×10 floor. Default true = progress per
    *  the block/week ladder. Computed by the regenerate path from real data. */
   greenForProgression: boolean = true,
+  /** Sprint 2.3: graded run-volume pain governor from the worst shin-NRS of
+   *  the recent run week:
+   *    "progress" (≤2) → normal volume + threshold per ladder,
+   *    "hold" (3)      → normal volume + threshold floor (via greenForProgression=false),
+   *    "regress" (≥4)  → −20% run volume + quality day replaced by an easy run.
+   *  null/undefined → no modulation (treated as "progress"). One signal feeds
+   *  both this and `greenForProgression`, so a run is never double-penalized. */
+  shinVolumeGate?: "progress" | "hold" | "regress" | null,
 ): WeekRunPlan {
   const paces = vdotToPaces(vdot);
   const blockNumber = phaseConfig.blockNumber;
@@ -576,12 +584,17 @@ export function generateWeekRunPlan(
   const qualityBaseline = phaseConfig.qualityRunBaselineMin ?? 40;
   const easyBaseline = phaseConfig.easyRunBaselineMin ?? 35;
 
-  const longRunMin = Math.max(20, Math.round(longBaseline * volumeProg.longRunMultiplier));
+  // Sprint 2.3: pain governor — a recent shin flare (≥4) cuts run volume 20%
+  // for THIS (imminent) week. Applied to the volume base so every easy/long
+  // run inherits it. "hold"/"progress" leave volume untouched (hold only
+  // clamps the threshold structure via greenForProgression).
+  const volumeFactor = shinVolumeGate === "regress" ? 0.8 : 1;
+  const longRunMin = Math.max(20, Math.round(longBaseline * volumeProg.longRunMultiplier * volumeFactor));
   // Sprint 2.2: threshold is no longer sized by the volume multiplier — its
   // duration is derived from the interval structure (thresholdStructureFor).
   // qualityBaseline is kept only for non-threshold quality types if any.
   void qualityBaseline;
-  const easyRunMin = Math.max(20, Math.round(easyBaseline * volumeProg.easyRunMultiplier));
+  const easyRunMin = Math.max(20, Math.round(easyBaseline * volumeProg.easyRunMultiplier * volumeFactor));
 
   const dateAt = (offsetDays: number): Date =>
     new Date(weekStartDate.getTime() + offsetDays * 86400000);
@@ -610,6 +623,11 @@ export function generateWeekRunPlan(
       "calibration_run",
       hr,
     );
+  } else if (shinVolumeGate === "regress") {
+    // Sprint 2.3: shin flare (≥4) → cancel the quality session, run easy
+    // instead (no intensity load on an angry shin). Same for threshold + vo2max.
+    qualityDay = easyRun(dateAt(1), easyRunMin, paces, hr);
+    qualityDay.notes = "[Shin-Schutz: Quali gestrichen, locker laufen]";
   } else if (blockNumber <= 3) {
     // Sprint 2.2: threshold = structured interval session (capped threshold
     // time), progressing via the ladder, gated by shin/RHR. Blocks 1–3.

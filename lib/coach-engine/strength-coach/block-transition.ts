@@ -155,22 +155,11 @@ export function decideTmProposal(params: {
     note,
   });
 
-  // 1. HSR shin gate — overrides normal progression.
-  if (isHsr && shinNrs != null) {
-    if (shinNrs > 5) {
-      return mk(
-        snap2p5(currentTm * 0.95),
-        "stepback_shin",
-        `Shin-NRS ${shinNrs} > 5 → HSR-Last −5% (Sehne schützen).`,
-      );
-    }
-    if (shinNrs >= 4) {
-      return mk(currentTm, "hold_shin", `Shin-NRS ${shinNrs} (4–5) → TM halten.`);
-    }
-    // ≤3 → proceed normally.
-  }
-
-  // 2. Initial re-baseline: stored TM is far below earned performance.
+  // 1. Initial re-baseline: stored TM is far below earned performance (>10%).
+  // Sprint 2.3 (Q decision): this is a DATA correction of a too-low anchor, not
+  // a progression — so it fires BEFORE the HSR shin gate. (The gate still holds
+  // ongoing earned/stall progression for HSR lifts while shins flare.) Only
+  // recurs if the athlete genuinely logs a set >10% above the corrected TM.
   if (bestEstimate && bestEstimate > 0) {
     const div = checkOneRMDivergence(currentTm, bestEstimate);
     if (div && div.pctDiff > 10) {
@@ -183,6 +172,21 @@ export function decideTmProposal(params: {
         );
       }
     }
+  }
+
+  // 2. HSR shin gate — overrides normal (earned/stall) progression.
+  if (isHsr && shinNrs != null) {
+    if (shinNrs > 5) {
+      return mk(
+        snap2p5(currentTm * 0.95),
+        "stepback_shin",
+        `Shin-NRS ${shinNrs} > 5 → HSR-Last −5% (Sehne schützen).`,
+      );
+    }
+    if (shinNrs >= 4) {
+      return mk(currentTm, "hold_shin", `Shin-NRS ${shinNrs} (4–5) → TM halten.`);
+    }
+    // ≤3 → proceed normally.
   }
 
   // 3. Earned / stall.
@@ -379,4 +383,55 @@ export async function proposalsForPhase(
     prevCycleStart: prevPhase?.startDate ?? null,
     baselineRpeCap: cfg?.strengthRpeCap ?? 8,
   });
+}
+
+export interface UnloggedSessionsSummary {
+  /** Completed strength sessions in the phase with NO logged working sets. */
+  total: number;
+  /** Count per session type (strength_a/b/c). */
+  byType: Record<string, number>;
+}
+
+/**
+ * Sprint 2.3 #1: count completed strength sessions in a phase that carry ZERO
+ * ExerciseLog rows — i.e. they were marked done but the working sets were never
+ * captured, so they are invisible to the TM evaluation. Surfaced in the W4
+ * review so Q sees that a proposal rests on partial data. Write-free.
+ */
+export async function countUnloggedStrengthSessions(
+  userId: string,
+  phaseId: string,
+): Promise<UnloggedSessionsSummary> {
+  const phase = await db.phase.findFirst({
+    where: { id: phaseId, macrocycle: { userId } },
+    select: { startDate: true, plannedEndDate: true },
+  });
+  if (!phase) return { total: 0, byType: {} };
+
+  const workouts = await db.workout.findMany({
+    where: {
+      userId,
+      type: { in: ["strength_a", "strength_b", "strength_c"] },
+      status: "completed",
+      date: { gte: phase.startDate, lt: phase.plannedEndDate },
+    },
+    select: { id: true, type: true },
+  });
+  if (workouts.length === 0) return { total: 0, byType: {} };
+
+  const logged = await db.exerciseLog.findMany({
+    where: { userId, workoutId: { in: workouts.map((w) => w.id) } },
+    distinct: ["workoutId"],
+    select: { workoutId: true },
+  });
+  const loggedIds = new Set(logged.map((l) => l.workoutId));
+
+  const byType: Record<string, number> = {};
+  let total = 0;
+  for (const w of workouts) {
+    if (loggedIds.has(w.id)) continue;
+    byType[w.type] = (byType[w.type] ?? 0) + 1;
+    total += 1;
+  }
+  return { total, byType };
 }

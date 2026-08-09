@@ -133,6 +133,33 @@ describe("decideTmProposal", () => {
     expect(p.reason).toBe("earned");
   });
 
+  it("Sprint 2.3: initial re-baseline BYPASSES the HSR shin gate (data correction, not progression)", () => {
+    const p = decideTmProposal({
+      ...base,
+      exerciseName: "Romanian Deadlift",
+      isHsr: true,
+      currentTm: 100,
+      thisCycleClean: false, // would be hold normally
+      shinNrs: 5, // HSR gate would hold...
+      bestEstimate: 114, // ...but a >10% under-anchor corrects anyway
+    })!;
+    expect(p.reason).toBe("initial_rebaseline");
+    expect(p.proposedTm).toBe(115);
+  });
+
+  it("HSR shin gate still holds earned/stall progression (no big under-anchor)", () => {
+    const p = decideTmProposal({
+      ...base,
+      exerciseName: "Romanian Deadlift",
+      isHsr: true,
+      currentTm: 100,
+      thisCycleClean: true,
+      shinNrs: 5,
+      bestEstimate: 104, // <10% over TM → no rebaseline → gate holds
+    })!;
+    expect(p.reason).toBe("hold_shin");
+  });
+
   it("initial re-baseline when best set implies >10% above current TM", () => {
     const p = decideTmProposal({
       ...base,

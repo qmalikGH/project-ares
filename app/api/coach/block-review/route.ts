@@ -20,7 +20,7 @@ import {
 } from "@/lib/ai-coach/prompts/block-review";
 import { decidePhaseTransition } from "@/lib/coach-engine/periodization";
 import { buildBlockReviewInput } from "@/lib/block-review/compute";
-import { proposalsForPhase } from "@/lib/coach-engine/strength-coach/block-transition";
+import { proposalsForPhase, countUnloggedStrengthSessions } from "@/lib/coach-engine/strength-coach/block-transition";
 import { dayKey } from "@/lib/db/queries/sensors";
 import { userToday } from "@/lib/date";
 import { loadBlockContext } from "@/lib/db/queries/workout-context";
@@ -98,6 +98,10 @@ export async function POST(req: Request) {
   // Sprint 2.1: Training-Max increment proposals for the just-finished cycle
   // (write-free; Q confirms each on the W4 review page via /api/coach/tm-confirm).
   const tmProposals = await proposalsForPhase(userId, phase.id);
+
+  // Sprint 2.3 #1: how many completed strength sessions in this cycle have no
+  // logged working sets (→ invisible to the TM evaluation). Flags partial-data.
+  const unloggedStrengthSessions = await countUnloggedStrengthSessions(userId, phase.id);
 
   // AI narration
   let aiSummary: string | null = null;
@@ -188,6 +192,7 @@ export async function POST(req: Request) {
     decision,
     reviewInput,
     tmProposals,
+    unloggedStrengthSessions,
     aiSummary,
     aiCostUsd,
   });

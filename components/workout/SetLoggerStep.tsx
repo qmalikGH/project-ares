@@ -24,6 +24,11 @@ interface ExerciseLog {
   supersetOrder?: number | null;
   supersetRationale?: string;
   restSec?: number;
+  // Sprint 2.3 #1: warmup ramp sets are auto-captured (not asked, not sent to
+  // ExerciseLog). Working sets need an EXPLICIT confirm ("wie vorgegeben" tap
+  // or an edit) — no silent clean. `confirmed` starts false for working sets.
+  isWarmup: boolean;
+  confirmed: boolean;
 }
 
 /**
@@ -72,9 +77,15 @@ export function SetLoggerStep({
       supersetOrder: ex.supersetOrder ?? null,
       supersetRationale: ex.supersetRationale,
       restSec: ex.restSec,
+      isWarmup: ex.isWarmup ?? false,
+      // Warmups are auto-confirmed (and never sent to ExerciseLog); working
+      // sets start unconfirmed → an explicit tap/edit is required.
+      confirmed: ex.isWarmup ?? false,
     })),
   );
   const [actualDuration, setActualDuration] = useState(durationMin);
+
+  const warmupCount = logs.filter((l) => l.isWarmup).length;
 
   function updateSet(
     exIdx: number,
@@ -88,7 +99,19 @@ export function SetLoggerStep({
       const sets = [...exercise.actualSets];
       sets[setIdx] = { ...sets[setIdx], [field]: value };
       exercise.actualSets = sets;
+      // Editing a working set is an explicit confirmation.
+      exercise.confirmed = true;
       next[exIdx] = exercise;
+      return next;
+    });
+  }
+
+  /** "wie vorgegeben" one-tap: confirm the working exercise at its prefilled
+   *  (planned) values — an explicit attestation, not a silent default. */
+  function confirmExercise(exIdx: number) {
+    setLogs((prev) => {
+      const next = [...prev];
+      next[exIdx] = { ...next[exIdx], confirmed: true };
       return next;
     });
   }
@@ -103,15 +126,20 @@ export function SetLoggerStep({
 
   function submit() {
     onComplete({
-      exercises: logs.map((l) => ({
-        name: l.name,
-        plannedSets: l.plannedSets,
-        plannedReps: l.plannedReps,
-        plannedLoadPct: l.plannedLoadPct,
-        actualSets: l.skipped ? [] : l.actualSets,
-        skipped: l.skipped,
-        exerciseNotes: l.exerciseNotes,
-      })),
+      // Sprint 2.3 #1: warmups are NOT sent (auto-captured, no ExerciseLog).
+      // Unconfirmed working sets send empty actualSets → no ExerciseLog → the
+      // session shows up as "unlogged" in the W4 review instead of fake-clean.
+      exercises: logs
+        .filter((l) => !l.isWarmup)
+        .map((l) => ({
+          name: l.name,
+          plannedSets: l.plannedSets,
+          plannedReps: l.plannedReps,
+          plannedLoadPct: l.plannedLoadPct,
+          actualSets: l.skipped || !l.confirmed ? [] : l.actualSets,
+          skipped: l.skipped,
+          exerciseNotes: l.exerciseNotes,
+        })),
       durationActualMin: actualDuration,
     });
   }
@@ -119,20 +147,30 @@ export function SetLoggerStep({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Trag pro Übung ein, was du tatsächlich gemacht hast. Last in kg, RPE 1-10
-        pro Satz.
+        Bestätige pro Übung deine Arbeitssätze — „wie vorgegeben" mit einem Tap,
+        oder Last/Reps anpassen. Last in kg, RPE 1-10.
       </p>
+
+      {warmupCount > 0 && (
+        <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          Aufwärm-Rampe: {warmupCount} {warmupCount === 1 ? "Satz" : "Sätze"} automatisch erfasst —
+          du musst nur die Arbeitssätze bestätigen.
+        </div>
+      )}
 
       <div className="space-y-3">
         {groupBySuperset(logs).map((group, gIdx) =>
           group.kind === "single" ? (
-            <ExerciseBlock
-              key={`s-${gIdx}`}
-              ex={group.item.log}
-              exIdx={group.item.idx}
-              onSetUpdate={updateSet}
-              onToggleSkipped={() => toggleSkipped(group.item.idx)}
-            />
+            group.item.log.isWarmup ? null : (
+              <ExerciseBlock
+                key={`s-${gIdx}`}
+                ex={group.item.log}
+                exIdx={group.item.idx}
+                onSetUpdate={updateSet}
+                onToggleSkipped={() => toggleSkipped(group.item.idx)}
+                onConfirm={() => confirmExercise(group.item.idx)}
+              />
+            )
           ) : (
             <SupersetBlock
               key={`g-${gIdx}-${group.groupId}`}
@@ -142,6 +180,7 @@ export function SetLoggerStep({
               items={group.items}
               onSetUpdate={updateSet}
               onToggleSkipped={toggleSkipped}
+              onConfirm={confirmExercise}
             />
           ),
         )}
@@ -223,6 +262,7 @@ function SupersetBlock({
   items,
   onSetUpdate,
   onToggleSkipped,
+  onConfirm,
 }: {
   groupId: string;
   rationale?: string;
@@ -235,6 +275,7 @@ function SupersetBlock({
     value: number | null,
   ) => void;
   onToggleSkipped: (exIdx: number) => void;
+  onConfirm: (exIdx: number) => void;
 }) {
   return (
     <div className="rounded-md border-l-4 border-blue-500 bg-blue-500/5 p-3 space-y-3">
@@ -265,6 +306,7 @@ function SupersetBlock({
             exIdx={idx}
             onSetUpdate={onSetUpdate}
             onToggleSkipped={() => onToggleSkipped(idx)}
+            onConfirm={() => onConfirm(idx)}
             inSuperset
           />
         </div>
@@ -278,6 +320,7 @@ function ExerciseBlock({
   exIdx,
   onSetUpdate,
   onToggleSkipped,
+  onConfirm,
   inSuperset,
 }: {
   ex: ExerciseLog;
@@ -289,12 +332,14 @@ function ExerciseBlock({
     value: number | null,
   ) => void;
   onToggleSkipped: () => void;
+  onConfirm: () => void;
   inSuperset?: boolean;
 }) {
   const isIso = typeof ex.plannedReps === "string" && /sec/i.test(ex.plannedReps);
+  const needsConfirm = !ex.skipped && !ex.confirmed;
   const wrapperCls = inSuperset
-    ? `rounded-md bg-background/60 p-2 ${ex.skipped ? "opacity-50" : ""}`
-    : `rounded-md border p-3 ${ex.skipped ? "opacity-50" : ""}`;
+    ? `rounded-md bg-background/60 p-2 ${ex.skipped ? "opacity-50" : ""} ${needsConfirm ? "ring-1 ring-amber-500/40" : ""}`
+    : `rounded-md border p-3 ${ex.skipped ? "opacity-50" : ""} ${needsConfirm ? "ring-1 ring-amber-500/40" : ""}`;
 
   return (
     <div className={wrapperCls}>
@@ -305,6 +350,9 @@ function ExerciseBlock({
             Plan: {ex.plannedSets} × {ex.plannedReps}
             {ex.plannedLoadPct != null && ` @ ${ex.plannedLoadPct}%`}
           </span>
+          {ex.confirmed && !ex.skipped && (
+            <span className="ml-2 text-xs text-emerald-600 dark:text-emerald-400">✓ erfasst</span>
+          )}
         </div>
         <button
           onClick={onToggleSkipped}
@@ -313,6 +361,16 @@ function ExerciseBlock({
           {ex.skipped ? "doch gemacht" : "übersprungen"}
         </button>
       </div>
+
+      {needsConfirm && (
+        <button
+          onClick={onConfirm}
+          className="mb-2 w-full rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-500/20 dark:text-amber-300"
+        >
+          ✓ wie vorgegeben ({ex.plannedSets} × {ex.plannedReps}
+          {!isIso && ex.actualSets[0]?.loadKg != null ? ` @ ${ex.actualSets[0].loadKg} kg` : ""})
+        </button>
+      )}
 
       {!ex.skipped && (
         <div className="text-xs">
