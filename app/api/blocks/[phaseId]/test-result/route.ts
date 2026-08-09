@@ -176,12 +176,14 @@ export async function POST(
       vdotOverride: newVdot,
       vdotOverrideAt: new Date(),
       vdotOverrideRationale: `Block ${phase.blockNumber} Test (${parsed.data.testType}): VDOT ${achievedVdot.toFixed(1)} → ${newVdot}`,
+      vdotSource: "block_test",
     },
     create: {
       userId,
       vdotOverride: newVdot,
       vdotOverrideAt: new Date(),
       vdotOverrideRationale: `Block ${phase.blockNumber} Test (${parsed.data.testType}): VDOT ${achievedVdot.toFixed(1)} → ${newVdot}`,
+      vdotSource: "block_test",
     },
   });
 

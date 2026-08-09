@@ -445,6 +445,12 @@ model UserSettings {
   vdotOverride            Int?
   vdotOverrideAt          DateTime?
   vdotOverrideRationale   String?   @db.Text
+  // Sprint 2.6 (A6): provenance, mirroring hrZonesSource / exerciseMaxSource.
+  // Only "manual" is TTL-protected against auto-calibration (28d) — engine
+  // writes and operator placeholders may be superseded by a measurement.
+  // "manual" | "auto_rolling_14runs" | "block_test" | "w1_calibration"
+  // | "onboarding" | "comeback_placeholder"
+  vdotSource              String?
 
   // HR Zones (Karvonen HRR — Sprint v0.6)
   hrMax                   Int?

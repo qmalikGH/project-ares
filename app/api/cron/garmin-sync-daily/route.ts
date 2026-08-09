@@ -8,6 +8,7 @@ import { userTodayForUser } from "@/lib/date";
 import { syncGarminForDate, classifyError } from "@/lib/garmin/sync";
 import { calibrateMealPlan } from "@/lib/nutrition/calibration";
 import { recalibrateHrRest } from "@/lib/coach-engine/hr-calibration";
+import { recalibrateVdot } from "@/lib/coach-engine/vdot-recalibration";
 
 /** Sprint v1.8 #4: damp dynamic-deficit recompute to ~once per week. */
 const RECALIBRATION_INTERVAL_MS = 7 * 86400000;
@@ -36,6 +37,7 @@ export async function GET(req: Request) {
     syncedFor?: string;
     recalibrated?: string;
     hrRecalibrated?: string;
+    vdotRecalibrated?: string;
   }> = [];
 
   for (const user of users) {
@@ -139,6 +141,27 @@ export async function GET(req: Request) {
         hrRecalibrated = `error: ${hrErr instanceof Error ? hrErr.message : String(hrErr)}`;
       }
 
+      // Sprint 2.6 (A6) — VDOT recalibration: same weekly damping, same shape.
+      // Asymmetric by construction (see vdot-autocalibration.ts): it may lower
+      // freely but only raises on a trustworthy measurement, outside the comeback
+      // ramp, with the shin gate green. Applying also regenerates + materializes,
+      // because paces are baked into sessions rather than derived on read.
+      let vdotRecalibrated: string | undefined;
+      try {
+        const vs = await db.userSettings.findUnique({
+          where: { userId: user.id },
+          select: { vdotOverrideAt: true },
+        });
+        const lastVdot = vs?.vdotOverrideAt?.getTime() ?? 0;
+        if (Date.now() - lastVdot >= RECALIBRATION_INTERVAL_MS) {
+          const v = await recalibrateVdot(user.id);
+          vdotRecalibrated =
+            v.status === "applied" ? `applied:${v.decision?.newVdot}` : v.status;
+        }
+      } catch (vdotErr) {
+        vdotRecalibrated = `error: ${vdotErr instanceof Error ? vdotErr.message : String(vdotErr)}`;
+      }
+
       results.push({
         userId: user.id,
         status: result.status,
@@ -146,6 +169,7 @@ export async function GET(req: Request) {
         syncedFor: yesterday.toISOString().slice(0, 10),
         recalibrated,
         hrRecalibrated,
+        vdotRecalibrated,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

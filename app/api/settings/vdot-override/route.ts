@@ -15,9 +15,18 @@ import {
 } from "@/lib/db/queries/settings";
 import { regenerateFutureSessionPaces } from "@/lib/db/queries/regenerate";
 import { createNotification } from "@/lib/notifications/create";
+import {
+  VDOT_SOURCE_MANUAL,
+  VDOT_TABLE_MIN,
+  VDOT_TABLE_MAX,
+} from "@/lib/coach-engine/vdot-autocalibration";
 
+// Sprint 2.6 (A6): bounds were 30-80. `vdotToPaces` THROWS above 65, so 66-80
+// was accepted here and then blew up in every downstream pace lookup — and
+// anything outside the contiguous 35-50 band snaps silently to a neighbouring
+// row. Accept only what the pace table can actually represent.
 const Schema = z.object({
-  newVdot: z.number().int().min(30).max(80),
+  newVdot: z.number().int().min(VDOT_TABLE_MIN).max(VDOT_TABLE_MAX),
   rationale: z.string().min(10).max(2000),
   confirmed: z.boolean().optional(),
 });
@@ -62,6 +71,9 @@ export async function POST(req: Request) {
       vdotOverride: newVdot,
       vdotOverrideAt: new Date(),
       vdotOverrideRationale: rationale,
+      // Sprint 2.6 (A6): this is the one path that marks a value as deliberate.
+      // Auto-calibration will not overwrite it for MANUAL_PIN_TTL_DAYS.
+      vdotSource: VDOT_SOURCE_MANUAL,
     },
   });
 

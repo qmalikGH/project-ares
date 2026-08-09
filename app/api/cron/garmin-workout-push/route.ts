@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db/client";
 import { userTomorrowForUser } from "@/lib/date";
 import { vdotToPaces } from "@/lib/coach-engine/run-coach";
+import { getEffectiveVdot } from "@/lib/db/queries/settings";
 import { pushWorkoutToGarmin } from "@/lib/garmin/workout-sync";
 import { materializeWorkouts } from "@/lib/coach-engine/materialize";
 import type { SessionPlan } from "@/lib/coach-engine/types";
@@ -33,7 +34,6 @@ export async function GET(req: Request) {
     where: { garminWorkoutPushEnabled: true },
     select: {
       userId: true,
-      vdotOverride: true,
     },
   });
 
@@ -88,7 +88,11 @@ export async function GET(req: Request) {
         continue;
       }
 
-      const effectiveVdot = settings.vdotOverride ?? 40;
+      // Sprint 2.6 (A6): was `settings.vdotOverride ?? 40` — a second, private
+      // resolution of the same number with a different default (40) than the
+      // engine's (35 since A6, 42 before). The watch could be handed paces the
+      // app never showed. One resolver for one number.
+      const effectiveVdot = await getEffectiveVdot(settings.userId);
       let paces;
       try {
         paces = vdotToPaces(effectiveVdot);
