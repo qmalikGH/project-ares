@@ -11,34 +11,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { db } from "@/lib/db/client";
-import { getCurrentUserId } from "@/lib/auth/current-user";
+import { resolveRouteUserId } from "@/lib/auth/route-user";
 import { userTodayDynamic } from "@/lib/date";
 
-async function resolveUserId(req: NextRequest): Promise<string | NextResponse> {
-  const auth = req.headers.get("authorization");
-  const secret = process.env.CRON_SECRET;
-  if (secret && auth === `Bearer ${secret}`) {
-    let body: { userId?: unknown } = {};
-    try {
-      body = (await req.json()) as { userId?: unknown };
-    } catch {
-      // empty body
-    }
-    if (typeof body.userId !== "string" || body.userId.length === 0) {
-      return NextResponse.json(
-        { status: "error", message: "Missing userId in body" },
-        { status: 400 },
-      );
-    }
-    return body.userId;
-  }
-  return getCurrentUserId();
-}
-
 export async function GET(req: NextRequest) {
-  const resolved = await resolveUserId(req);
-  if (resolved instanceof NextResponse) return resolved;
-  const userId = resolved;
+  // Sprint 2.5: shared resolver. A GET has no body, so the bearer path resolves
+  // the athlete directly.
+  const userId = await resolveRouteUserId(req);
 
   const url = new URL(req.url);
   const daysParam = url.searchParams.get("days");

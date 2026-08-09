@@ -5,6 +5,7 @@ const mockBuildCoachingExport = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth/current-user", () => ({
   getCurrentUserId: vi.fn(async () => "user-123"),
+  getServiceUserId: vi.fn(async () => "user-123"),
 }));
 
 vi.mock("@/lib/coaching-export/build-export", () => ({

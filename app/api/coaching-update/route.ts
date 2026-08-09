@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getCurrentUserId } from "@/lib/auth/current-user";
+import { getServiceUserId } from "@/lib/auth/current-user";
+import { readCoachingToken } from "@/lib/auth/coaching-token";
 import { handleCoachingAction } from "@/lib/coaching-update/handle-action";
 
 export const dynamic = "force-dynamic";
@@ -13,10 +14,7 @@ const RequestBodySchema = z.object({
 });
 
 export async function POST(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const token = searchParams.get("token");
-
-  if (!token || !process.env.COACHING_EXPORT_TOKEN || token !== process.env.COACHING_EXPORT_TOKEN) {
+  if (!readCoachingToken(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -35,7 +33,8 @@ export async function POST(req: Request) {
     );
   }
 
-  const userId = await getCurrentUserId();
+  // Service caller — no browser session exists on this path.
+  const userId = await getServiceUserId();
   const result = await handleCoachingAction(
     userId,
     parsed.data.action,

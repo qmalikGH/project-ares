@@ -17,33 +17,18 @@ import { NextResponse, type NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 
 import { db } from "@/lib/db/client";
-import { getCurrentUserId } from "@/lib/auth/current-user";
-
-async function resolveUserId(req: NextRequest): Promise<string | NextResponse> {
-  const auth = req.headers.get("authorization");
-  const secret = process.env.CRON_SECRET;
-  if (secret && auth === `Bearer ${secret}`) {
-    let body: { userId?: unknown } = {};
-    try {
-      body = (await req.json()) as { userId?: unknown };
-    } catch {
-      // empty body — fall through to validation below
-    }
-    if (typeof body.userId !== "string" || body.userId.length === 0) {
-      return NextResponse.json(
-        { status: "error", message: "Missing userId in body" },
-        { status: 400 },
-      );
-    }
-    return body.userId;
-  }
-  return getCurrentUserId();
-}
+import { resolveRouteUserId } from "@/lib/auth/route-user";
 
 export async function POST(req: NextRequest) {
-  const resolved = await resolveUserId(req);
-  if (resolved instanceof NextResponse) return resolved;
-  const userId = resolved;
+  // Sprint 2.5: shared resolver; `userId` in the body only counts on the
+  // bearer path.
+  let bodyUserId: unknown;
+  try {
+    bodyUserId = ((await req.json()) as { userId?: unknown }).userId;
+  } catch {
+    // empty / non-JSON body is fine
+  }
+  const userId = await resolveRouteUserId(req, bodyUserId);
 
   const completed = await db.workout.findMany({
     where: { userId, status: "completed" },
