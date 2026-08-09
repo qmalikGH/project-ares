@@ -13,10 +13,13 @@ import type {
   FinalSession,
   LimitationsOutput,
   LoadOutput,
+  PaceTarget,
   ReadinessOutput,
   SessionPlan,
+  VDOTPaces,
 } from "../types";
 import { WALL_SIT } from "../strength-coach";
+import { paceStringToMinPerKm } from "../run-coach";
 
 const KNEE_HARD_THRESHOLD = 8;
 const KNEE_MOD_LOWER = 5;
@@ -25,7 +28,34 @@ const ACWR_HIGH_LOWER = 1.3;
 const ACWR_DANGER = 1.4;
 const ACWR_HIGH_UPPER = 1.5;
 
-const M_PACE_FALLBACK = "5:05"; // VDOT 42 marathon pace; consumer should pass paces in plan
+/**
+ * Sprint 2.5 — the YELLOW rule used to write a hardcoded "5:05" here, a VDOT-42
+ * marathon pace left over from an earlier era. At VDOT 35 the athlete's
+ * threshold pace is 5:31 and marathon pace is 5:48, so the rule that exists to
+ * make a low-readiness day EASIER was prescribing 26 s/km FASTER than the
+ * session it replaced. The paces now come from the caller's effective VDOT, and
+ * `clampNotFaster` below makes the whole class of mistake unrepresentable.
+ */
+function slower(a: string, b: string): string {
+  return paceStringToMinPerKm(a) >= paceStringToMinPerKm(b) ? a : b;
+}
+
+/**
+ * A modulation may slow a session down or drop its pace target entirely; it may
+ * never speed one up. Applied to whatever the pipeline produced, so a new rule
+ * cannot reintroduce the bug.
+ */
+function clampNotFaster(
+  original: PaceTarget | undefined,
+  modulatedPace: PaceTarget | undefined,
+): PaceTarget | undefined {
+  if (!modulatedPace) return modulatedPace; // cleared → session is easy/unpaced
+  if (!original) return modulatedPace;
+  return {
+    from: slower(modulatedPace.from, original.from),
+    to: slower(modulatedPace.to, original.to),
+  };
+}
 
 function isRunSession(session: SessionPlan): boolean {
   return [
@@ -131,6 +161,9 @@ export function modulateSession(
   readiness: ReadinessOutput,
   load: LoadOutput,
   limitations: LimitationsOutput,
+  /** Sprint 2.5: the athlete's current VDOT paces. Without them a rule that
+   *  wants to slow a session down leaves the pace alone rather than guessing. */
+  paces?: VDOTPaces,
 ): FinalSession {
   // ============================================
   // 1. HARD CONSTRAINTS
@@ -203,11 +236,16 @@ export function modulateSession(
     }
   }
 
-  // Readiness YELLOW + threshold → marathon pace
+  // Readiness YELLOW + threshold → marathon pace (slower by construction)
   if (readiness.band === "YELLOW" && modulated.type === "threshold_run") {
-    modulated.paceTarget = { from: M_PACE_FALLBACK, to: M_PACE_FALLBACK };
     modulated.type = "tempo_run";
-    modifications.push("Readiness Yellow — Pace auf Marathon statt Threshold");
+    if (paces) {
+      modulated.paceTarget = { from: paces.M, to: paces.M };
+      modifications.push("Readiness Yellow — Pace auf Marathon statt Threshold");
+    } else {
+      // No paces supplied: downgrade the session type but never invent a number.
+      modifications.push("Readiness Yellow — Threshold auf Tempo reduziert");
+    }
   }
 
   // ============================================
@@ -290,6 +328,11 @@ export function modulateSession(
       }
     }
   }
+
+  // Sprint 2.5 — pipeline invariant, applied last so it covers every rule above
+  // and every rule added later: a modulation may slow a session down or drop
+  // its pace entirely, never speed it up.
+  modulated.paceTarget = clampNotFaster(plannedSession.paceTarget, modulated.paceTarget);
 
   return {
     ...modulated,

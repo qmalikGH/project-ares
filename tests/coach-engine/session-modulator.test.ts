@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { modulateSession } from "@/lib/coach-engine/session-modulator";
+import { vdotToPaces } from "@/lib/coach-engine/run-coach";
 import type {
   LimitationsOutput,
   LoadOutput,
@@ -111,7 +112,24 @@ describe("modulateSession — hard constraints", () => {
 });
 
 describe("modulateSession — readiness modifications", () => {
-  it("YELLOW + threshold → tempo at M-pace", () => {
+  it("YELLOW + threshold → tempo at the athlete's M-pace", () => {
+    // Sprint 2.5: this used to assert the hardcoded "5:05" — a VDOT-42 marathon
+    // pace that was FASTER than threshold pace for any athlete below VDOT ~42,
+    // i.e. the rule made a bad day harder. The pace now comes from the caller.
+    const paces = vdotToPaces(42);
+    const final = modulateSession(
+      thresholdSession,
+      { ...greenReadiness, band: "YELLOW", score: 70 },
+      optimalLoad,
+      cleanLimitations,
+      paces,
+    );
+    expect(final.type).toBe("tempo_run");
+    expect(final.paceTarget?.from).toBe(paces.M);
+    expect(final.modifications.join(" ")).toContain("Marathon");
+  });
+
+  it("YELLOW + threshold without paces: type downgraded, pace untouched", () => {
     const final = modulateSession(
       thresholdSession,
       { ...greenReadiness, band: "YELLOW", score: 70 },
@@ -119,8 +137,7 @@ describe("modulateSession — readiness modifications", () => {
       cleanLimitations,
     );
     expect(final.type).toBe("tempo_run");
-    expect(final.paceTarget?.from).toBe("5:05");
-    expect(final.modifications.join(" ")).toContain("Marathon");
+    expect(final.paceTarget).toEqual(thresholdSession.paceTarget);
   });
 
   it("ORANGE on Z3 session drops to Z2 + 80% volume", () => {

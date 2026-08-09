@@ -17,37 +17,23 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { db } from "@/lib/db/client";
-import { getCurrentUserId } from "@/lib/auth/current-user";
+import { resolveRouteUserId } from "@/lib/auth/route-user";
 import { userTodayDynamic } from "@/lib/date";
 import { resyncFutureWorkoutsToGarmin } from "@/lib/garmin/workout-sync";
 import { materializeWorkouts } from "@/lib/coach-engine/materialize";
 import { regeneratePlansFromNow } from "@/lib/db/queries/regenerate-plans";
 
-async function resolveUserId(req: NextRequest): Promise<string | NextResponse> {
-  const auth = req.headers.get("authorization");
-  const secret = process.env.CRON_SECRET;
-  if (secret && auth === `Bearer ${secret}`) {
-    let body: { userId?: unknown } = {};
-    try {
-      body = (await req.json()) as { userId?: unknown };
-    } catch {
-      // empty / non-JSON body — fall through to validation below
-    }
-    if (typeof body.userId !== "string" || body.userId.length === 0) {
-      return NextResponse.json(
-        { status: "error", message: "Missing userId in body" },
-        { status: 400 },
-      );
-    }
-    return body.userId;
-  }
-  return getCurrentUserId();
-}
-
 export async function POST(req: NextRequest) {
-  const resolved = await resolveUserId(req);
-  if (resolved instanceof NextResponse) return resolved;
-  const userId = resolved;
+  // Sprint 2.5: the local bearer/session resolver lived here in four copies and
+  // fell through to a getCurrentUserId() that could not fail. Shared helper now;
+  // `userId` in the body is honoured only on the bearer path.
+  let bodyUserId: unknown;
+  try {
+    bodyUserId = ((await req.json()) as { userId?: unknown }).userId;
+  } catch {
+    // empty / non-JSON body is fine — service callers may omit it.
+  }
+  const userId = await resolveRouteUserId(req, bodyUserId);
   const today0 = await userTodayDynamic();
 
   // KEY DIFFERENCE vs /api/settings/training-days: endDate > today (not
