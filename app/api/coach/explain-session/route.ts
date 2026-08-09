@@ -22,10 +22,8 @@ import {
 import { loadWorkoutContext } from "@/lib/db/queries/workout-context";
 import { formatWorkoutContext } from "@/lib/ai-coach/prompts/workout-context";
 import { isAiCoachEnabled } from "@/lib/db/queries/settings";
-import { computeReadiness, computeBaselines } from "@/lib/coach-engine/readiness";
-import { buildLoadOutput, computeDailyLoad } from "@/lib/coach-engine/load-monitoring";
-import { computeKneeStatus } from "@/lib/coach-engine/limitations";
 import { modulateSession } from "@/lib/coach-engine/session-modulator";
+import { buildModulationContext } from "@/lib/db/queries/modulation-context";
 import {
   getCurrentPhaseRow,
   findWeekPlanForDate,
@@ -100,29 +98,20 @@ export async function POST(req: Request) {
   const plannedSession = findTodaySessionInPlan(weekPlan.plannedSessions, today);
   if (!plannedSession) return NextResponse.json({ status: "NO_SESSION_TODAY" });
 
-  const todayRow = await getSensorDataOnDate(userId, today);
-  if (!todayRow?.userMorning) {
+  // Sprint 2.5: same shared builder as /sessions/today and /sessions/start, so
+  // the explanation describes the session the athlete will actually get.
+  const modCtx = await buildModulationContext(userId, today);
+  if (!modCtx) {
     return NextResponse.json({ status: "AWAITING_MORNING_INPUT" });
   }
-
-  const recentRows = await getRecentSensorData(userId, 30);
-  const baselines = computeBaselines(rowsToSensorInputs(recentRows));
-  const todayInputs: DailySensorInputs = {
-    date: todayDay,
-    garmin: (todayRow.garmin as unknown as DailySensorInputs["garmin"]) ?? undefined,
-    userMorning: todayRow.userMorning as unknown as UserMorningInputs,
-  };
-  const readiness = computeReadiness(todayInputs, baselines);
-  const recentLoads = await getRecentDailyLoads(userId, 28);
-  const todayLoadAu = computeDailyLoad(0, 0);
-  const load = buildLoadOutput(recentLoads, todayLoadAu, todayDay);
-  const limitations = computeKneeStatus(
-    { morning: todayInputs.userMorning, postSession: todayInputs.userPostSession?.trainingScore },
-    rowsToKneeLogs(recentRows),
-    (todayRow.therapyPhase as TherapyPhase | null) ?? "DISREPAIR",
-    null,
+  const { readiness, load, limitations, paces, inputs: todayInputs, baselines } = modCtx;
+  const finalSession = modulateSession(
+    plannedSession as SessionPlan,
+    readiness,
+    load,
+    limitations,
+    paces,
   );
-  const finalSession = modulateSession(plannedSession as SessionPlan, readiness, load, limitations);
 
   const rawSensors = {
     hrvRmssd: todayInputs.garmin?.hrvRmssd ?? null,

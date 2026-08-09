@@ -22,23 +22,9 @@ import {
 } from "@/lib/db/queries/plans";
 import { dayKey } from "@/lib/db/queries/sensors";
 import { userTodayDynamic } from "@/lib/date";
-import { computeReadiness, computeBaselines } from "@/lib/coach-engine/readiness";
-import { buildLoadOutput, computeDailyLoad } from "@/lib/coach-engine/load-monitoring";
-import { computeKneeStatus } from "@/lib/coach-engine/limitations";
 import { modulateSession } from "@/lib/coach-engine/session-modulator";
-import {
-  getRecentSensorData,
-  rowsToSensorInputs,
-  rowsToKneeLogs,
-  getRecentDailyLoads,
-  getSensorDataOnDate,
-} from "@/lib/db/queries/sensors";
-import type {
-  DailySensorInputs,
-  SessionPlan,
-  TherapyPhase,
-  UserMorningInputs,
-} from "@/lib/coach-engine/types";
+import { buildModulationContext } from "@/lib/db/queries/modulation-context";
+import type { SessionPlan } from "@/lib/coach-engine/types";
 
 const Schema = z.object({
   type: z.string().min(1).max(50).optional(),
@@ -81,29 +67,22 @@ export async function POST(req: Request) {
     );
   }
 
-  const todayRow = await getSensorDataOnDate(userId, today);
-  if (!todayRow?.userMorning) {
+  // Sprint 2.5: this route used to assemble the modulation inputs itself and
+  // called computeKneeStatus WITHOUT the workout history + today, so
+  // illnessRecoveryDays was always null here — /today displayed a reduced
+  // session and /start then persisted the full one. One shared builder now.
+  const ctx = await buildModulationContext(userId, today);
+  if (!ctx) {
     return NextResponse.json({ status: "AWAITING_MORNING_INPUT" }, { status: 400 });
   }
-
-  // Run the modulation pipeline once so the persisted plannedSession reflects what the user actually starts.
-  const recentRows = await getRecentSensorData(userId, 30);
-  const baselines = computeBaselines(rowsToSensorInputs(recentRows));
-  const todayInputs: DailySensorInputs = {
-    date: todayDay,
-    garmin: (todayRow.garmin as unknown as DailySensorInputs["garmin"]) ?? undefined,
-    userMorning: todayRow.userMorning as unknown as UserMorningInputs,
-  };
-  const readiness = computeReadiness(todayInputs, baselines);
-  const recentLoads = await getRecentDailyLoads(userId, 28);
-  const load = buildLoadOutput(recentLoads, computeDailyLoad(0, 0), todayDay);
-  const limitations = computeKneeStatus(
-    { morning: todayInputs.userMorning, postSession: todayInputs.userPostSession?.trainingScore },
-    rowsToKneeLogs(recentRows),
-    (todayRow.therapyPhase as TherapyPhase | null) ?? "DISREPAIR",
-    null,
+  const { readiness, load, limitations, paces } = ctx;
+  const finalSession = modulateSession(
+    plannedSession as SessionPlan,
+    readiness,
+    load,
+    limitations,
+    paces,
   );
-  const finalSession = modulateSession(plannedSession as SessionPlan, readiness, load, limitations);
 
   // Find/create the Workout row keyed by (userId, date, type) — critical for
   // two-a-days so the Easy Run row and the Strength row stay separate.

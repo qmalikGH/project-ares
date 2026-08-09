@@ -4,33 +4,15 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUserId } from "@/lib/auth/current-user";
-import { computeReadiness, computeBaselines } from "@/lib/coach-engine/readiness";
-import { buildLoadOutput, computeDailyLoad } from "@/lib/coach-engine/load-monitoring";
-import { computeKneeStatus } from "@/lib/coach-engine/limitations";
 import { modulateSession } from "@/lib/coach-engine/session-modulator";
-import type {
-  DailySensorInputs,
-  LimitationsOutput,
-  LoadOutput,
-  ReadinessOutput,
-  SessionPlan,
-  TherapyPhase,
-  UserMorningInputs,
-} from "@/lib/coach-engine/types";
+import type { SessionPlan } from "@/lib/coach-engine/types";
 
 import {
   getCurrentPhaseRow,
   findWeekPlanForDate,
   findAllTodaySessionsInPlan,
 } from "@/lib/db/queries/plans";
-import {
-  getRecentSensorData,
-  rowsToSensorInputs,
-  rowsToKneeLogs,
-  getRecentDailyLoads,
-  getSensorDataOnDate,
-  dayKey,
-} from "@/lib/db/queries/sensors";
+import { buildModulationContext } from "@/lib/db/queries/modulation-context";
 import { getLastNonDeloadLog } from "@/lib/db/queries/exercise-log";
 import { progressionModeFor } from "@/lib/coach-engine/strength-coach/progression-mode";
 import { userTodayDynamic } from "@/lib/date";
@@ -59,59 +41,23 @@ export async function GET() {
   // Strength) get the same sensor context applied via the same modulator pass.
   const primarySession = plannedSessions.find((s) => s.type !== "rest") ?? plannedSessions[0];
 
-  // 2. Today's sensor row
-  const todayRow = await getSensorDataOnDate(userId, today);
-  if (!todayRow || !todayRow.userMorning) {
+  // 2./3. Sensor outputs. Sprint 2.5: shared with /api/sessions/start so the
+  // session that is displayed and the session that gets persisted are produced
+  // by the same inputs.
+  const ctx = await buildModulationContext(userId, today);
+  if (!ctx) {
     return NextResponse.json({
       status: "AWAITING_MORNING_INPUT",
       plannedSession: primarySession,
       plannedSessions,
     });
   }
-
-  // 3. Build sensor outputs from history
-  const recentRows = await getRecentSensorData(userId, 30);
-  const baselines = computeBaselines(rowsToSensorInputs(recentRows));
-
-  const todayInputs: DailySensorInputs = {
-    date: dayKey(today),
-    garmin: (todayRow.garmin as unknown as DailySensorInputs["garmin"]) ?? undefined,
-    userMorning: todayRow.userMorning as unknown as UserMorningInputs,
-  };
-
-  const readiness: ReadinessOutput = computeReadiness(todayInputs, baselines);
-
-  const recentLoads = await getRecentDailyLoads(userId, 28);
-  const todayLoadAu = computeDailyLoad(0, 0); // placeholder; actual load computed post-session
-  const load: LoadOutput = buildLoadOutput(recentLoads, todayLoadAu, dayKey(today));
-
-  const kneeLogs = rowsToKneeLogs(recentRows);
-  const currentTherapyPhase = (todayRow.therapyPhase as TherapyPhase | null) ?? "DISREPAIR";
-
-  // Illness-Recovery: load last 21 days of workout statuses for detection
-  const recentWorkouts = await import("@/lib/db/client").then(({ db: d }) =>
-    d.workout.findMany({
-      where: {
-        userId,
-        date: { gte: new Date(dayKey(today).getTime() - 21 * 24 * 60 * 60 * 1000) },
-      },
-      select: { date: true, status: true },
-      orderBy: { date: "desc" },
-    }),
-  );
-  const workoutStatuses = recentWorkouts.map((w) => ({ date: w.date, status: w.status }));
-
-  const limitations: LimitationsOutput = computeKneeStatus(
-    { morning: todayInputs.userMorning, postSession: todayInputs.userPostSession?.trainingScore },
-    kneeLogs,
-    currentTherapyPhase,
-    null,
-    workoutStatuses,
-    dayKey(today),
-  );
+  const { readiness, load, limitations, paces, sensorRowId } = ctx;
 
   // 4. Modulate every session for today (Run + Strength on two-a-day Mondays etc.)
-  const finalSessions = plannedSessions.map((p) => modulateSession(p as SessionPlan, readiness, load, limitations));
+  const finalSessions = plannedSessions.map((p) =>
+    modulateSession(p as SessionPlan, readiness, load, limitations, paces),
+  );
 
   // Sprint v0.15: Fetch currentWeightKg once — used for protein note + ×BW response.
   const userSettingsForWeight = await import("@/lib/db/client").then(({ db: d }) =>
@@ -167,7 +113,7 @@ export async function GET() {
   // 5. Cache computed scores back to today's row (best-effort, non-blocking from caller's perspective).
   await import("@/lib/db/client").then(async ({ db }) => {
     await db.dailySensorData.update({
-      where: { id: todayRow.id },
+      where: { id: sensorRowId },
       data: {
         readinessScore: readiness.score,
         readinessBand: readiness.band,
