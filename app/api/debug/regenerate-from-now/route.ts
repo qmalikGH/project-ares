@@ -19,21 +19,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { userTodayDynamic } from "@/lib/date";
-import { generateWeekRunPlan } from "@/lib/coach-engine/run-coach";
-import { generateWeekStrengthPlan } from "@/lib/coach-engine/strength-coach";
-import {
-  constraintsFromUserSettings,
-  planWeekSchedule,
-} from "@/lib/coach-engine/schedule-strategy";
 import { resyncFutureWorkoutsToGarmin } from "@/lib/garmin/workout-sync";
 import { materializeWorkouts } from "@/lib/coach-engine/materialize";
-import { getEffectiveVdot } from "@/lib/db/queries/settings";
-import type {
-  PhaseConfig,
-  SessionPlan,
-  WeekStrengthData,
-  WeekStrengthPlan,
-} from "@/lib/coach-engine/types";
+import { regeneratePlansFromNow } from "@/lib/db/queries/regenerate-plans";
 
 async function resolveUserId(req: NextRequest): Promise<string | NextResponse> {
   const auth = req.headers.get("authorization");
@@ -84,18 +72,6 @@ export async function POST(req: NextRequest) {
   const userSettings = await db.userSettings.findUnique({
     where: { userId },
   });
-  const effectiveVdot = await getEffectiveVdot(userId);
-  const hrCtx =
-    userSettings?.hrMax && userSettings?.hrRest
-      ? { hrMax: userSettings.hrMax, hrRest: userSettings.hrRest }
-      : undefined;
-  const userMaxEstimates =
-    (userSettings?.exerciseMaxEstimates as Record<string, number> | null) ?? null;
-
-  const constraints = constraintsFromUserSettings({
-    forcedRestDaysIso: userSettings?.forcedRestDays ?? null,
-    preferredLongRunDayIso: userSettings?.preferredLongRunDay ?? null,
-  });
 
   const beforeSummary = plansToRegen.map((p) => ({
     weekNumber: p.weekNumber,
@@ -105,72 +81,13 @@ export async function POST(req: NextRequest) {
       : 0,
   }));
 
-  let regenerated = 0;
-  let prevWeekData: WeekStrengthData | null = null;
-
-  for (const plan of plansToRegen) {
-    const phaseConfig = plan.phase.config as unknown as PhaseConfig;
-    if (!phaseConfig) continue;
-
-    const runPlan = generateWeekRunPlan(
-      phaseConfig,
-      plan.weekNumber,
-      effectiveVdot,
-      plan.startDate,
-      hrCtx,
-      // Sprint v1.5 follow-up: skip the W1 calibration run when this row
-      // was created via Block-Reset (athlete has known VDOT).
-      (plan as { loadOverrideWeek?: number | null }).loadOverrideWeek as
-        | 1 | 2 | 3 | 4 | null
-        | undefined ?? null,
-    );
-    const strengthPlan: WeekStrengthPlan = generateWeekStrengthPlan(
-      phaseConfig,
-      plan.weekNumber,
-      plan.startDate,
-      prevWeekData,
-      // Sprint v0.12: respect manual therapy-phase override.
-      (userSettings?.therapyPhaseOverride as
-        | "REACTIVE"
-        | "DISREPAIR"
-        | "REMODELING"
-        | "SPORT_SPECIFIC"
-        | null) ?? null,
-      userMaxEstimates,
-      // Sprint v1.5: respect loadOverrideWeek when this WeeklyPlan row was
-      // created via Block-Reset (W1 volume + W2 loads ramp-up scenario).
-      (plan as { loadOverrideWeek?: number | null }).loadOverrideWeek as
-        | 1 | 2 | 3 | 4 | null
-        | undefined ?? null,
-    );
-
-    const mergedSessions: SessionPlan[] = planWeekSchedule(
-      runPlan.sessions,
-      strengthPlan.sessions,
-      plan.startDate,
-      constraints,
-    );
-
-    await db.weeklyPlan.update({
-      where: { id: plan.id },
-      data: { plannedSessions: mergedSessions as unknown as object },
-    });
-    regenerated += 1;
-
-    prevWeekData = {
-      weekNumber: plan.weekNumber,
-      sessions: strengthPlan.sessions
-        .filter((s) =>
-          ["strength_a", "strength_b", "strength_c"].includes(s.type),
-        )
-        .map(
-          (s) =>
-            ({
-              type: s.type,
-            }) as WeekStrengthData["sessions"][number],
-        ),
-    };
-  }
+  // Sprint 2.4: this route used to carry its OWN copy of the regeneration loop,
+  // which never passed `greenForProgression`, the shin volume gate, or the
+  // comeback ramp. It is the endpoint the ops scripts call — so the one path
+  // used to roll a plan out to the watch was the one path with no brakes.
+  // Delegate to the shared helper; the route keeps only the extras that make
+  // it useful for ops (before-summary, materialize, Garmin re-sync).
+  const { regenerated, gate, layoff } = await regeneratePlansFromNow(userId);
 
   // Sprint v1.6: Materialize Workout rows so the Garmin-push cron and
   // session-start flow always find them. Must run BEFORE Garmin re-sync.
@@ -186,6 +103,8 @@ export async function POST(req: NextRequest) {
     status: "ok",
     regenerated,
     materialized,
+    gate,
+    layoff,
     constraints: {
       forcedRestDaysIso: userSettings?.forcedRestDays ?? "default",
       preferredLongRunDayIso: userSettings?.preferredLongRunDay ?? "default",

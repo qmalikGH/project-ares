@@ -14,24 +14,8 @@ import { z } from "zod";
 
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
-import { userToday } from "@/lib/date";
-import { generateWeekRunPlan } from "@/lib/coach-engine/run-coach";
-import { generateWeekStrengthPlan } from "@/lib/coach-engine/strength-coach";
-import {
-  constraintsFromUserSettings,
-  planWeekSchedule,
-} from "@/lib/coach-engine/schedule-strategy";
-import { resyncFutureWorkoutsToGarmin } from "@/lib/garmin/workout-sync";
-import {
-  getEffectiveVdot,
-  getOrCreateUserSettings,
-} from "@/lib/db/queries/settings";
-import type {
-  PhaseConfig,
-  SessionPlan,
-  WeekStrengthData,
-  WeekStrengthPlan,
-} from "@/lib/coach-engine/types";
+import { regeneratePlansFromNow } from "@/lib/db/queries/regenerate-plans";
+import { getOrCreateUserSettings } from "@/lib/db/queries/settings";
 
 const Schema = z.object({
   // ISO 1=Mon..7=Sun. 1-4 forced rest days allowed.
@@ -71,103 +55,26 @@ export async function POST(req: Request) {
     data: { forcedRestDays, preferredLongRunDay },
   });
 
-  // 2. Regenerate every future WeeklyPlan in the active macrocycle with the
-  // new constraints + the v0.10 periodization engine.
-  const today0 = userToday();
-  const futurePlans = await db.weeklyPlan.findMany({
-    where: {
-      phase: { macrocycle: { userId, status: "active" } },
-      startDate: { gte: today0 },
-    },
-    include: { phase: true },
-    orderBy: { startDate: "asc" },
+  // 2. Regenerate the current week + every future WeeklyPlan with the new
+  // constraints, then re-sync Garmin (schedule changes move what is on the
+  // watch, so the re-sync is not optional here).
+  //
+  // Sprint 2.4: this used to inline its own regeneration loop without the
+  // shin/RHR gate or the comeback ramp — changing a rest day would quietly
+  // rewrite the braked week back to full volume. Delegating to the shared
+  // helper keeps every regeneration path braked by construction.
+  //
+  // Note the widened window: the helper regenerates `endDate > today` (the
+  // current week included), where this route previously used
+  // `startDate >= today`. That is the correct behaviour — a schedule change
+  // should move the rest of the current week too, not just next Monday.
+  const { regenerated, garminResync } = await regeneratePlansFromNow(userId, {
+    runGarminResync: true,
   });
-
-  const userSettings = await db.userSettings.findUnique({ where: { userId } });
-  const effectiveVdot = await getEffectiveVdot(userId);
-  const hrCtx =
-    userSettings?.hrMax && userSettings?.hrRest
-      ? { hrMax: userSettings.hrMax, hrRest: userSettings.hrRest }
-      : undefined;
-  const userMaxEstimates =
-    (userSettings?.exerciseMaxEstimates as Record<string, number> | null) ?? null;
-
-  const constraints = constraintsFromUserSettings({
-    forcedRestDaysIso: forcedRestDays,
-    preferredLongRunDayIso: preferredLongRunDay,
-  });
-
-  let regenerated = 0;
-  let prevWeekData: WeekStrengthData | null = null;
-
-  for (const plan of futurePlans) {
-    const phaseConfig = plan.phase.config as unknown as PhaseConfig;
-    if (!phaseConfig) continue;
-
-    const runPlan = generateWeekRunPlan(
-      phaseConfig,
-      plan.weekNumber,
-      effectiveVdot,
-      plan.startDate,
-      hrCtx,
-    );
-    const strengthPlan: WeekStrengthPlan = generateWeekStrengthPlan(
-      phaseConfig,
-      plan.weekNumber,
-      plan.startDate,
-      prevWeekData,
-      // Sprint v0.12: respect manual therapy-phase override (UserSettings).
-      // Falls back to null = LimitationsLogic re-evaluates daily.
-      (userSettings?.therapyPhaseOverride as
-        | "REACTIVE"
-        | "DISREPAIR"
-        | "REMODELING"
-        | "SPORT_SPECIFIC"
-        | null) ?? null,
-      userMaxEstimates,
-    );
-
-    const mergedSessions: SessionPlan[] = planWeekSchedule(
-      runPlan.sessions,
-      strengthPlan.sessions,
-      plan.startDate,
-      constraints,
-    );
-
-    await db.weeklyPlan.update({
-      where: { id: plan.id },
-      data: { plannedSessions: mergedSessions as unknown as object },
-    });
-    regenerated += 1;
-
-    // Carry strength sessions forward as prevWeekData so periodization
-    // chains (W2 references W1's RPE etc.). For now we don't have
-    // executedSession data here — rpeReported stays undefined and the
-    // engine falls back to pure week-pattern progression.
-    prevWeekData = {
-      weekNumber: plan.weekNumber,
-      sessions: strengthPlan.sessions
-        .filter((s) =>
-          ["strength_a", "strength_b", "strength_c"].includes(s.type),
-        )
-        .map(
-          (s) =>
-            ({
-              type: s.type,
-            }) as WeekStrengthData["sessions"][number],
-        ),
-    };
-  }
-
-  // 3. Re-sync Garmin (Sprint v0.9 compat). Best-effort; never fails the request.
-  const garminResync =
-    userSettings?.garminWorkoutPushEnabled
-      ? await resyncFutureWorkoutsToGarmin(userId, today0)
-      : { considered: 0, removed: 0, repushed: 0, errors: [] };
 
   return NextResponse.json({
     status: "ok",
     regenerated,
-    garminResync,
+    garminResync: garminResync ?? { considered: 0, removed: 0, repushed: 0, errors: [] },
   });
 }

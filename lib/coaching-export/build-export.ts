@@ -175,12 +175,30 @@ async function buildPeriodization(userId: string, today: Date): Promise<Periodiz
   };
 }
 
+/**
+ * Sprint 2.4 — a calibration anchor older than this is flagged as stale. Eight
+ * weeks is roughly where detraining makes an untouched VDOT or 1RM actively
+ * misleading rather than merely old (science_doc 1.3).
+ */
+const STALENESS_WARN_DAYS = 56;
+
+function ageInDays(from: Date | null | undefined, now: Date): number | null {
+  if (!from) return null;
+  return Math.floor((now.getTime() - from.getTime()) / 86400000);
+}
+
 async function buildPerformanceMarkers(userId: string): Promise<PerformanceMarkersSection> {
   const [vdot, settings] = await Promise.all([
     getEffectiveVdot(userId),
     db.userSettings.findUnique({
       where: { userId },
-      select: { hrMax: true, hrRest: true, exerciseMaxEstimates: true },
+      select: {
+        hrMax: true,
+        hrRest: true,
+        exerciseMaxEstimates: true,
+        vdotOverrideAt: true,
+        exerciseMaxUpdatedAt: true,
+      },
     }),
   ]);
 
@@ -195,12 +213,24 @@ async function buildPerformanceMarkers(userId: string): Promise<PerformanceMarke
     };
   }
 
+  const now = new Date();
+  const vdotAgeDays = ageInDays(settings?.vdotOverrideAt, now);
+  const oneRMAgeDays = ageInDays(settings?.exerciseMaxUpdatedAt, now);
+
   return {
     currentVDOT: vdot,
     hrMax,
     hrRest,
     zones,
     oneRMEstimates: (settings?.exerciseMaxEstimates as Record<string, number> | null) ?? {},
+    staleness: {
+      vdotSetAt: settings?.vdotOverrideAt?.toISOString() ?? null,
+      vdotAgeDays,
+      vdotStale: vdotAgeDays !== null && vdotAgeDays > STALENESS_WARN_DAYS,
+      oneRMSetAt: settings?.exerciseMaxUpdatedAt?.toISOString() ?? null,
+      oneRMAgeDays,
+      oneRMStale: oneRMAgeDays !== null && oneRMAgeDays > STALENESS_WARN_DAYS,
+    },
   };
 }
 

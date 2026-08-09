@@ -17,6 +17,7 @@ import {
   getPeriodizationLabel,
   weekInBlockOf,
 } from "./periodization";
+import type { ComebackWeek } from "../comeback";
 import { loadPctToKg } from "./one-rm";
 import { insertWarmupSets } from "./warmup";
 import { progressionModeFor } from "./progression-mode";
@@ -540,6 +541,9 @@ export function generateWeekStrengthPlan(
   /** Sprint v1.5 — load-override-week from the WeeklyPlan row. Passed
    *  through to computePeriodizationAdjustment. null = no override. */
   loadOverrideWeek: 1 | 2 | 3 | 4 | null = null,
+  /** Sprint 2.4 — return-to-training week (1-3) after a layoff ≥ 21 days.
+   *  Scales load + week-1 sets down. null = no ramp. */
+  comebackWeek: ComebackWeek | null = null,
 ): WeekStrengthPlan {
   const dateAt = (offsetDays: number): Date =>
     new Date(weekStartDate.getTime() + offsetDays * 86400000);
@@ -571,6 +575,7 @@ export function generateWeekStrengthPlan(
       baselineRpeCap: phaseConfig.strengthRpeCap,
       strengthMode: phaseConfig.strengthMode,
       loadOverrideWeek,
+      comebackWeek,
     });
     // Sprint v1.7: pass block baseline RPE-cap so accessories don't get the W3→9 bump.
     exercises = applyPeriodization(exercises, periodAdjustment, phaseConfig.strengthRpeCap);

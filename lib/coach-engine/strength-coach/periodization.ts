@@ -19,6 +19,7 @@
 //   - Escriche-Escuder 2020 / Sprague 2020: pain-guided progression
 //     (NRS≤3 progress, 4–5 hold, >5 step back) shows higher compliance.
 import type { Exercise } from "../types";
+import { rampFor, type ComebackWeek } from "../comeback";
 
 // ============================================
 // Public types
@@ -56,6 +57,15 @@ export interface PeriodizationContext {
    * `null` / undefined → no override (default behavior).
    */
   loadOverrideWeek?: WeekInBlock | null;
+  /**
+   * Sprint 2.4 — Comeback ramp: 1-3 while returning from a layoff ≥ 21 days.
+   * Scales load (0.75/0.85/0.95) and, in week 1, sets (×0.75 ≈ one set less)
+   * ON TOP of the week-in-block pattern. Derived from completed-session
+   * history in `lib/coach-engine/comeback.ts`, never set by hand.
+   *
+   * `null` / undefined → no ramp.
+   */
+  comebackWeek?: ComebackWeek | null;
 }
 
 export interface PeriodizationAdjustment {
@@ -192,6 +202,20 @@ export function computePeriodizationAdjustment(
     const overrideLoad = loadMultiplierForWeek(ctx.loadOverrideWeek);
     loadMultiplier = overrideLoad;
     weekRationale += ` [Load-Override: W${ctx.loadOverrideWeek} loads (×${overrideLoad}), volume from W${ctx.weekInBlock}]`;
+  }
+
+  // Sprint 2.4 — Comeback ramp. Applied AFTER the week pattern and the
+  // load-override so it scales whatever the block would have prescribed.
+  // Load recovers faster than tendon (myonuclei persist, science_doc 1.4), so
+  // this is deliberately less conservative than the run-volume ramp; week 1
+  // also drops roughly one set per exercise to keep first-week soreness sane.
+  if (ctx.comebackWeek != null) {
+    const ramp = rampFor(ctx.comebackWeek);
+    loadMultiplier *= ramp.strengthLoadFactor;
+    setMultiplier *= ramp.strengthSetFactor;
+    weekRationale += ` [Wiedereinstieg W${ctx.comebackWeek}: Last ×${ramp.strengthLoadFactor}${
+      ramp.strengthSetFactor !== 1 ? `, Sätze ×${ramp.strengthSetFactor}` : ""
+    } nach Trainingspause]`;
   }
 
   // RPE-based fine-tune: only if we have a prior reading. Never zero — small

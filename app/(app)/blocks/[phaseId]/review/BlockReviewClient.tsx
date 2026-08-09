@@ -20,6 +20,11 @@ interface ReviewResponse {
   aiCostUsd?: number;
   tmProposals?: TmProposal[];
   unloggedStrengthSessions?: { total: number; byType: Record<string, number> };
+  calibrationAge?: {
+    oneRMAgeDays: number | null;
+    vdotAgeDays: number | null;
+    warnAfterDays: number;
+  };
 }
 
 interface TmProposal {
@@ -151,6 +156,25 @@ export default function BlockReviewClient({ phaseId }: { phaseId: string }) {
               {" "}— die TM-Vorschläge basieren auf Teildaten. Diese Sessions zählen nicht als „clean".
             </section>
           )}
+
+          {data.calibrationAge && (() => {
+            const { oneRMAgeDays, vdotAgeDays, warnAfterDays } = data.calibrationAge;
+            const stale: string[] = [];
+            if (oneRMAgeDays !== null && oneRMAgeDays > warnAfterDays) {
+              stale.push(`1RM-Schätzungen seit ${oneRMAgeDays} Tagen unverändert`);
+            }
+            if (vdotAgeDays !== null && vdotAgeDays > warnAfterDays) {
+              stale.push(`VDOT seit ${vdotAgeDays} Tagen unverändert`);
+            }
+            if (stale.length === 0) return null;
+            return (
+              <section className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-300">
+                <span className="font-semibold">Kalibrierung veraltet</span> — {stale.join(", ")}.
+                {" "}Die Vorschläge rechnen gegen diese Anker; nach einer längeren Pause sind sie
+                vermutlich zu hoch.
+              </section>
+            );
+          })()}
 
           {data.tmProposals && data.tmProposals.length > 0 && (
             <TmProposalsSection phaseId={phaseId} proposals={data.tmProposals} />

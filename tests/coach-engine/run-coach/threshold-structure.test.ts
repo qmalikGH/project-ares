@@ -8,6 +8,7 @@ import {
   generateWeekRunPlan,
   vdotToPaces,
 } from "@/lib/coach-engine/run-coach";
+import { BLOCK_CONFIGS } from "@/lib/coach-engine/periodization";
 import { buildGarminWorkout } from "@/lib/garmin/workout-builder";
 import type { PhaseConfig, SessionPlan } from "@/lib/coach-engine/types";
 import type { RepeatGroupStep } from "@/lib/garmin/workout-builder";
@@ -149,5 +150,83 @@ describe("run-volume pain governor (shinVolumeGate)", () => {
     const noGate = generateWeekRunPlan(cfg(1), 2, 39, monday, hrCtx, null, true);
     expect(longMin(withGate)).toBe(longMin(noGate));
     expect(noGate.sessions[1].type).toBe("threshold_run");
+  });
+});
+
+// Sprint 2.4 #2 — return-to-training ramp. This is the scenario that produced
+// the sprint: Block 2 W1 after a 9-week layoff would otherwise prescribe
+// 235 min of running including 24 min of threshold at the pre-layoff T-pace.
+describe("comeback ramp (return to training after a layoff)", () => {
+  const totalMin = (plan: { sessions: SessionPlan[] }) =>
+    plan.sessions.reduce((acc, s) => acc + (s.durationMin ?? 0), 0);
+  const longMin = (plan: { sessions: SessionPlan[] }) =>
+    plan.sessions.find((s) => s.type === "long_run")!.durationMin!;
+
+  // Use the REAL block config here, not the trimmed local `cfg()` — the whole
+  // point is what production actually prescribes on the first Monday back.
+  // B2 W1 = weekNumber 5 with 4-week phases.
+  const b2w1 = (comeback: 1 | 2 | 3 | null) =>
+    generateWeekRunPlan(BLOCK_CONFIGS[2], 5, 35, monday, hrCtx, null, true, "progress", comeback);
+
+  it("week 1 has NO threshold session — the quality day becomes an easy run", () => {
+    const normal = b2w1(null);
+    const ramped = b2w1(1);
+    expect(normal.sessions.find((s) => s.type === "threshold_run")).toBeDefined();
+    expect(ramped.sessions.find((s) => s.type === "threshold_run")).toBeUndefined();
+    expect(ramped.sessions[1].type).toBe("easy_run");
+    expect(ramped.sessions[1].notes).toContain("Wiedereinstieg");
+  });
+
+  it("week 1 cuts total run volume to roughly half of the block prescription", () => {
+    const normal = totalMin(b2w1(null));
+    const ramped = totalMin(b2w1(1));
+    expect(normal).toBe(235); // the number this sprint exists for
+    expect(ramped).toBeLessThan(140);
+    expect(ramped).toBeGreaterThan(100); // still real training, not a token week
+  });
+
+  it("volume climbs monotonically across the three ramp weeks and then returns", () => {
+    const w1 = totalMin(b2w1(1));
+    const w2 = totalMin(b2w1(2));
+    const w3 = totalMin(b2w1(3));
+    const off = totalMin(b2w1(null));
+    expect(w1).toBeLessThan(w2);
+    expect(w2).toBeLessThan(w3);
+    expect(w3).toBeLessThan(off);
+  });
+
+  it("week 3 brings the quality day back, but at the conservative 2×10 floor", () => {
+    // B2 W1's ladder position is 3×8; after months off the ladder position is
+    // meaningless, so the first threshold back is always the floor.
+    const ramped = b2w1(3);
+    const threshold = ramped.sessions.find((s) => s.type === "threshold_run");
+    expect(threshold).toBeDefined();
+    expect(threshold!.structure?.workIntervals?.[0]).toMatchObject({ repeats: 2, durationMin: 10 });
+  });
+
+  it("also suppresses vo2max quality in blocks 4-5", () => {
+    const ramped = generateWeekRunPlan(cfg(4), 13, 35, monday, hrCtx, null, true, "progress", 1);
+    expect(ramped.sessions.find((s) => s.type === "vo2max_intervals")).toBeUndefined();
+    expect(ramped.sessions[1].type).toBe("easy_run");
+  });
+
+  it("a shin flare during the ramp does not compound — the stricter brake wins", () => {
+    // 0.55 (ramp) and 0.8 (regress) must not multiply to 0.44.
+    const rampOnly = longMin(b2w1(1));
+    const both = generateWeekRunPlan(cfg(2), 5, 35, monday, hrCtx, null, false, "regress", 1);
+    expect(longMin(both)).toBe(rampOnly);
+  });
+
+  it("a milder ramp week still yields to a harsher pain gate", () => {
+    // Ramp week 3 is 0.85, regress is 0.8 → the pain gate is stricter and wins.
+    const w3 = generateWeekRunPlan(cfg(2), 5, 35, monday, hrCtx, null, true, "progress", 3);
+    const w3Flared = generateWeekRunPlan(cfg(2), 5, 35, monday, hrCtx, null, false, "regress", 3);
+    expect(longMin(w3Flared)).toBeLessThan(longMin(w3));
+  });
+
+  it("no ramp argument behaves exactly as before (back-compat)", () => {
+    const withNull = generateWeekRunPlan(cfg(2), 5, 35, monday, hrCtx, null, true, "progress", null);
+    const omitted = generateWeekRunPlan(cfg(2), 5, 35, monday, hrCtx, null, true, "progress");
+    expect(totalMin(withNull)).toBe(totalMin(omitted));
   });
 });

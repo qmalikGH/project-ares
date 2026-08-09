@@ -128,6 +128,20 @@ export interface PerformanceMarkersSection {
   hrRest: number | null;
   zones: HRZones | null;
   oneRMEstimates: Record<string, number>;
+  /**
+   * Sprint 2.4 — how old the anchors these numbers come from actually are.
+   * `vdotOverrideAt` and `exerciseMaxUpdatedAt` were columns nothing read, so
+   * a VDOT pinned months ago kept dictating paces with nothing to show for it.
+   * `stale` flips at STALENESS_WARN_DAYS so the coach can say so out loud.
+   */
+  staleness: {
+    vdotSetAt: string | null;
+    vdotAgeDays: number | null;
+    vdotStale: boolean;
+    oneRMSetAt: string | null;
+    oneRMAgeDays: number | null;
+    oneRMStale: boolean;
+  };
 }
 
 // ── Training History ───────────────────────────────────────────────────────
