@@ -22,7 +22,7 @@ config({ path: ".env.local" });
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { db } from "@/lib/db/client";
-import { userToday } from "@/lib/date";
+import { getNextMonday, userToday } from "@/lib/date";
 import { handleCoachingAction } from "@/lib/coaching-update/handle-action";
 import { regenerateFuturePlans } from "@/lib/coach-engine/regenerate";
 
@@ -57,9 +57,25 @@ async function main() {
     process.exit(1);
   }
 
+  const today = userToday();
+  const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const start = getNextMonday(today);
+  const daysOut = Math.round((start.getTime() - today.getTime()) / 86400000);
+
   console.log(`User:   ${user.email}`);
-  console.log(`Today:  ${iso(userToday())}`);
+  console.log(`Today:  ${iso(today)} (${WEEKDAYS[today.getUTCDay()]})`);
   console.log(`Target: Block ${block}   load=${load}   mode=${apply ? "APPLY" : "DRY RUN"}`);
+  console.log(`Start:  ${iso(start)} — ${daysOut} day(s) from now`);
+
+  // getNextMonday never returns `from` itself, so running this ON a Monday
+  // pushes the restart a full week out. Easy to do by accident when the plan
+  // was "start again on Monday".
+  if (today.getUTCDay() === 1) {
+    console.log(
+      `\n  !! Today is Monday. The new block would start ${iso(start)}, a week out,\n` +
+        `     not today. Run this the day before the intended start.`,
+    );
+  }
 
   // ── Backup ───────────────────────────────────────────────────────────────
   if (apply && !has("no-backup")) {
@@ -68,7 +84,7 @@ async function main() {
       include: { phases: { include: { weeklyPlans: true } } },
     });
     const workouts = await db.workout.findMany({
-      where: { userId: user.id, date: { gte: userToday() } },
+      where: { userId: user.id, date: { gte: today } },
     });
     mkdirSync("backups", { recursive: true });
     const file = `backups/pre-reset-block${block}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
@@ -109,7 +125,7 @@ async function main() {
   // Mandatory: resetBlock wrote `plannedSessions: []`, so without this the
   // athlete is left with four empty weeks.
   console.log(`\n─── Phase 2: regenerate ───`);
-  const regen = await regenerateFuturePlans(user.id, userToday(), { skipGarmin });
+  const regen = await regenerateFuturePlans(user.id, today, { skipGarmin });
   console.log(`  regenerated WeeklyPlans: ${regen.regenerated}`);
   console.log(
     `  materialized Workouts:  created=${regen.materialized.created} ` +

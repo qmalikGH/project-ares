@@ -1,36 +1,28 @@
-// Plan regeneration — fills WeeklyPlan.plannedSessions from the periodization
-// engine, materializes Workout rows and re-syncs Garmin.
+// Full regeneration cascade: plans → Workout rows → Garmin.
 //
-// Extracted from POST /api/debug/regenerate-from-now so the same code path
-// serves both the HTTP route and offline scripts (scripts/reset-to-block.ts).
-// resetBlock creates WeeklyPlan rows with `plannedSessions: []`, so one of
-// these callers MUST run afterwards or the athlete is left with empty weeks.
+// Composes the three steps in the only order that is correct, and is the
+// helper handle-action.ts references by name after a Block reset (resetBlock
+// writes `plannedSessions: []`, so one of these callers MUST run afterwards).
+//
+// The plan regeneration itself is NOT reimplemented here. It delegates to
+// regeneratePlansFromNow, the canonical helper already used by
+// /api/settings/therapy-phase, /api/coach/tm-confirm and the coach tools.
+// /api/debug/regenerate-from-now used to carry its own forked copy of that
+// loop, which had drifted and silently lost two shin-protection features:
+//   - Sprint 2.2's greenForProgression gate (clamps the threshold ladder to
+//     the 2x10 floor when shin NRS > 3 or resting HR is over baseline + 5)
+//   - Sprint v1.9 #3's prevWeekData seeding from actual recent shin pain
+// Routing every caller through the canonical helper removes that fork.
 import { db } from "@/lib/db/client";
-import { generateWeekRunPlan } from "@/lib/coach-engine/run-coach";
-import { generateWeekStrengthPlan } from "@/lib/coach-engine/strength-coach";
-import {
-  constraintsFromUserSettings,
-  planWeekSchedule,
-} from "@/lib/coach-engine/schedule-strategy";
-import { resyncFutureWorkoutsToGarmin } from "@/lib/garmin/workout-sync";
+import { regeneratePlansFromNow } from "@/lib/db/queries/regenerate-plans";
 import { materializeWorkouts } from "@/lib/coach-engine/materialize";
-import { getEffectiveVdot } from "@/lib/db/queries/settings";
-import type {
-  PhaseConfig,
-  SessionPlan,
-  WeekStrengthData,
-  WeekStrengthPlan,
-} from "@/lib/coach-engine/types";
+import { resyncFutureWorkoutsToGarmin } from "@/lib/garmin/workout-sync";
 
 export interface RegenerateSummary {
+  /** WeeklyPlan rows that were considered — 0 means nothing to regenerate. */
+  candidates: number;
   regenerated: number;
   materialized: { created: number; updated: number; deleted: number };
-  // ISO weekday numbers straight from UserSettings, or "default" when unset.
-  constraints: {
-    forcedRestDaysIso: number[] | "default";
-    preferredLongRunDayIso: number | "default";
-  };
-  before: { weekNumber: number; startDate: string; sessionCount: number }[];
   garminResync: {
     considered: number;
     removed: number;
@@ -40,128 +32,41 @@ export interface RegenerateSummary {
 }
 
 /**
- * Regenerate every WeeklyPlan of the user's active macrocycle that has not
- * finished yet, then materialize Workout rows and re-sync Garmin.
+ * Regenerate every unfinished WeeklyPlan of the active macrocycle, materialize
+ * the resulting Workout rows, then re-sync Garmin.
  *
- * @param userId  — the athlete
- * @param today   — "now" boundary; rows with endDate > today are regenerated,
- *                  which deliberately includes the week currently in progress.
- * @param opts.skipGarmin — skip the Garmin re-sync (offline / dry contexts).
+ * Order matters: materializeWorkouts must run BEFORE the Garmin re-sync, or
+ * the freshly planned sessions have no Workout rows yet and the push skips
+ * them. regeneratePlansFromNow is therefore called with its own Garmin step
+ * disabled and the re-sync is issued here instead.
+ *
+ * @param userId — the athlete
+ * @param today  — window start for materialization and the Garmin re-sync
+ * @param opts.skipGarmin — leave the watch untouched
  */
 export async function regenerateFuturePlans(
   userId: string,
   today: Date,
   opts: { skipGarmin?: boolean } = {},
 ): Promise<RegenerateSummary> {
-  // endDate > today (not startDate >= today) so the current week is included.
-  const plansToRegen = await db.weeklyPlan.findMany({
+  const candidates = await db.weeklyPlan.count({
     where: {
       phase: { macrocycle: { userId, status: "active" } },
       endDate: { gt: today },
     },
-    include: { phase: true },
-    orderBy: { startDate: "asc" },
   });
 
-  const userSettings = await db.userSettings.findUnique({ where: { userId } });
-  const effectiveVdot = await getEffectiveVdot(userId);
-  const hrCtx =
-    userSettings?.hrMax && userSettings?.hrRest
-      ? { hrMax: userSettings.hrMax, hrRest: userSettings.hrRest }
-      : undefined;
-  const userMaxEstimates =
-    (userSettings?.exerciseMaxEstimates as Record<string, number> | null) ?? null;
-
-  const constraints = constraintsFromUserSettings({
-    forcedRestDaysIso: userSettings?.forcedRestDays ?? null,
-    preferredLongRunDayIso: userSettings?.preferredLongRunDay ?? null,
+  const { regenerated } = await regeneratePlansFromNow(userId, {
+    runGarminResync: false,
   });
 
-  const before = plansToRegen.map((p) => ({
-    weekNumber: p.weekNumber,
-    startDate: p.startDate.toISOString().slice(0, 10),
-    sessionCount: Array.isArray(p.plannedSessions)
-      ? (p.plannedSessions as unknown[]).length
-      : 0,
-  }));
-
-  let regenerated = 0;
-  let prevWeekData: WeekStrengthData | null = null;
-
-  for (const plan of plansToRegen) {
-    const phaseConfig = plan.phase.config as unknown as PhaseConfig;
-    if (!phaseConfig) continue;
-
-    const loadOverrideWeek =
-      ((plan as { loadOverrideWeek?: number | null }).loadOverrideWeek as
-        | 1 | 2 | 3 | 4
-        | null
-        | undefined) ?? null;
-
-    const runPlan = generateWeekRunPlan(
-      phaseConfig,
-      plan.weekNumber,
-      effectiveVdot,
-      plan.startDate,
-      hrCtx,
-      // Sprint v1.5 follow-up: skip the W1 calibration run when this row was
-      // created via Block-Reset (athlete has known VDOT).
-      loadOverrideWeek,
-    );
-    const strengthPlan: WeekStrengthPlan = generateWeekStrengthPlan(
-      phaseConfig,
-      plan.weekNumber,
-      plan.startDate,
-      prevWeekData,
-      // Sprint v0.12: respect manual therapy-phase override.
-      (userSettings?.therapyPhaseOverride as
-        | "REACTIVE"
-        | "DISREPAIR"
-        | "REMODELING"
-        | "SPORT_SPECIFIC"
-        | null) ?? null,
-      userMaxEstimates,
-      // Sprint v1.5: W1 volume + W2 loads on a Block-Reset ramp-up.
-      loadOverrideWeek,
-    );
-
-    const mergedSessions: SessionPlan[] = planWeekSchedule(
-      runPlan.sessions,
-      strengthPlan.sessions,
-      plan.startDate,
-      constraints,
-    );
-
-    await db.weeklyPlan.update({
-      where: { id: plan.id },
-      data: { plannedSessions: mergedSessions as unknown as object },
-    });
-    regenerated += 1;
-
-    prevWeekData = {
-      weekNumber: plan.weekNumber,
-      sessions: strengthPlan.sessions
-        .filter((s) => ["strength_a", "strength_b", "strength_c"].includes(s.type))
-        .map((s) => ({ type: s.type }) as WeekStrengthData["sessions"][number]),
-    };
-  }
-
-  // Sprint v1.6: Workout rows must exist before the Garmin push runs.
   const materialized = await materializeWorkouts(userId, today);
 
-  const garminResync =
-    !opts.skipGarmin && userSettings?.garminWorkoutPushEnabled
-      ? await resyncFutureWorkoutsToGarmin(userId, today)
-      : { considered: 0, removed: 0, repushed: 0, errors: [] };
+  // resyncFutureWorkoutsToGarmin returns all-zero when the user has
+  // garminWorkoutPushEnabled=false, so no extra guard is needed here.
+  const garminResync = opts.skipGarmin
+    ? { considered: 0, removed: 0, repushed: 0, errors: [] }
+    : await resyncFutureWorkoutsToGarmin(userId, today);
 
-  return {
-    regenerated,
-    materialized,
-    constraints: {
-      forcedRestDaysIso: userSettings?.forcedRestDays ?? "default",
-      preferredLongRunDayIso: userSettings?.preferredLongRunDay ?? "default",
-    },
-    before,
-    garminResync,
-  };
+  return { candidates, regenerated, materialized, garminResync };
 }

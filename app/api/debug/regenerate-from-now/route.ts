@@ -6,8 +6,10 @@
 // WeeklyPlan rows with empty plannedSessions.
 //
 // Uses `endDate > today` (not `startDate >= today`) so the week in progress is
-// included. The work itself lives in lib/coach-engine/regenerate.ts so offline
-// scripts run the identical path without going through HTTP.
+// included. The work itself lives in lib/coach-engine/regenerate.ts, which
+// delegates to the canonical regeneratePlansFromNow helper. This route used to
+// carry its own forked copy of that loop and had silently drifted out of sync
+// with Sprint 2.2's shin/RHR progression gate.
 //
 // Auth:
 //   - Browser/session: cookie-based, runs against the logged-in user.
@@ -50,7 +52,7 @@ export async function POST(req: NextRequest) {
 
   const summary = await regenerateFuturePlans(userId, today0);
 
-  if (summary.before.length === 0) {
+  if (summary.candidates === 0) {
     return NextResponse.json({
       status: "ok",
       regenerated: 0,
