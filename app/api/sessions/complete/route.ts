@@ -12,7 +12,6 @@ import { z } from "zod";
 
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
-import { dayKey } from "@/lib/db/queries/sensors";
 import { userTodayDynamic } from "@/lib/date";
 import { getActivityDetail, getActivityHrZones } from "@/lib/garmin/activities";
 import { mapGarminZonesToPolarizedTID } from "@/lib/coach-engine/hr-zones";
@@ -26,14 +25,9 @@ import { calibrateVDOTFromW1 } from "@/lib/coach-engine/run-coach";
 import { estimateOneRM } from "@/lib/coach-engine/strength-coach/one-rm";
 import { weekInBlockOf } from "@/lib/coach-engine/strength-coach/periodization";
 import type { PhaseConfig } from "@/lib/coach-engine/types";
-import {
-  getEffectiveVdot,
-  getOrCreateUserSettings,
-} from "@/lib/db/queries/settings";
+import { getEffectiveVdot } from "@/lib/db/queries/settings";
 import { regenerateFutureSessionPaces } from "@/lib/db/queries/regenerate";
-import { createNotification, createNotificationIfNew } from "@/lib/notifications/create";
-import { getRecentRunSummaries } from "@/lib/garmin/profile";
-import { calibrateVdotFromRuns } from "@/lib/coach-engine/vdot-calculator";
+import { createNotification } from "@/lib/notifications/create";
 
 const Schema = z.object({
   rpe: z.number().int().min(0).max(10),
@@ -357,12 +351,14 @@ export async function POST(req: Request) {
               vdotOverride: calibration.calibratedVdot,
               vdotOverrideAt: new Date(),
               vdotOverrideRationale: calibration.notification,
+              vdotSource: "w1_calibration",
             },
             create: {
               userId,
               vdotOverride: calibration.calibratedVdot,
               vdotOverrideAt: new Date(),
               vdotOverrideRationale: calibration.notification,
+              vdotSource: "w1_calibration",
             },
           });
           const { updatedSessions } = await regenerateFutureSessionPaces(
@@ -399,72 +395,13 @@ export async function POST(req: Request) {
     console.error("[complete] W1 calibration failed:", e);
   }
 
-  // Sprint v0.7 (Garmin-driven): rolling auto-recalibration.
-  // After ANY Garmin-imported run, re-run the multi-method calibrator on the
-  // last ~7 runs and SUGGEST a VDOT update if it diverges by ≥1 from current.
-  // Suggestion only — never auto-applied. Q decides via a notification action.
-  // Skipped when W1 already updated VDOT (avoids double-notification).
-  let recalibration: {
-    suggested: boolean;
-    currentVdot: number;
-    suggestedVdot: number;
-    confidence: "low" | "medium" | "high";
-  } | null = null;
-  if (
-    !w1Calibration?.applied &&
-    parsed.data.garminActivityId &&
-    executedSession &&
-    typeof executedSession === "object" &&
-    (executedSession as { type?: string }).type === "run"
-  ) {
-    try {
-      const settings = await getOrCreateUserSettings(userId);
-      if (settings.hrMax && settings.hrRest) {
-        const recentRuns = await getRecentRunSummaries(60);
-        const lastN = recentRuns.slice(-14);
-        if (lastN.length >= 5) {
-          const recal = calibrateVdotFromRuns(
-            lastN,
-            settings.hrMax,
-            settings.hrRest,
-          );
-          const currentVdot = await getEffectiveVdot(userId);
-          if (
-            !recal.insufficient_data &&
-            Math.abs(recal.finalVdot - currentVdot) >= 2
-          ) {
-            const prefs = settings.notificationPrefs as
-              | { vdotCalibrated?: boolean }
-              | null;
-            if (prefs?.vdotCalibrated !== false) {
-              const methodSummary = recal.estimates
-                .map((e) => `${e.method}=${e.vdot}`)
-                .join(", ");
-              await createNotificationIfNew(
-                {
-                  userId,
-                  type: "VDOT_CALIBRATED",
-                  title: `VDOT-Update vorgeschlagen: ${currentVdot} → ${recal.finalVdot}`,
-                  message: `Aus den letzten ${lastN.length} Runs (rolling window): ${methodSummary}. Konfidenz: ${recal.confidence}, Range ${recal.range.min}-${recal.range.max}. Übernimm in Settings.`,
-                  severity: "INFO",
-                  actionUrl: `/settings?vdotPrefill=${recal.finalVdot}`,
-                },
-                10080,
-              );
-            }
-            recalibration = {
-              suggested: true,
-              currentVdot,
-              suggestedVdot: recal.finalVdot,
-              confidence: recal.confidence,
-            };
-          }
-        }
-      }
-    } catch (e) {
-      console.error("[complete] rolling recalibration failed:", e);
-    }
-  }
+  // Sprint 2.6 (A6): the rolling VDOT recalibration used to live here as ~65
+  // lines inline — and only ever produced a notification, which across 3.5
+  // months never once led to a correction. It now runs in the daily Garmin cron
+  // (lib/coach-engine/vdot-recalibration.ts) where it can actually APPLY the
+  // result and regenerate the affected paces. Two voices for one number would
+  // only confuse; the W1 calibration_run above stays, because that one is a
+  // deliberate measurement of a single prescribed session.
 
   return NextResponse.json({
     status: "ok",
@@ -473,6 +410,5 @@ export async function POST(req: Request) {
     hasGarminImport: !!parsed.data.garminActivityId,
     hasStrengthLog: !!parsed.data.strengthExecution,
     w1Calibration,
-    recalibration,
   });
 }

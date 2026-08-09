@@ -204,6 +204,7 @@ export async function POST(req: Request) {
       vdotOverride: initialVdot,
       vdotOverrideAt: new Date(),
       vdotOverrideRationale: vdotRationale,
+      vdotSource: "onboarding",
       // Sprint v0.12: persist derived therapy phase as the override so it
       // becomes the single source of truth for plan generation. null when
       // there's no patellar-tendinopathy constraint — engine then falls
