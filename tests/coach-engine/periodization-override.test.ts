@@ -102,7 +102,19 @@ describe("comebackWeek ramp (Sprint 2.4)", () => {
     expect(adj.loadMultiplier).toBeCloseTo(1.05 * 0.75, 3);
     // …and the W3 +33% set bump is damped, not cancelled.
     expect(adj.setMultiplier).toBeCloseTo(1.33 * 0.75, 3);
-    expect(adj.rpeCapDelta).toBe(1); // RPE cap still follows the real week
+  });
+
+  it("suppresses the W3 RPE-cap bump — no grinding to 9 on the way back", () => {
+    expect(computePeriodizationAdjustment({ ...BASE, weekInBlock: 3 }).rpeCapDelta).toBe(1);
+    expect(
+      computePeriodizationAdjustment({ ...BASE, weekInBlock: 3, comebackWeek: 3 }).rpeCapDelta,
+    ).toBe(0);
+  });
+
+  it("still allows the deload's −1 RPE — lower is never blocked", () => {
+    expect(
+      computePeriodizationAdjustment({ ...BASE, weekInBlock: 4, comebackWeek: 2 }).rpeCapDelta,
+    ).toBe(-1);
   });
 
   it("applies after loadOverrideWeek so the ramp always has the last word", () => {

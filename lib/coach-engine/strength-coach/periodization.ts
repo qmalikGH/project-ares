@@ -213,9 +213,15 @@ export function computePeriodizationAdjustment(
     const ramp = rampFor(ctx.comebackWeek);
     loadMultiplier *= ramp.strengthLoadFactor;
     setMultiplier *= ramp.strengthSetFactor;
+    // No RPE-cap bump while returning. W3 normally grants +1 (→ RPE 9 on main
+    // lifts), which lands exactly on comeback week 3 — the week the athlete is
+    // back near block loads but has three weeks of training behind him, not a
+    // block. Grinding to 9 there is how a comeback turns back into a layoff.
+    // Deload's −1 is left alone: lower is always allowed.
+    rpeCapDelta = Math.min(rpeCapDelta, 0);
     weekRationale += ` [Wiedereinstieg W${ctx.comebackWeek}: Last ×${ramp.strengthLoadFactor}${
       ramp.strengthSetFactor !== 1 ? `, Sätze ×${ramp.strengthSetFactor}` : ""
-    } nach Trainingspause]`;
+    }, kein RPE-Bump nach Trainingspause]`;
   }
 
   // RPE-based fine-tune: only if we have a prior reading. Never zero — small
