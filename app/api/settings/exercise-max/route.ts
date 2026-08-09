@@ -15,25 +15,13 @@ import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { userToday } from "@/lib/date";
-import { getEffectiveVdot } from "@/lib/db/queries/settings";
-import { generateWeekRunPlan } from "@/lib/coach-engine/run-coach";
-import {
-  generateWeekStrengthPlan,
-  BLOCK_TEMPLATES,
-} from "@/lib/coach-engine/strength-coach";
-import {
-  constraintsFromUserSettings,
-  planWeekSchedule,
-} from "@/lib/coach-engine/schedule-strategy";
+import { BLOCK_TEMPLATES } from "@/lib/coach-engine/strength-coach";
+import { regeneratePlansFromNow } from "@/lib/db/queries/regenerate-plans";
 import { rollingOneRMEstimate } from "@/lib/coach-engine/strength-coach/one-rm";
 import { getCurrentPhaseRow } from "@/lib/db/queries/plans";
 import type {
   BlockNumber,
   Exercise,
-  PhaseConfig,
-  SessionPlan,
-  WeekStrengthData,
-  WeekStrengthPlan,
 } from "@/lib/coach-engine/types";
 
 interface RelevantExercise {
@@ -175,89 +163,17 @@ export async function POST(req: Request) {
   });
 
   // 2. Regenerate the current week + every future WeeklyPlan so `loadAbs`
-  // reflects the new 1RMs. The filter MUST be `endDate > today` (not
-  // `startDate >= today`) so the current week is included — otherwise Q
-  // saves a 1RM mid-week and the today's strength card keeps showing only
-  // percent values until next Monday.
+  // reflects the new 1RMs.
+  //
+  // Sprint 2.4: this used to inline its own copy of the regeneration loop and
+  // called generateWeekRunPlan WITHOUT the shin/RHR gate or the comeback ramp —
+  // so saving a 1RM silently rewrote the imminent week back to full volume and
+  // a full threshold session, releasing the injury brake. Delegating to the
+  // shared helper keeps every regeneration path braked by construction.
+  //
   // No Garmin re-sync — 1RM updates only affect strength display, not the
   // run workouts pushed to the watch.
-  const today0 = userToday();
-  const plansToRegen = await db.weeklyPlan.findMany({
-    where: {
-      phase: { macrocycle: { userId, status: "active" } },
-      endDate: { gt: today0 },
-    },
-    include: { phase: true },
-    orderBy: { startDate: "asc" },
-  });
-
-  const userSettings = await db.userSettings.findUnique({ where: { userId } });
-  const effectiveVdot = await getEffectiveVdot(userId);
-  const hrCtx =
-    userSettings?.hrMax && userSettings?.hrRest
-      ? { hrMax: userSettings.hrMax, hrRest: userSettings.hrRest }
-      : undefined;
-
-  const constraints = constraintsFromUserSettings({
-    forcedRestDaysIso: userSettings?.forcedRestDays ?? null,
-    preferredLongRunDayIso: userSettings?.preferredLongRunDay ?? null,
-  });
-
-  let regenerated = 0;
-  let prevWeekData: WeekStrengthData | null = null;
-  for (const plan of plansToRegen) {
-    const phaseConfig = plan.phase.config as unknown as PhaseConfig;
-    if (!phaseConfig) continue;
-
-    const runPlan = generateWeekRunPlan(
-      phaseConfig,
-      plan.weekNumber,
-      effectiveVdot,
-      plan.startDate,
-      hrCtx,
-    );
-    const strengthPlan: WeekStrengthPlan = generateWeekStrengthPlan(
-      phaseConfig,
-      plan.weekNumber,
-      plan.startDate,
-      prevWeekData,
-      // Sprint v0.12: respect manual therapy-phase override.
-      (userSettings?.therapyPhaseOverride as
-        | "REACTIVE"
-        | "DISREPAIR"
-        | "REMODELING"
-        | "SPORT_SPECIFIC"
-        | null) ?? null,
-      parsed.data.exerciseMaxEstimates,
-    );
-
-    const mergedSessions: SessionPlan[] = planWeekSchedule(
-      runPlan.sessions,
-      strengthPlan.sessions,
-      plan.startDate,
-      constraints,
-    );
-
-    await db.weeklyPlan.update({
-      where: { id: plan.id },
-      data: { plannedSessions: mergedSessions as unknown as object },
-    });
-    regenerated += 1;
-
-    prevWeekData = {
-      weekNumber: plan.weekNumber,
-      sessions: strengthPlan.sessions
-        .filter((s) =>
-          ["strength_a", "strength_b", "strength_c"].includes(s.type),
-        )
-        .map(
-          (s) =>
-            ({
-              type: s.type,
-            }) as WeekStrengthData["sessions"][number],
-        ),
-    };
-  }
+  const { regenerated } = await regeneratePlansFromNow(userId);
 
   return NextResponse.json({ status: "ok", regenerated });
 }

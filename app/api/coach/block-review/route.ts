@@ -103,6 +103,22 @@ export async function POST(req: Request) {
   // logged working sets (→ invisible to the TM evaluation). Flags partial-data.
   const unloggedStrengthSessions = await countUnloggedStrengthSessions(userId, phase.id);
 
+  // Sprint 2.4: how old the anchors behind the proposals are. `decideTmProposal`
+  // reasons against `exerciseMaxEstimates`, and `exerciseMaxUpdatedAt` was a
+  // column nothing read — so a TM last touched months ago looked exactly like
+  // one confirmed last week. Surface the age; don't act on it automatically.
+  const staleSettings = await db.userSettings.findUnique({
+    where: { userId },
+    select: { exerciseMaxUpdatedAt: true, vdotOverrideAt: true },
+  });
+  const ageDays = (d: Date | null | undefined): number | null =>
+    d ? Math.floor((Date.now() - d.getTime()) / 86400000) : null;
+  const calibrationAge = {
+    oneRMAgeDays: ageDays(staleSettings?.exerciseMaxUpdatedAt),
+    vdotAgeDays: ageDays(staleSettings?.vdotOverrideAt),
+    warnAfterDays: 56,
+  };
+
   // AI narration
   let aiSummary: string | null = null;
   let aiCostUsd = 0;
@@ -193,6 +209,7 @@ export async function POST(req: Request) {
     reviewInput,
     tmProposals,
     unloggedStrengthSessions,
+    calibrationAge,
     aiSummary,
     aiCostUsd,
   });

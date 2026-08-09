@@ -16,6 +16,7 @@ import {
   weekInBlockOf,
   type WeekInBlock,
 } from "../strength-coach/periodization";
+import { rampFor, type ComebackWeek } from "../comeback";
 import { PRE_RUN_ACTIVATION, ACTIVATION_DURATION_MIN } from "./activation";
 
 // ============================================
@@ -570,6 +571,11 @@ export function generateWeekRunPlan(
    *  null/undefined → no modulation (treated as "progress"). One signal feeds
    *  both this and `greenForProgression`, so a run is never double-penalized. */
   shinVolumeGate?: "progress" | "hold" | "regress" | null,
+  /** Sprint 2.4: graded return-to-training week (1-3) after a layoff ≥ 21 days.
+   *  Cuts run volume (0.55/0.70/0.85) and replaces the quality day with an easy
+   *  run in weeks 1-2. null/undefined → no ramp. Derived from completed-session
+   *  history by the regenerate path, never set by hand. */
+  comebackWeek?: ComebackWeek | null,
 ): WeekRunPlan {
   const paces = vdotToPaces(vdot);
   const blockNumber = phaseConfig.blockNumber;
@@ -588,7 +594,13 @@ export function generateWeekRunPlan(
   // for THIS (imminent) week. Applied to the volume base so every easy/long
   // run inherits it. "hold"/"progress" leave volume untouched (hold only
   // clamps the threshold structure via greenForProgression).
-  const volumeFactor = shinVolumeGate === "regress" ? 0.8 : 1;
+  const gateFactor = shinVolumeGate === "regress" ? 0.8 : 1;
+  // Sprint 2.4: the comeback ramp is a SECOND volume brake. Take the stricter
+  // of the two rather than multiplying — a shin flare during comeback week 1
+  // must not compound into 0.55 × 0.8 = 0.44. Same "one signal, no double
+  // penalty" rule the Sprint 2.3 governor follows.
+  const ramp = comebackWeek != null ? rampFor(comebackWeek) : null;
+  const volumeFactor = Math.min(gateFactor, ramp?.runVolumeFactor ?? 1);
   const longRunMin = Math.max(20, Math.round(longBaseline * volumeProg.longRunMultiplier * volumeFactor));
   // Sprint 2.2: threshold is no longer sized by the volume multiplier — its
   // duration is derived from the interval structure (thresholdStructureFor).
@@ -623,15 +635,27 @@ export function generateWeekRunPlan(
       "calibration_run",
       hr,
     );
-  } else if (shinVolumeGate === "regress") {
+  } else if (shinVolumeGate === "regress" || ramp?.suppressQuality) {
     // Sprint 2.3: shin flare (≥4) → cancel the quality session, run easy
     // instead (no intensity load on an angry shin). Same for threshold + vo2max.
+    // Sprint 2.4: comeback weeks 1-2 do the same — no intensity until the
+    // tendon/bone side has had two weeks of graded loading.
     qualityDay = easyRun(dateAt(1), easyRunMin, paces, hr);
-    qualityDay.notes = "[Shin-Schutz: Quali gestrichen, locker laufen]";
+    qualityDay.notes =
+      shinVolumeGate === "regress"
+        ? "[Shin-Schutz: Quali gestrichen, locker laufen]"
+        : `[Wiedereinstieg W${comebackWeek}: Quali gestrichen, locker laufen]`;
   } else if (blockNumber <= 3) {
     // Sprint 2.2: threshold = structured interval session (capped threshold
     // time), progressing via the ladder, gated by shin/RHR. Blocks 1–3.
-    const level = thresholdStructureFor(blockNumber, weekInBlock, greenForProgression);
+    // Sprint 2.4: during the ramp (week 3, the first one that keeps a quality
+    // day) the threshold always drops to the conservative 2×10 floor — the
+    // ladder position is meaningless when the last threshold was months ago.
+    const level = thresholdStructureFor(
+      blockNumber,
+      weekInBlock,
+      greenForProgression && comebackWeek == null,
+    );
     qualityDay = thresholdRun(dateAt(1), level, paces, hr);
   } else {
     qualityDay = vo2maxIntervals(dateAt(1), paces, hr);
