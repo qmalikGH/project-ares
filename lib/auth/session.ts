@@ -13,7 +13,17 @@
 import { SignJWT, jwtVerify } from "jose";
 
 export const SESSION_COOKIE = "ares_session";
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — personal device
+/**
+ * One year. This is a single-athlete app on personal devices, and the 30-day
+ * default meant re-entering a password roughly monthly for no security gain
+ * anyone was actually collecting — the realistic threat is not a stolen laptop,
+ * it is the URL being public, which the gate itself closes.
+ *
+ * Revocation is not lost: rotating AUTH_SECRET invalidates every issued session
+ * immediately, because the signature no longer verifies. That is the kill switch
+ * if a device is ever lost.
+ */
+const SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
 export interface SessionPayload {
   userId: string;
