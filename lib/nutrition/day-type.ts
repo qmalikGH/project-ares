@@ -8,6 +8,7 @@
 // or slot presence there automatically cascades here.
 
 import { DAY_TYPE_CONFIGS } from "./day-type-configs";
+import { DEFICIT_KCAL } from "./constants";
 import type { DayType } from "./types";
 
 // ── Weekday → DayType mapping ────────────────────────────────────────────
@@ -53,7 +54,11 @@ export interface DayTypeTargets {
   fatG: number;
 }
 
-const DEFAULT_DEFICIT = 500;
+// Sprint 2.7 (A5): was a separate hardcoded 500 — a third deficit authority
+// that silently disagreed with DEFICIT_KCAL. Only reachable when a config has
+// no explicit tdeeEstimate (never true today), but a wrong fallback that never
+// fires is still a wrong fallback.
+const DEFAULT_DEFICIT = DEFICIT_KCAL;
 
 export const INITIAL_TARGETS: Record<DayType, DayTypeTargets> = Object.fromEntries(
   DAY_TYPE_CONFIGS.map((c) => [

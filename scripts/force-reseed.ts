@@ -1,20 +1,24 @@
-// Force-reseed: full deficit-sync path (Sprint v1.8 #6).
-// Sets MealPlan.deficitKcal = DEFICIT_KCAL, overwrites DayTypeConfig from code
-// constants, then runs the unified cascade which now syncs ALL 4 stores
-// (DayTypeConfig, ComputedMealSlot, DayPlan, MealPlan.deficitKcal).
+// Force-reseed: full deficit-sync path (Sprint v1.8 #6, reworked in 2.7 A5).
+//
+// Writes MealPlan.deficitKcal at the deficit actually in force (taper /
+// maintenance near goal weight), overwrites DayTypeConfig from code constants,
+// clamps every target to its derived minimum, then runs the unified cascade
+// which syncs ComputedMealSlot + DayPlan.
+//
+// This is the ONLY way a change to DEFICIT_KCAL reaches the live plan.
+//
 // Run: npx tsx scripts/force-reseed.ts
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { db } from "@/lib/db/client";
-import { forceReseedDayTypeConfigs } from "@/lib/nutrition/seed-day-type-configs";
-import { cascadeNutritionUpdate } from "@/lib/nutrition/cascade";
+import { reseedNutritionFromConstants } from "@/lib/nutrition/reseed";
 import { DEFICIT_KCAL } from "@/lib/nutrition/constants";
 
 async function main() {
   const plan = await db.mealPlan.findFirst({
     where: { status: "active" },
-    select: { id: true, deficitKcal: true },
+    select: { id: true, userId: true, deficitKcal: true },
   });
 
   if (!plan) {
@@ -22,23 +26,25 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("Plan ID:", plan.id, "| deficitKcal", plan.deficitKcal, "->", DEFICIT_KCAL);
+  console.log("Plan ID:", plan.id, "| deficitKcal", plan.deficitKcal, "-> base", DEFICIT_KCAL);
 
-  // 1) deficitKcal is the source of truth — align it to the code constant.
-  await db.mealPlan.update({
-    where: { id: plan.id },
-    data: { deficitKcal: DEFICIT_KCAL },
-  });
+  const res = await reseedNutritionFromConstants(
+    plan.userId,
+    plan.id,
+    "Sprint 2.7 (A5) force-reseed: deficit sync across all stores",
+  );
 
-  // 2) Overwrite DayTypeConfig rows from code constants (calorieTarget = tdee − DEFICIT_KCAL).
-  const updated = await forceReseedDayTypeConfigs(plan.id);
-  console.log("Reseeded day types:", updated.join(", "));
-
-  // 3) Unified cascade — recomputes ComputedMealSlot AND DayPlan rows.
-  const res = await cascadeNutritionUpdate(plan.id, "seed", "v1.8 force-reseed: deficit sync across all 4 stores");
-  console.log("Cascade:", res.success ? "OK" : `FAILED: ${res.errors.join("; ")}`);
+  console.log("Deficit applied:", res.deficitKcal, `(${res.deficitMode})`);
+  console.log("  ", res.deficitReason);
+  console.log("Reseeded day types:", res.updatedDayTypes.join(", "));
+  for (const note of res.clampNotes) console.log("  clamp:", note);
+  console.log("Cascade:", res.cascade.success ? "OK" : `FAILED: ${res.cascade.errors.join("; ")}`);
 
   await db.$disconnect();
+
+  // Sprint 2.7: exit non-zero on failure. This used to exit 0 either way, so a
+  // scripted rollout reported success on a complete no-op.
+  if (!res.cascade.success) process.exit(1);
 }
 
 main().catch((e) => {

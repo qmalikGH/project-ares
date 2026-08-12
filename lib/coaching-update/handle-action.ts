@@ -5,16 +5,17 @@
 import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { dayKey } from "@/lib/db/queries/sensors";
-import { buildAllDayPlans } from "@/lib/nutrition/build-all-day-plans";
 import { calibrateMealPlan } from "@/lib/nutrition/calibration";
-import { cascadeNutritionUpdate } from "@/lib/nutrition/cascade";
-import { ATHLETE_WEIGHT_KG } from "@/lib/nutrition/day-type-configs";
+import { cascadeNutritionUpdate, type CascadeResult } from "@/lib/nutrition/cascade";
 import { DEFICIT_KCAL } from "@/lib/nutrition/constants";
-import type { DayTypeTargets } from "@/lib/nutrition/day-type";
+import { dryRunConfigChange, resolveAthleteWeightKg } from "@/lib/nutrition/dry-run";
+import { clampToMinIntake } from "@/lib/nutrition/min-intake";
+import { reseedNutritionFromConstants } from "@/lib/nutrition/reseed";
 import { RECIPE_TEMPLATES } from "@/lib/nutrition/recipe-templates";
-import { dbConfigToEngineConfig, seedDayTypeConfigs, forceReseedDayTypeConfigs } from "@/lib/nutrition/seed-day-type-configs";
+import type { DayTypeTargets } from "@/lib/nutrition/day-type";
+import { dbConfigToEngineConfig, seedDayTypeConfigs } from "@/lib/nutrition/seed-day-type-configs";
 import { buildSlotsForTargets, templateDayPlan } from "@/lib/nutrition/template";
-import type { DayType, DayTypeConfig } from "@/lib/nutrition/types";
+import type { DayType } from "@/lib/nutrition/types";
 import { materializeWorkouts } from "@/lib/coach-engine/materialize";
 
 const TherapyPhaseSchema = z.object({
@@ -113,6 +114,17 @@ const SEED_DAY_TYPES: DayType[] = ["strength_run", "threshold", "long_run", "res
 export type ActionResult =
   | { success: true; logId: string; action: string }
   | { success: false; status: number; error: string; details?: unknown };
+
+/**
+ * Sprint 2.7 (A5): the cascade is all-or-nothing, so "it failed" means NOTHING
+ * was recomputed — the action did not take effect. Every call site used to
+ * discard this and report success anyway. `cascade.ts` already writes the
+ * failure to the CoachingLog and raises a notification; the caller's job is
+ * simply to stop lying about the outcome.
+ */
+function cascadeFailed(result: CascadeResult): ActionResult {
+  return { success: false, status: 422, error: "cascade_failed", details: result.errors };
+}
 
 
 /**
@@ -301,7 +313,8 @@ export async function handleCoachingAction(
       }
 
       // Cascade: recompute all ComputedMealSlots
-      await cascadeNutritionUpdate(plan.id, "config_change", reason);
+      const cascadeResult = await cascadeNutritionUpdate(plan.id, "config_change", reason);
+      if (!cascadeResult.success) return cascadeFailed(cascadeResult);
 
       const log = await db.coachingLog.create({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -435,6 +448,7 @@ export async function handleCoachingAction(
 
       // Cascade: compute all slots from DB configs and persist
       const cascadeResult = await cascadeNutritionUpdate(plan.id, "seed", reason);
+      if (!cascadeResult.success) return cascadeFailed(cascadeResult);
 
       const log = await db.coachingLog.create({
         data: {
@@ -505,7 +519,8 @@ export async function handleCoachingAction(
         where: { planId_dayType: { planId: plan.id, dayType: parsed.data.dayType } },
         data: { [fieldToUpdate]: parsed.data.newRecipeId },
       });
-      await cascadeNutritionUpdate(plan.id, "recipe_change", reason);
+      const recipeCascade = await cascadeNutritionUpdate(plan.id, "recipe_change", reason);
+      if (!recipeCascade.success) return cascadeFailed(recipeCascade);
 
       const log = await db.coachingLog.create({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -553,7 +568,8 @@ export async function handleCoachingAction(
         where: { planId_dayType: { planId: plan.id, dayType: parsed.data.dayType } },
         data: { mainMealRatio: parsed.data.mainMealRatio, dinnerRatio },
       });
-      await cascadeNutritionUpdate(plan.id, "config_change", reason);
+      const ratioCascade = await cascadeNutritionUpdate(plan.id, "config_change", reason);
+      if (!ratioCascade.success) return cascadeFailed(ratioCascade);
 
       const log = await db.coachingLog.create({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -600,7 +616,8 @@ export async function handleCoachingAction(
         where: { planId_dayType: { planId: plan.id, dayType: parsed.data.dayType } },
         data: { flexDessertEnabled: parsed.data.enabled },
       });
-      await cascadeNutritionUpdate(plan.id, "config_change", reason);
+      const dessertCascade = await cascadeNutritionUpdate(plan.id, "config_change", reason);
+      if (!dessertCascade.success) return cascadeFailed(dessertCascade);
 
       const log = await db.coachingLog.create({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -625,13 +642,19 @@ export async function handleCoachingAction(
       if (!plan) return { success: false, status: 404, error: "no_active_meal_plan" };
 
       const newDeficit = parsed.data.deficit;
-      const oldDeficit = plan.deficitKcal ?? 500;
+      const oldDeficit = plan.deficitKcal ?? DEFICIT_KCAL;
 
       // Load all DayTypeConfigs and recalculate calorieTargets
       const dbConfigs = await db.dayTypeConfig.findMany({ where: { planId: plan.id } });
       if (dbConfigs.length === 0) {
         return { success: false, status: 404, error: "no_day_type_configs" };
       }
+
+      // Sprint 2.7 (A5): a coach-requested deficit is a request, not a licence.
+      // Every resulting target is clamped up to its derived minimum, so no
+      // deficit can push a day type below what its own floors cost to build.
+      const deficitWeightKg = await resolveAthleteWeightKg(userId);
+      const deficitClampNotes: string[] = [];
 
       // Dry-run: compute new targets and validate
       const dryRunResult = await dryRunConfigChange(plan.id, userId, (configs) => {
@@ -640,9 +663,11 @@ export async function handleCoachingAction(
           if (!tdee) {
             return `DayType ${configs[i].dayType} has no tdeeEstimate — run calibration first`;
           }
+          const clamp = clampToMinIntake(tdee - newDeficit, configs[i], deficitWeightKg);
+          if (clamp.note) deficitClampNotes.push(clamp.note);
           configs[i] = {
             ...configs[i],
-            calorieTarget: tdee - newDeficit,
+            calorieTarget: clamp.calorieTarget,
           };
         }
         return null;
@@ -660,19 +685,21 @@ export async function handleCoachingAction(
       for (const config of dbConfigs) {
         const tdee = config.tdeeEstimate;
         if (tdee != null) {
+          const clamp = clampToMinIntake(tdee - newDeficit, dbConfigToEngineConfig(config), deficitWeightKg);
           await db.dayTypeConfig.update({
             where: { id: config.id },
-            data: { calorieTarget: tdee - newDeficit },
+            data: { calorieTarget: clamp.calorieTarget },
           });
         }
       }
 
       // Cascade: recompute all ComputedMealSlots
-      await cascadeNutritionUpdate(plan.id, "config_change", reason);
+      const deficitCascade = await cascadeNutritionUpdate(plan.id, "config_change", reason);
+      if (!deficitCascade.success) return cascadeFailed(deficitCascade);
 
       const log = await db.coachingLog.create({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        data: { userId, action, data: { oldDeficit, newDeficit } as any, reason },
+        data: { userId, action, data: { oldDeficit, newDeficit, clampNotes: deficitClampNotes } as any, reason },
       });
       return { success: true, logId: log.id, action };
     }
@@ -690,26 +717,25 @@ export async function handleCoachingAction(
       });
       if (!plan) return { success: false, status: 404, error: "no_active_meal_plan" };
 
-      // Sprint v1.8 #6: deficitKcal is the source of truth — align to the code
-      // constant so reseed always lands all 4 stores at the same deficit.
-      await db.mealPlan.update({
-        where: { id: plan.id },
-        data: { deficitKcal: DEFICIT_KCAL },
-      });
-
-      // Overwrite all DayTypeConfig rows with code constants
-      const updated = await forceReseedDayTypeConfigs(plan.id);
-
-      // Cascade: unified path recomputes ComputedMealSlot AND DayPlan rows
-      // (DayPlan no longer refreshed manually here — cascade owns it).
-      const cascadeResult = await cascadeNutritionUpdate(plan.id, "seed", reason);
+      // Sprint 2.7 (A5): one shared implementation with scripts/force-reseed.ts.
+      // Resolves the deficit in force (taper/maintenance near goal weight),
+      // clamps every target to its derived minimum, then cascades all stores.
+      const reseed = await reseedNutritionFromConstants(userId, plan.id, reason);
+      if (!reseed.cascade.success) return cascadeFailed(reseed.cascade);
 
       const log = await db.coachingLog.create({
         data: {
           userId,
           action,
+          data: {
+            planId: plan.id,
+            updatedDayTypes: reseed.updatedDayTypes,
+            deficitKcal: reseed.deficitKcal,
+            deficitMode: reseed.deficitMode,
+            deficitReason: reseed.deficitReason,
+            clampNotes: reseed.clampNotes,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          data: { planId: plan.id, updatedDayTypes: updated, cascadeSuccess: cascadeResult.success, cascadeErrors: cascadeResult.errors } as any,
+          } as any,
           reason,
         },
       });
@@ -739,39 +765,6 @@ export async function handleCoachingAction(
     default:
       return { success: false, status: 400, error: "unknown_action", details: { action } };
   }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Dry-run helper — validates config change via pure engine before DB write
-// ═══════════════════════════════════════════════════════════════════════════
-
-async function dryRunConfigChange(
-  planId: string,
-  userId: string,
-  mutate: (configs: DayTypeConfig[]) => string | null,
-): Promise<{ ok: true } | { ok: false; errors: string[] }> {
-  const dbConfigs = await db.dayTypeConfig.findMany({ where: { planId } });
-  if (dbConfigs.length === 0) {
-    return { ok: false, errors: ["No DayTypeConfigs found — run seedMealPlan first"] };
-  }
-
-  const configs = dbConfigs.map(dbConfigToEngineConfig);
-  const mutateError = mutate(configs);
-  if (mutateError) {
-    return { ok: false, errors: [mutateError] };
-  }
-
-  const settings = await db.userSettings.findUnique({
-    where: { userId },
-    select: { currentWeightKg: true, targetWeightKg: true },
-  });
-  const weight = settings?.currentWeightKg ?? settings?.targetWeightKg ?? ATHLETE_WEIGHT_KG;
-
-  const result = buildAllDayPlans(configs, RECIPE_TEMPLATES, weight);
-  if (result.hasErrors) {
-    return { ok: false, errors: result.allErrors };
-  }
-  return { ok: true };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

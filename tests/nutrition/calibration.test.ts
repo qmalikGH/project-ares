@@ -12,7 +12,6 @@ vi.mock("@/lib/db/queries/sensors", () => ({
 import {
   CALIBRATION_WINDOW_DAYS,
   FIXED_FAT_G,
-  FIXED_PROTEIN_G,
   MIN_SAMPLES_PER_DAY_TYPE,
   REST_DAY_TDEE_FLOOR,
   averageTDEEByDayType,
@@ -113,8 +112,8 @@ describe("averageTDEEByDayType", () => {
 });
 
 describe("computeMacros", () => {
-  it("strength_run TDEE 3000, deficit 500 → target 2500, P190 F70 C195", () => {
-    const m = computeMacros(3000, 500);
+  it("strength_run TDEE 3000, deficit 500 → target 2500, P190 F70 C278", () => {
+    const m = computeMacros(3000, 500, 190);
     expect(m.calorieTarget).toBe(2500);
     expect(m.proteinG).toBe(190);
     expect(m.fatG).toBe(70);
@@ -123,21 +122,36 @@ describe("computeMacros", () => {
   });
 
   it("rest TDEE 2200, deficit 500 → target 1700, lower carbs", () => {
-    const m = computeMacros(2200, 500);
+    const m = computeMacros(2200, 500, 190);
     expect(m.calorieTarget).toBe(1700);
     // 1700 - 760 - 630 = 310 → 310/4 = 77.5 → 78
     expect(m.carbsG).toBe(78);
   });
 
   it("never returns negative carbs (clamps at 0)", () => {
-    const m = computeMacros(1000, 500); // calorieTarget = 500, way too low
+    const m = computeMacros(1000, 500, 190); // calorieTarget = 500, way too low
     expect(m.carbsG).toBe(0);
   });
 
-  it("uses fixed protein and fat constants", () => {
-    const m = computeMacros(2800, 500);
-    expect(m.proteinG).toBe(FIXED_PROTEIN_G);
+  it("defaults fat to FIXED_FAT_G but takes protein from the caller", () => {
+    const m = computeMacros(2800, 500, 194);
+    expect(m.proteinG).toBe(194);
     expect(m.fatG).toBe(FIXED_FAT_G);
+  });
+
+  // Sprint 2.7 (A5): protein used to be the module constant 190, which meant
+  // every weekly calibration silently overwrote the weight-derived value the
+  // morning-input cascade had just computed. It is a parameter now — this test
+  // is the one that would have caught the old behaviour.
+  it("passes the caller's protein through instead of a module constant", () => {
+    expect(computeMacros(3000, 300, 176).proteinG).toBe(176);
+    expect(computeMacros(3000, 300, 202).proteinG).toBe(202);
+  });
+
+  it("carbs absorb the protein change (residual macro)", () => {
+    const low = computeMacros(3000, 300, 176);
+    const high = computeMacros(3000, 300, 202);
+    expect(low.carbsG - high.carbsG).toBe(26); // 26 g protein × 4 kcal ÷ 4
   });
 });
 
@@ -337,13 +351,18 @@ describe("dayTypesWithCoachOverride", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("gartheMaxDeficit", () => {
-  it("allows the −600 deficit at 90kg (cap ≈ 693)", () => {
+  it("is far above the −300 base deficit at 90kg (cap ≈ 693)", () => {
     expect(gartheMaxDeficit(90)).toBeGreaterThanOrEqual(600);
     expect(gartheMaxDeficit(90)).toBe(693);
   });
 
-  it("caps below −600 once weight drops under ~77kg", () => {
-    expect(gartheMaxDeficit(75)).toBeLessThan(600);
+  // Sprint 2.7 (A5): with the base deficit at 300 this cap no longer binds at
+  // any plausible body mass (it would take ~39 kg). It stays as the guard for a
+  // future, more aggressive deficit — not as the athlete's actual brake, which
+  // is now the goal-weight taper in deficit.ts.
+  it("only drops below the −300 base at implausible body masses", () => {
+    expect(gartheMaxDeficit(75)).toBeGreaterThan(300);
+    expect(gartheMaxDeficit(38)).toBeLessThan(300);
   });
 
   it("scales linearly with body mass", () => {

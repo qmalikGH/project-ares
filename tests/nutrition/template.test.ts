@@ -173,23 +173,23 @@ describe("templateDayPlan", () => {
     const plan = templateDayPlan("strength_run");
     expect(plan.dayType).toBe("strength_run");
     expect(plan.tdeeEstimate).toBe(3353);
-    expect(plan.calorieTarget).toBe(2753);
-    expect(plan.proteinG).toBe(200);
+    expect(plan.calorieTarget).toBe(3053);
+    expect(plan.proteinG).toBe(202);
   });
 
-  it("rest day-type targets 1900 kcal (v1.7: Intake = TDEE 2500 − 600)", () => {
+  it("rest day-type targets 2200 kcal (2.7 A5: Intake = TDEE 2500 − 300)", () => {
     const plan = templateDayPlan("rest");
-    expect(plan.calorieTarget).toBe(1900);
+    expect(plan.calorieTarget).toBe(2200);
   });
 
-  it("threshold targets 2339 kcal (v1.7: Intake = TDEE 2939 − 600)", () => {
+  it("threshold targets 2639 kcal (2.7 A5: Intake = TDEE 2939 − 300)", () => {
     const plan = templateDayPlan("threshold");
-    expect(plan.calorieTarget).toBe(2339);
+    expect(plan.calorieTarget).toBe(2639);
   });
 
-  it("long_run targets 2568 kcal (v1.7: Intake = TDEE 3168 − 600)", () => {
+  it("long_run targets 2868 kcal (2.7 A5: Intake = TDEE 3168 − 300)", () => {
     const plan = templateDayPlan("long_run");
-    expect(plan.calorieTarget).toBe(2568);
+    expect(plan.calorieTarget).toBe(2868);
   });
 
   it("is deterministic — same day-type always produces identical output", () => {
@@ -460,7 +460,9 @@ describe("buildWeekdaySlotsMap", () => {
 
   it("uses custom targets when provided", () => {
     const custom: Partial<Record<DayType, DayTypeTargets>> = {
-      strength_run: { ...INITIAL_TARGETS.strength_run, calorieTarget: 3000 },
+      // Must stay ABOVE the default target (3053 since 2.7 A5) for the
+      // "greater than" assertion below to mean anything.
+      strength_run: { ...INITIAL_TARGETS.strength_run, calorieTarget: 3300 },
     };
     const customMap = buildWeekdaySlotsMap(custom);
     // Mon (strength_run) should reflect custom target

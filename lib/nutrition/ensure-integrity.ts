@@ -15,8 +15,20 @@ const EXPECTED_DAY_TYPES = 4;
 /**
  * Ensure the nutrition data for a plan is consistent.
  * Repairs missing DayTypeConfigs and ComputedMealSlots.
+ *
+ * Sprint 2.7 (A5): returns the repair outcome instead of `void`. This runs
+ * lazily on ordinary nutrition page loads, so a failing repair here was the
+ * quietest of the three ignored cascade call sites — a user could open /today
+ * and trigger a failed repair with nothing anywhere to show for it. The cascade
+ * now logs and notifies on its own; this just stops discarding the answer.
  */
-export async function ensureNutritionIntegrity(planId: string): Promise<void> {
+export interface IntegrityResult {
+  repaired: boolean;
+  ok: boolean;
+  errors: string[];
+}
+
+export async function ensureNutritionIntegrity(planId: string): Promise<IntegrityResult> {
   // 1. Check DayTypeConfigs
   const configs = await db.dayTypeConfig.findMany({
     where: { planId },
@@ -25,20 +37,23 @@ export async function ensureNutritionIntegrity(planId: string): Promise<void> {
 
   if (configs.length === 0) {
     await seedDayTypeConfigs(planId);
-    await cascadeNutritionUpdate(planId, "seed", "Initial setup — integrity check");
-    return;
+    const r = await cascadeNutritionUpdate(planId, "seed", "Initial setup — integrity check");
+    return { repaired: true, ok: r.success, errors: r.errors };
   }
 
   if (configs.length < EXPECTED_DAY_TYPES) {
     const existingDayTypes = configs.map((c) => c.dayType);
     await seedMissingDayTypeConfigs(planId, existingDayTypes);
-    await cascadeNutritionUpdate(planId, "seed", "Missing day types repaired — integrity check");
-    return;
+    const r = await cascadeNutritionUpdate(planId, "seed", "Missing day types repaired — integrity check");
+    return { repaired: true, ok: r.success, errors: r.errors };
   }
 
   // 2. Check ComputedMealSlots
   const slotCount = await db.computedMealSlot.count({ where: { planId } });
   if (slotCount === 0) {
-    await cascadeNutritionUpdate(planId, "manual", "Slots missing, recomputed — integrity check");
+    const r = await cascadeNutritionUpdate(planId, "manual", "Slots missing, recomputed — integrity check");
+    return { repaired: true, ok: r.success, errors: r.errors };
   }
+
+  return { repaired: false, ok: true, errors: [] };
 }
