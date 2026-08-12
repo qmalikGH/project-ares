@@ -5,6 +5,8 @@ import {
   SLOT_PRESENCE,
   getDayType,
 } from "@/lib/nutrition/day-type";
+import { proteinTargetG } from "@/lib/nutrition/constants";
+import { ATHLETE_WEIGHT_KG } from "@/lib/nutrition/day-type-configs";
 
 // Reference dates (UTC) for each weekday so we don't depend on `new Date()`.
 // 2026-05-04 is a Monday in UTC.
@@ -40,29 +42,33 @@ describe("INITIAL_TARGETS — derived from DAY_TYPE_CONFIGS", () => {
     expect(INITIAL_TARGETS.rest).toBeDefined();
   });
 
-  it("strength_run target = 2753 kcal (tdee=3353, v1.7 −600)", () => {
+  it("strength_run target = 3053 kcal (tdee=3353, 2.7 A5 −300)", () => {
     expect(INITIAL_TARGETS.strength_run.tdeeEstimate).toBe(3353);
-    expect(INITIAL_TARGETS.strength_run.calorieTarget).toBe(2753);
+    expect(INITIAL_TARGETS.strength_run.calorieTarget).toBe(3053);
   });
 
-  it("threshold target = 2339 kcal (tdee=2939)", () => {
-    expect(INITIAL_TARGETS.threshold.calorieTarget).toBe(2339);
+  it("threshold target = 2639 kcal (tdee=2939)", () => {
+    expect(INITIAL_TARGETS.threshold.calorieTarget).toBe(2639);
     expect(INITIAL_TARGETS.threshold.tdeeEstimate).toBe(2939);
   });
 
-  it("long_run target = 2568 kcal (tdee=3168)", () => {
-    expect(INITIAL_TARGETS.long_run.calorieTarget).toBe(2568);
+  it("long_run target = 2868 kcal (tdee=3168)", () => {
+    expect(INITIAL_TARGETS.long_run.calorieTarget).toBe(2868);
     expect(INITIAL_TARGETS.long_run.tdeeEstimate).toBe(3168);
   });
 
-  it("rest target = 1900 kcal (tdee=2500, capped)", () => {
-    expect(INITIAL_TARGETS.rest.calorieTarget).toBe(1900);
+  it("rest target = 2200 kcal (tdee=2500, capped)", () => {
+    expect(INITIAL_TARGETS.rest.calorieTarget).toBe(2200);
     expect(INITIAL_TARGETS.rest.tdeeEstimate).toBe(2500);
   });
 
-  it("protein constant at 200g across all day types (v1.7 soft target)", () => {
+  // Sprint 2.7 (A5): the seed protein is derived from the soft target
+  // (2.2 g/kg) instead of a standalone 200 g, so the config target and the
+  // target the scaler maximizes toward are finally the same number.
+  it("protein derived from the soft target across all day types", () => {
     for (const t of Object.values(INITIAL_TARGETS)) {
-      expect(t.proteinG).toBe(200);
+      expect(t.proteinG).toBe(proteinTargetG(ATHLETE_WEIGHT_KG));
+      expect(t.proteinG).toBe(202);
     }
   });
 

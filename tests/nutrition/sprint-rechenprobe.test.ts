@@ -26,24 +26,24 @@ const weight = ATHLETE_WEIGHT_KG;
 // Criterion 3: Rest day rechenprobe
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("Sprint doc rechenprobe — rest day (v1.7: Intake 1900)", () => {
+describe("Sprint doc rechenprobe — rest day (2.7 A5: Intake 2200)", () => {
   const config = DAY_TYPE_CONFIGS.find((c) => c.dayType === "rest")!;
   const plan = computeDayPlan(config, recipes, weight);
 
-  it("calorieTarget = 1900 (TDEE 2500 − 600)", () => {
-    expect(plan.calorieTarget).toBe(1900);
+  it("calorieTarget = 2200 (TDEE 2500 − 300)", () => {
+    expect(plan.calorieTarget).toBe(2200);
   });
 
   it("fixedSlotsTotalKcal = 920 (no preTraining on rest day)", () => {
     expect(plan.fixedSlotsTotalKcal).toBe(920);
   });
 
-  it("remainingBudget = 980", () => {
-    expect(plan.remainingBudget).toBe(980);
+  it("remainingBudget = 1280", () => {
+    expect(plan.remainingBudget).toBe(1280);
   });
 
-  it("total kcal within 30 of 1900", () => {
-    expect(Math.abs(plan.totals.kcal - 1900)).toBeLessThanOrEqual(30);
+  it("total kcal within 30 of 2200", () => {
+    expect(Math.abs(plan.totals.kcal - 2200)).toBeLessThanOrEqual(30);
   });
 
   it("protein ≥ 165g (1.8 g/kg hard floor)", () => {

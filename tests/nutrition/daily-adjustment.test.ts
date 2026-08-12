@@ -99,7 +99,7 @@ describe("buildAdjustmentMessage", () => {
     const msg = buildAdjustmentMessage(2150, 2500, computeAdjustments(150));
     expect(msg).toContain("2150");
     expect(msg).toContain("2500");
-    expect(msg).toContain("1550"); // target = 2150 - 600 (v1.7)
+    expect(msg).toContain("1850"); // target = 2150 - 300 (2.7 A5)
   });
 
   it("when delta is positive, shows + sign", () => {
@@ -120,6 +120,6 @@ describe("buildAdjustmentMessage", () => {
 });
 
 describe("Constants", () => {
-  it("DEFICIT_KCAL = 600", () => expect(DEFICIT_KCAL).toBe(600));
+  it("DEFICIT_KCAL = 300", () => expect(DEFICIT_KCAL).toBe(300));
   it("ADJUSTMENT_THRESHOLD_KCAL = 100", () => expect(ADJUSTMENT_THRESHOLD_KCAL).toBe(100));
 });

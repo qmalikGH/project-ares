@@ -9,16 +9,21 @@
 //      updateCalorieTargets CoachingLog entry are skipped.
 
 import { db } from "@/lib/db/client";
-import { dayKey } from "@/lib/db/queries/sensors";
+import { dayKey, getRecentWeightAverageKg } from "@/lib/db/queries/sensors";
 import { cascadeNutritionUpdate } from "./cascade";
 import { getDayType } from "./day-type";
-import { ATHLETE_WEIGHT_KG } from "./day-type-configs";
-import { TDEE_PLAUSIBILITY_FLOOR, gartheMaxDeficit } from "./constants";
+import { DEFICIT_KCAL, TDEE_PLAUSIBILITY_FLOOR, gartheMaxDeficit, proteinTargetG } from "./constants";
+import { resolveDeficitKcal } from "./deficit";
+import { dryRunConfigChange, resolveAthleteWeightKg } from "./dry-run";
+import { clampToMinIntake } from "./min-intake";
+import { dbConfigToEngineConfig } from "./seed-day-type-configs";
 import type { CalibrationResult, DayType } from "./types";
 
 export const CALIBRATION_WINDOW_DAYS = 14;
 export const MIN_SAMPLES_PER_DAY_TYPE = 2;
-export const FIXED_PROTEIN_G = 190; // ~2g/kg for Q
+/** Fallback fat target when a config row carries no usable value. Protein is no
+ *  longer fixed here — Sprint 2.7 routed it through `proteinTargetG(weight)`,
+ *  ending a third competing authority that silently reset it to 190 g weekly. */
 export const FIXED_FAT_G = 70;
 
 const ALL_DAY_TYPES: DayType[] = ["strength_run", "threshold", "long_run", "rest"];
@@ -138,16 +143,29 @@ export function averageTDEEByDayType(
   return out;
 }
 
+/**
+ * Derive the macro targets for a measured TDEE.
+ *
+ * Sprint 2.7 (A5): protein and fat are now PARAMETERS. They used to be module
+ * constants (190 g / 70 g), which meant every weekly calibration silently
+ * overwrote both the static config value and the weight-derived value the
+ * morning-input cascade had just computed. Carbohydrate remains the residual —
+ * it is the only macro that can absorb a changing energy target — but the floor
+ * that keeps that residual sane now lives in `min-intake.ts`, applied by the
+ * caller before the target is written.
+ */
 export function computeMacros(
   tdee: number,
   deficitKcal: number,
+  proteinG: number,
+  fatG: number = FIXED_FAT_G,
 ): { calorieTarget: number; proteinG: number; carbsG: number; fatG: number } {
   const calorieTarget = tdee - deficitKcal;
-  const carbsKcal = calorieTarget - FIXED_PROTEIN_G * 4 - FIXED_FAT_G * 9;
+  const carbsKcal = calorieTarget - proteinG * 4 - fatG * 9;
   return {
     calorieTarget,
-    proteinG: FIXED_PROTEIN_G,
-    fatG: FIXED_FAT_G,
+    proteinG,
+    fatG,
     carbsG: Math.max(0, Math.round(carbsKcal / 4)),
   };
 }
@@ -206,19 +224,36 @@ export async function calibrateMealPlan(userId: string): Promise<CalibrationResu
     };
   }
 
-  // ── Sprint v1.8 #4: Garthe rate-cap ──
-  // Clamp the deficit so the implied loss rate stays ≤ 0.7 %/week at current
-  // body mass. As weight drops the −600 would eventually exceed the ceiling;
-  // clamp the stored deficitKcal (SoT) down so ALL stores stay consistent.
+  // ── Deficit resolution (Sprint 2.7 A5, replaces the Garthe-only clamp) ──
+  // The old block only ever ratcheted the deficit DOWN when the Garthe rate
+  // ceiling was breached, and never restored it — and it had no notion of the
+  // goal weight at all, so the cut had no end condition. `resolveDeficitKcal`
+  // composes both: taper toward maintenance near the target, capped by Garthe.
   const settings = await db.userSettings.findUnique({
     where: { userId },
-    select: { currentWeightKg: true, targetWeightKg: true },
+    select: { targetWeightKg: true },
   });
-  const weightKg = settings?.currentWeightKg ?? settings?.targetWeightKg ?? ATHLETE_WEIGHT_KG;
-  const gartheCap = gartheMaxDeficit(weightKg);
-  if (plan.deficitKcal > gartheCap) {
-    await db.mealPlan.update({ where: { id: plan.id }, data: { deficitKcal: gartheCap } });
-    plan.deficitKcal = gartheCap;
+  const weightKg = await resolveAthleteWeightKg(userId);
+  const weightAvg = await getRecentWeightAverageKg(userId);
+
+  const resolvedDeficit = resolveDeficitKcal({
+    avg7dWeightKg: weightAvg.avgKg,
+    targetWeightKg: settings?.targetWeightKg ?? null,
+    currentDeficitKcal: plan.deficitKcal,
+    // Base is the CONSTANT, never the stored value: tapering from the stored
+    // value would compound week over week (300 → 200 → 130 → …) and walk the
+    // deficit to zero on its own. A manual `adjustDeficit` therefore holds
+    // until the next calibration — the same lifetime a hand-edited
+    // calorieTarget has had since v0.16.
+    baseDeficitKcal: DEFICIT_KCAL,
+    gartheCapKcal: gartheMaxDeficit(weightKg),
+  });
+  if (resolvedDeficit.deficitKcal !== plan.deficitKcal) {
+    await db.mealPlan.update({
+      where: { id: plan.id },
+      data: { deficitKcal: resolvedDeficit.deficitKcal },
+    });
+    plan.deficitKcal = resolvedDeficit.deficitKcal;
   }
 
   // ── Coaching override protection ──
@@ -234,45 +269,152 @@ export async function calibrateMealPlan(userId: string): Promise<CalibrationResu
   const protectedTypes = dayTypesWithCoachOverride(mapped, plan.calibratedAt);
   const skippedCoachingOverride: string[] = [];
 
-  // ── Update loop ──
-  let anyConfigUpdated = false;
+  // ── Plan the writes (Sprint 2.7 A5: compute everything BEFORE writing) ──
+  // The old loop wrote each DayTypeConfig row and only then called the
+  // all-or-nothing cascade. When the cascade rejected the values the rows were
+  // already updated and never rolled back — that is precisely how DayTypeConfig
+  // came to hold rest=1558 for two months while DayPlan/ComputedMealSlot kept
+  // the old values. Now: plan → dry-run → write → cascade → roll back on failure.
+  const existingConfigs = await db.dayTypeConfig.findMany({ where: { planId: plan.id } });
+  const configById = new Map(existingConfigs.map((c) => [c.dayType, c]));
+  const clampNotes: string[] = [];
+
+  type PlannedWrite = {
+    id: string;
+    dayType: DayType;
+    data: { tdeeEstimate: number; calorieTarget: number; proteinG: number; carbsG: number; fatG: number };
+  };
+  const plannedWrites: PlannedWrite[] = [];
+
   for (const [dayType, rawTDEE] of Object.entries(averages) as [DayType, number][]) {
     if (protectedTypes.has(dayType)) {
       skippedCoachingOverride.push(dayType);
       continue;
     }
 
+    const existingConfig = configById.get(dayType);
+    if (!existingConfig) continue;
+
     // v1.2: Cap rest-day TDEE to avoid travel-inflated targets
     const avgTDEE = dayType === "rest" ? Math.min(rawTDEE, REST_DAY_TDEE_CAP) : rawTDEE;
 
-    const m = computeMacros(avgTDEE, plan.deficitKcal);
+    // Clamp FIRST, then derive the macros from the clamped target — otherwise
+    // carbsG would describe a target that is not the one being written.
+    const clamp = clampToMinIntake(
+      avgTDEE - plan.deficitKcal,
+      dbConfigToEngineConfig(existingConfig),
+      weightKg,
+    );
+    if (clamp.note) clampNotes.push(clamp.note);
 
-    // Sprint v1.8 #6: DayPlan rows are no longer written here — the unified
-    // cascadeNutritionUpdate() (called below) syncs DayPlan + ComputedMealSlot
-    // from the updated DayTypeConfig, keeping all deficit stores consistent.
+    const m = computeMacros(
+      avgTDEE,
+      avgTDEE - clamp.calorieTarget,
+      proteinTargetG(weightKg),
+      existingConfig.fatG || FIXED_FAT_G,
+    );
 
-    // v1.2: Update DayTypeConfig (tdeeEstimate + recalculated calorieTarget)
-    const existingConfig = await db.dayTypeConfig.findUnique({
-      where: { planId_dayType: { planId: plan.id, dayType } },
+    plannedWrites.push({
+      id: existingConfig.id,
+      dayType,
+      data: {
+        tdeeEstimate: avgTDEE,
+        calorieTarget: m.calorieTarget,
+        proteinG: m.proteinG,
+        carbsG: m.carbsG,
+        fatG: m.fatG,
+      },
     });
-    if (existingConfig) {
-      await db.dayTypeConfig.update({
-        where: { id: existingConfig.id },
-        data: {
-          tdeeEstimate: avgTDEE,
-          calorieTarget: m.calorieTarget,
-          proteinG: m.proteinG,
-          carbsG: m.carbsG,
-          fatG: m.fatG,
-        },
-      });
-      anyConfigUpdated = true;
-    }
   }
 
-  // v1.2: Cascade recompute ComputedMealSlots after all config updates
-  if (anyConfigUpdated) {
-    await cascadeNutritionUpdate(plan.id, "calibration", "Auto-calibration from Garmin TDEE");
+  const failMessage = (errors: string[]) =>
+    `Kalibrierung berechnet, aber nicht angewendet — die Zielwerte sind nicht baubar: ${errors.join("; ")}`;
+
+  if (plannedWrites.length === 0) {
+    // Nothing to write (all protected / no matching configs) — still a success,
+    // but do not touch calibratedAt for a no-op either.
+    return {
+      status: "calibrated",
+      averages,
+      daysAvailable,
+      skippedCoachingOverride,
+      clampNotes,
+      deficitKcal: plan.deficitKcal,
+      message: `Kalibriert über ${daysAvailable} bereinigte Tage. Keine Tagestypen aktualisiert (alle geschützt).`,
+    };
+  }
+
+  // ── Dry-run: does the engine accept these targets? ──
+  const byDayType = new Map(plannedWrites.map((w) => [w.dayType as string, w]));
+  const dry = await dryRunConfigChange(plan.id, userId, (configs) => {
+    for (let i = 0; i < configs.length; i++) {
+      const w = byDayType.get(configs[i].dayType);
+      if (!w) continue;
+      configs[i] = {
+        ...configs[i],
+        calorieTarget: w.data.calorieTarget,
+        tdeeEstimate: w.data.tdeeEstimate,
+        macroTargets: { proteinG: w.data.proteinG, carbsG: w.data.carbsG, fatG: w.data.fatG },
+      };
+    }
+    return null;
+  });
+  if (!dry.ok) {
+    return {
+      status: "cascade_failed",
+      averages,
+      daysAvailable,
+      skippedCoachingOverride,
+      clampNotes,
+      deficitKcal: plan.deficitKcal,
+      message: failMessage(dry.errors),
+    };
+  }
+
+  // ── Write + cascade, with a snapshot to roll back to ──
+  const snapshot = new Map(
+    plannedWrites.map((w) => {
+      const prev = configById.get(w.dayType)!;
+      return [
+        w.id,
+        {
+          tdeeEstimate: prev.tdeeEstimate,
+          calorieTarget: prev.calorieTarget,
+          proteinG: prev.proteinG,
+          carbsG: prev.carbsG,
+          fatG: prev.fatG,
+        },
+      ];
+    }),
+  );
+
+  for (const w of plannedWrites) {
+    await db.dayTypeConfig.update({ where: { id: w.id }, data: w.data });
+  }
+
+  const cascade = await cascadeNutritionUpdate(
+    plan.id,
+    "calibration",
+    "Auto-calibration from Garmin TDEE",
+  );
+
+  if (!cascade.success) {
+    // The dry run passed but the cascade did not — a recipe template changed
+    // under us, or the weight moved between the two. Put the configs back so
+    // the stores cannot diverge, and leave calibratedAt alone so the daily cron
+    // retries instead of pretending this ran.
+    for (const [id, prev] of snapshot) {
+      await db.dayTypeConfig.update({ where: { id }, data: prev });
+    }
+    return {
+      status: "cascade_failed",
+      averages,
+      daysAvailable,
+      skippedCoachingOverride,
+      clampNotes,
+      deficitKcal: plan.deficitKcal,
+      message: failMessage(cascade.errors),
+    };
   }
 
   await db.mealPlan.update({
@@ -284,12 +426,19 @@ export async function calibrateMealPlan(userId: string): Promise<CalibrationResu
   const skipMsg = skippedCoachingOverride.length > 0
     ? ` ${skippedCoachingOverride.join(", ")} übersprungen (Coaching-Override).`
     : "";
+  const clampMsg = clampNotes.length > 0 ? ` Untergrenze griff: ${clampNotes.join("; ")}.` : "";
+  const deficitMsg =
+    resolvedDeficit.mode === "full" ? "" : ` Defizit ${resolvedDeficit.deficitKcal} kcal — ${resolvedDeficit.reason}.`;
 
   return {
     status: "calibrated",
     averages,
     daysAvailable,
     skippedCoachingOverride,
-    message: `Kalibriert über ${daysAvailable} bereinigte Tage. ${updatedCount}/${Object.keys(averages).length} Tagestypen aktualisiert.${skipMsg}`,
+    clampNotes,
+    deficitKcal: plan.deficitKcal,
+    message:
+      `Kalibriert über ${daysAvailable} bereinigte Tage. ${updatedCount}/${Object.keys(averages).length} ` +
+      `Tagestypen aktualisiert.${skipMsg}${clampMsg}${deficitMsg}`,
   };
 }

@@ -5,7 +5,15 @@
 // Every change cascades automatically through the system.
 
 import type { DayTypeConfig, FixedSlotItem } from "./types";
-import { DEFICIT_KCAL } from "./constants";
+import { DEFICIT_KCAL, proteinTargetG } from "./constants";
+
+/**
+ * Fallback athlete weight — used for the static seed targets and as the last
+ * resort when no measured weight exists. Deliberately kept ABOVE the current
+ * measured mass: it feeds the protein/fat floors, so erring high errs safe.
+ * Runtime always prefers `UserSettings.currentWeightKg`.
+ */
+export const ATHLETE_WEIGHT_KG = 92;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Shared fixed slot items (reused across day types)
@@ -61,8 +69,12 @@ const FLEX_DESSERT_ON = { enabled: true, items: [SKYR] };
 export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
   {
     dayType: "strength_run", // Mo, Do, Fr — easy AM + Kraft PM
-    calorieTarget: 3353 - DEFICIT_KCAL, // v1.7: TDEE 3353 − 600 = 2753
-    macroTargets: { proteinG: 200, carbsG: 310, fatG: 70 },
+    calorieTarget: 3353 - DEFICIT_KCAL, // 2.7: TDEE 3353 − 300 = 3053
+    // Sprint 2.7 (A5): carbsG is the residual (target − protein·4 − fat·9)/4,
+    // matching how `computeMacros` derives it at runtime. Before this the static
+    // values were tuned for the −600 targets and drifted ~370 kcal once the
+    // deficit halved, so the config disagreed with its own calorie target.
+    macroTargets: { proteinG: proteinTargetG(ATHLETE_WEIGHT_KG), carbsG: 404, fatG: 70 },
     fixedSlots: {
       morning: MORNING,
       preTraining: PRE_TRAINING,
@@ -82,8 +94,8 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
   },
   {
     dayType: "threshold", // Di — Abend-Run only
-    calorieTarget: 2939 - DEFICIT_KCAL, // v1.7: TDEE 2939 − 600 = 2339
-    macroTargets: { proteinG: 200, carbsG: 280, fatG: 70 },
+    calorieTarget: 2939 - DEFICIT_KCAL, // 2.7: TDEE 2939 − 300 = 2639
+    macroTargets: { proteinG: proteinTargetG(ATHLETE_WEIGHT_KG), carbsG: 300, fatG: 70 },
     fixedSlots: {
       morning: MORNING,
       preTraining: PRE_TRAINING,
@@ -104,8 +116,8 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
   },
   {
     dayType: "long_run", // Sa — Abend-Run only
-    calorieTarget: 3168 - DEFICIT_KCAL, // v1.7: TDEE 3168 − 600 = 2568
-    macroTargets: { proteinG: 200, carbsG: 310, fatG: 70 },
+    calorieTarget: 3168 - DEFICIT_KCAL, // 2.7: TDEE 3168 − 300 = 2868
+    macroTargets: { proteinG: proteinTargetG(ATHLETE_WEIGHT_KG), carbsG: 358, fatG: 70 },
     fixedSlots: {
       morning: MORNING,
       preTraining: PRE_TRAINING,
@@ -128,8 +140,8 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
   },
   {
     dayType: "rest", // Mi, So — kein Training
-    calorieTarget: 2500 - DEFICIT_KCAL, // v1.7: TDEE 2500 (capped) − 600 = 1900
-    macroTargets: { proteinG: 200, carbsG: 180, fatG: 70 },
+    calorieTarget: 2500 - DEFICIT_KCAL, // 2.7: TDEE 2500 (capped) − 300 = 2200
+    macroTargets: { proteinG: proteinTargetG(ATHLETE_WEIGHT_KG), carbsG: 191, fatG: 70 },
     fixedSlots: {
       morning: MORNING,
       preTraining: null, // no training → no pre-training slot
@@ -153,9 +165,6 @@ export const DAY_TYPE_CONFIGS: DayTypeConfig[] = [
     dinnerNeedsCarbs: false,
   },
 ];
-
-/** Athlete weight for protein validation (2.0 g/kg minimum). */
-export const ATHLETE_WEIGHT_KG = 92;
 
 /** Lookup a DayTypeConfig by dayType string. Throws if not found. */
 export function findDayTypeConfig(dayType: string): DayTypeConfig {

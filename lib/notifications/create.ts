@@ -7,7 +7,11 @@ export type NotificationType =
   | "VDOT_CALIBRATED"
   | "BLOCK_REVIEW_DUE"
   | "TIME_TRIAL_TODAY"
-  | "WEIGHT_LOSS_RATE";
+  | "WEIGHT_LOSS_RATE"
+  // Sprint 2.7 (A5): the nutrition cascade is all-or-nothing, so a failure
+  // leaves the stores split without changing anything the user can see. It went
+  // unnoticed from 2026-06-15 to 2026-08-12. This is the alarm.
+  | "NUTRITION_CASCADE_FAILED";
 
 export type NotificationSeverity = "INFO" | "WARNING" | "CRITICAL";
 

@@ -24,6 +24,43 @@ export async function getRecentSensorData(userId: string, days: number) {
   });
 }
 
+/**
+ * Rolling body-mass average for the deficit controller (Sprint 2.7 A5).
+ *
+ * Reads the raw weigh-ins rather than `UserSettings.currentWeightKg` on purpose:
+ * that cached field is only refreshed when a weight is submitted, so it can be
+ * months stale and still look like a fresh number. Requires MIN_WEIGHT_SAMPLES
+ * within WEIGHT_LOOKBACK_DAYS — below that the average is a single noisy day and
+ * the caller must treat the weight as unknown, never as "arrived at goal".
+ */
+export const WEIGHT_LOOKBACK_DAYS = 10;
+export const MIN_WEIGHT_SAMPLES = 3;
+
+export async function getRecentWeightAverageKg(
+  userId: string,
+): Promise<{ avgKg: number | null; samples: number; latestAt: Date | null }> {
+  const cutoff = dayKey(new Date());
+  cutoff.setUTCDate(cutoff.getUTCDate() - WEIGHT_LOOKBACK_DAYS);
+
+  const rows = await db.dailySensorData.findMany({
+    where: { userId, bodyWeightKg: { not: null }, date: { gte: cutoff } },
+    orderBy: { date: "desc" },
+    take: 7,
+    select: { bodyWeightKg: true, date: true },
+  });
+
+  if (rows.length < MIN_WEIGHT_SAMPLES) {
+    return { avgKg: null, samples: rows.length, latestAt: rows[0]?.date ?? null };
+  }
+
+  const sum = rows.reduce((acc, r) => acc + (r.bodyWeightKg ?? 0), 0);
+  return {
+    avgKg: Math.round((sum / rows.length) * 10) / 10,
+    samples: rows.length,
+    latestAt: rows[0].date,
+  };
+}
+
 /** Map DB rows → engine inputs for baseline computation. */
 export function rowsToSensorInputs(rows: Awaited<ReturnType<typeof getRecentSensorData>>): DailySensorInputs[] {
   const result: DailySensorInputs[] = [];

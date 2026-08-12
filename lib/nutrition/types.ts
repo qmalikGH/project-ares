@@ -203,10 +203,16 @@ export interface FlexSlotDef {
 // ── Calibration result (B6) ───────────────────────────────────────────────
 
 export interface CalibrationResult {
-  status: "calibrated" | "insufficient_data";
+  /** Sprint 2.7 (A5): `cascade_failed` is new — calibration used to report
+   *  "calibrated" even when the cascade rejected everything it computed. */
+  status: "calibrated" | "insufficient_data" | "cascade_failed";
   averages: Partial<Record<DayType, number>>;
   daysAvailable: number;
   message: string;
   /** Day-types skipped because a coaching override exists (updateCalorieTargets). */
   skippedCoachingOverride?: string[];
+  /** Day types whose target was raised to the derived minimum intake. */
+  clampNotes?: string[];
+  /** The deficit actually applied, after taper/maintenance + Garthe cap. */
+  deficitKcal?: number;
 }

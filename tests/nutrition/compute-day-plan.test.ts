@@ -17,23 +17,23 @@ function configFor(dayType: string): DayTypeConfig {
 // Sprint doc rechenprobe: Rest day (So/Mi)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("computeDayPlan — rest day rechenprobe (v1.7: Intake 1900)", () => {
+describe("computeDayPlan — rest day rechenprobe (2.7 A5: Intake 2200)", () => {
   const plan = computeDayPlan(configFor("rest"), recipes, weight);
 
   it("validation passes", () => {
     expect(plan.validation.valid).toBe(true);
   });
 
-  it("calorieTarget = 1900", () => {
-    expect(plan.calorieTarget).toBe(1900);
+  it("calorieTarget = 2200", () => {
+    expect(plan.calorieTarget).toBe(2200);
   });
 
   it("fixed slots total = 920 kcal (morning 320 + afternoon 270 + evening 200 + skyr 130)", () => {
     expect(plan.fixedSlotsTotalKcal).toBe(920);
   });
 
-  it("remaining budget = 980", () => {
-    expect(plan.remainingBudget).toBe(980);
+  it("remaining budget = 1280", () => {
+    expect(plan.remainingBudget).toBe(1280);
   });
 
   it("mainMeal uses egg_asia_norice (no rice, Carb-Cut)", () => {
@@ -45,7 +45,7 @@ describe("computeDayPlan — rest day rechenprobe (v1.7: Intake 1900)", () => {
   });
 
   it("total kcal within 30 of target", () => {
-    expect(Math.abs(plan.totals.kcal - 1900)).toBeLessThanOrEqual(30);
+    expect(Math.abs(plan.totals.kcal - 2200)).toBeLessThanOrEqual(30);
   });
 
   it("protein ≥ 165g (1.8 g/kg hard floor at 92kg)", () => {

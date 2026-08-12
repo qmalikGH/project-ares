@@ -14,9 +14,11 @@
 // All-or-nothing: if ANY dayType fails validation, NOTHING is written.
 
 import { db } from "@/lib/db/client";
+import { createNotificationIfNew } from "@/lib/notifications/create";
 import { buildAllDayPlans } from "./build-all-day-plans";
-import { ATHLETE_WEIGHT_KG } from "./day-type-configs";
 import { RECIPE_TEMPLATES } from "./recipe-templates";
+import { resolveAthleteWeightKg } from "./dry-run";
+import { minCalorieTargetForConfig } from "./min-intake";
 import { dbConfigToEngineConfig } from "./seed-day-type-configs";
 import { buildSlotsForTargets } from "./template";
 import { DEFICIT_KCAL } from "./constants";
@@ -63,14 +65,35 @@ export async function cascadeNutritionUpdate(
   // ── Load configs from DB ──
   const dbConfigs = await db.dayTypeConfig.findMany({ where: { planId } });
   if (dbConfigs.length === 0) {
-    return { success: false, errors: ["No DayTypeConfigs found for plan"], trigger, reason };
+    return failure(planId, trigger, reason, ["No DayTypeConfigs found for plan"]);
   }
 
   const configs = dbConfigs.map(dbConfigToEngineConfig);
 
+  // ── Load plan + athlete weight ──
+  // Sprint 2.7 (A5): moved ABOVE pre-validation — the derived intake floor needs
+  // the body mass, and catching an impossible target here beats surfacing it as
+  // a downstream protein error the reader cannot map back to a cause.
+  const plan = await db.mealPlan.findUnique({
+    where: { id: planId },
+    select: { userId: true, deficitKcal: true },
+  });
+  if (!plan) {
+    return failure(planId, trigger, reason, ["MealPlan not found"]);
+  }
+  const weight = await resolveAthleteWeightKg(plan.userId);
+
   // ── Pre-validate constraints ──
   const preErrors: string[] = [];
   for (const config of configs) {
+    const floor = minCalorieTargetForConfig(config, weight);
+    if (config.calorieTarget < floor.minKcal) {
+      preErrors.push(
+        `${config.dayType}: calorie target ${config.calorieTarget} below derived minimum ${floor.minKcal} ` +
+        `(${floor.binding === "macro_floor" ? "macro floor" : "fixed slots + variable-slot budget"} binding at ${weight}kg; ` +
+        `needs ≥${floor.breakdown.proteinG}g protein, ≥${floor.breakdown.fatG}g fat, ≥${floor.breakdown.carbsG}g carbs)`,
+      );
+    }
     const ratioSum = config.variableSlots.mainMeal.budgetRatio + config.variableSlots.dinner.budgetRatio;
     if (Math.abs(ratioSum - 1.0) > 0.001) {
       preErrors.push(`${config.dayType}: ratios sum to ${ratioSum}, must be 1.0`);
@@ -84,34 +107,20 @@ export async function cascadeNutritionUpdate(
     if (!RECIPE_TEMPLATES.some((r) => r.id === config.variableSlots.dinner.recipeId)) {
       preErrors.push(`${config.dayType}: dinner recipe "${config.variableSlots.dinner.recipeId}" not found`);
     }
-    if (config.calorieTarget < 1500 || config.calorieTarget > 5000) {
-      preErrors.push(`${config.dayType}: calorie target ${config.calorieTarget} out of sane range [1500, 5000]`);
+    // Upper sanity bound only — the lower bound is the derived floor above.
+    if (config.calorieTarget > 5000) {
+      preErrors.push(`${config.dayType}: calorie target ${config.calorieTarget} above sane maximum 5000`);
     }
   }
   if (preErrors.length > 0) {
-    return { success: false, errors: preErrors, trigger, reason };
+    return failure(planId, trigger, reason, preErrors, plan.userId);
   }
-
-  // ── Load athlete weight ──
-  const plan = await db.mealPlan.findUnique({
-    where: { id: planId },
-    select: { userId: true, deficitKcal: true },
-  });
-  if (!plan) {
-    return { success: false, errors: ["MealPlan not found"], trigger, reason };
-  }
-
-  const settings = await db.userSettings.findUnique({
-    where: { userId: plan.userId },
-    select: { currentWeightKg: true, targetWeightKg: true },
-  });
-  const weight = settings?.currentWeightKg ?? settings?.targetWeightKg ?? ATHLETE_WEIGHT_KG;
 
   // ── Compute (pure engine) ──
   const result = buildAllDayPlans(configs, RECIPE_TEMPLATES, weight);
 
   if (result.hasErrors) {
-    return { success: false, errors: result.allErrors, trigger, reason };
+    return failure(planId, trigger, reason, result.allErrors, plan.userId);
   }
 
   // ── Map ComputedDayPlan → ComputedMealSlot rows ──
@@ -148,6 +157,14 @@ export async function cascadeNutritionUpdate(
     });
   });
 
+  // Sprint 2.7 (A5): warnings used to be computed and thrown away everywhere
+  // except the verify script — including the new carb-floor warning. Carry them
+  // into the log so a soft breach is at least discoverable after the fact.
+  const allWarnings: string[] = [];
+  for (const [dayType, dayPlan] of result.plans) {
+    for (const w of dayPlan.validation.warnings) allWarnings.push(`[${dayType}] ${w}`);
+  }
+
   // ── Transactional write ──
   await db.$transaction([
     db.computedMealSlot.deleteMany({ where: { planId } }),
@@ -162,6 +179,7 @@ export async function cascadeNutritionUpdate(
           trigger,
           dayTypes: [...result.plans.keys()],
           totalSlots: allNewSlots.length,
+          warnings: allWarnings,
         } as object,
         reason,
       },
@@ -169,6 +187,60 @@ export async function cascadeNutritionUpdate(
   ]);
 
   return { success: true, errors: [], trigger, reason };
+}
+
+/**
+ * Record a cascade failure and return the result object.
+ *
+ * Sprint 2.7 (A5). Before this, every early return here was a silent one: the
+ * callers discarded the result, so a failed cascade left the stores split and
+ * produced no log, no notification and no user-visible change. It ran that way
+ * from 2026-06-15 to 2026-08-12. Logging from INSIDE the cascade means no call
+ * site can forget it.
+ *
+ * The log/notification writes are best-effort — if they fail, the real errors
+ * still reach the caller rather than being masked by a logging problem.
+ */
+async function failure(
+  planId: string,
+  trigger: CascadeTrigger,
+  reason: string,
+  errors: string[],
+  knownUserId?: string,
+): Promise<CascadeResult> {
+  try {
+    const userId =
+      knownUserId ??
+      (await db.mealPlan.findUnique({ where: { id: planId }, select: { userId: true } }))?.userId;
+
+    if (userId) {
+      await db.coachingLog.create({
+        data: {
+          userId,
+          action: `cascade_failed:${trigger}`,
+          data: { planId, trigger, errors } as object,
+          reason,
+        },
+      });
+      await createNotificationIfNew(
+        {
+          userId,
+          type: "NUTRITION_CASCADE_FAILED",
+          title: "Ernährungsplan konnte nicht aktualisiert werden",
+          message:
+            `Auslöser: ${trigger}. Die Mahlzeiten stehen unverändert auf dem alten Stand — ` +
+            `die neuen Zielwerte sind nicht baubar: ${errors.join("; ")}`,
+          severity: "CRITICAL",
+          actionUrl: "/nutrition",
+        },
+        24 * 60, // once a day; the daily cron retries until it succeeds
+      );
+    }
+  } catch {
+    // Deliberately swallowed: never let the alarm hide the fire.
+  }
+
+  return { success: false, errors, trigger, reason };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -24,7 +24,9 @@ import {
   PROTEIN_HARD_FLOOR_PER_KG,
   FAT_FLOOR_PER_KG,
   FAT_MAX_G,
+  MIN_REMAINING_BUDGET,
 } from "./constants";
+import { carbFloorPerKg } from "./min-intake";
 import type {
   DayTypeConfig,
   RecipeTemplate,
@@ -41,9 +43,6 @@ import type {
 
 /** Maximum acceptable |slotSum − calorieTarget| in kcal. Tighter than v1 (was 50). */
 const CALORIE_TOLERANCE = 30;
-
-/** Minimum remaining budget after fixed slots. If lower, the config is broken. */
-const MIN_REMAINING_BUDGET = 400;
 
 /** Maximum daily food cost in EUR.
  *  v1.2: 15 → 16. v1.7: 16 → 18 (egg white). v1.9: 18 → 16 (egg white reverted
@@ -288,6 +287,21 @@ export function computeDayPlan(
   // Cap = soft warning (was never enforced pre-v1.7; production days sit ~50–62g).
   if (dayTotals.fat > FAT_MAX_G) {
     warnings.push(`Fat ${dayTotals.fat}g > soft cap ${FAT_MAX_G}g`);
+  }
+
+  // 7j. Carbohydrate floor (Sprint 2.7 A5) — WARNING, deliberately not an error.
+  // Carbs were the only macro without any lower bound: `computeMacros` derives
+  // them as the residual, so every kcal the deficit takes comes out of the macro
+  // that fuels the training. The HARD guard sits one level up (min-intake.ts
+  // clamps the target before it is ever written); making it an error HERE would
+  // turn "this day is 5 g short" into "no plan is written for ANY day type",
+  // because the cascade is all-or-nothing. Silent drift traded for a total
+  // outage is a bad trade.
+  const carbFloorG = Math.round(athleteWeightKg * carbFloorPerKg(config.dayType !== "rest"));
+  if (dayTotals.carbs < carbFloorG) {
+    warnings.push(
+      `Carbs ${dayTotals.carbs}g < floor ${carbFloorG}g (${athleteWeightKg}kg × ${carbFloorPerKg(config.dayType !== "rest")})`,
+    );
   }
 
   // 7i. Portion sanity (Sprint v1.7) — fail LOUD on sub-floor protein sources

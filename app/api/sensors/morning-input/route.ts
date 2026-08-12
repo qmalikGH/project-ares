@@ -10,6 +10,7 @@ import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { dayKey } from "@/lib/db/queries/sensors";
 import { createNotificationIfNew } from "@/lib/notifications/create";
+import { proteinTargetG } from "@/lib/nutrition/constants";
 
 const Schema = z.object({
   date: z.string().optional(), // ISO; defaults to today
@@ -59,6 +60,7 @@ export async function POST(req: Request) {
 
   // ── Sprint v0.15: 7-day weight average + UserSettings update ──
   let currentAvg: number | null = null;
+  let cascadeError: string[] | null = null;
 
   if (parsed.data.bodyWeightKg != null) {
     const recentWeights = await db.dailySensorData.findMany({
@@ -81,7 +83,11 @@ export async function POST(req: Request) {
       });
 
       // ── v1.3: Protein cascade when weight changes ≥2g protein ──
-      const newProteinMin = Math.ceil(currentAvg * 2.0);
+      // Sprint 2.7 (A5): the target used to be a local `ceil(kg × 2.0)`, a third
+      // protein authority that disagreed with both the config (200 g) and the
+      // calibration engine (190 g). It now comes from the same soft target the
+      // scaler maximizes toward.
+      const newProteinMin = proteinTargetG(currentAvg);
       const activePlan = await db.mealPlan.findFirst({
         where: { userId, status: "active" },
         include: { dayTypeConfigs: { select: { proteinG: true }, take: 1 } },
@@ -95,11 +101,22 @@ export async function POST(req: Request) {
             data: { proteinG: newProteinMin },
           });
           const { cascadeNutritionUpdate } = await import("@/lib/nutrition/cascade");
-          await cascadeNutritionUpdate(
+          const cascade = await cascadeNutritionUpdate(
             activePlan.id,
             "weight_change",
             `Weight ${currentAvg}kg → proteinG ${newProteinMin}g (was ${currentProteinG}g)`,
           );
+          // Sprint 2.7 (A5): this result was discarded. On 2026-08-12 the cascade
+          // failed here and the route still answered 200 — the configs were left
+          // holding a protein target the rest of the stores knew nothing about.
+          // Roll the write back so a failed cascade changes nothing at all.
+          if (!cascade.success) {
+            await db.dayTypeConfig.updateMany({
+              where: { planId: activePlan.id },
+              data: { proteinG: currentProteinG },
+            });
+            cascadeError = cascade.errors;
+          }
         }
       }
     }
@@ -151,7 +168,15 @@ export async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json({ status: "ok", id: row.id, currentWeightKg: currentAvg });
+  // The weigh-in itself is always stored; only the downstream nutrition update
+  // can fail. Report that honestly instead of a bare "ok" (cascade.ts has
+  // already logged it and raised a notification).
+  return NextResponse.json({
+    status: cascadeError ? "saved_nutrition_not_updated" : "ok",
+    id: row.id,
+    currentWeightKg: currentAvg,
+    ...(cascadeError ? { nutritionCascadeErrors: cascadeError } : {}),
+  });
 }
 
 export async function GET(req: Request) {
