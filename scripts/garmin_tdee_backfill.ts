@@ -32,7 +32,6 @@ import { config as dotenvConfig } from "dotenv";
 dotenvConfig({ path: ".env.local" });
 
 import { db } from "@/lib/db/client";
-import { getCurrentUserId } from "@/lib/auth/current-user";
 import { getGarminClient } from "@/lib/garmin/client";
 import { userTodayForUser } from "@/lib/date";
 import { mergeEnergyColumns } from "@/lib/garmin/persist";
@@ -66,8 +65,24 @@ interface UserSummary {
   averageStressLevel?: number;
 }
 
+/**
+ * Resolve the athlete from the DB rather than the session.
+ *
+ * The script used to call `getCurrentUserId()`, which reads the session cookie —
+ * fine before Sprint 2.5 introduced real auth, unrunnable from a shell ever
+ * since. It threw UnauthorizedError before doing anything, so the breakage sat
+ * unnoticed until the first time anyone needed the script again.
+ */
+async function resolveUserId(): Promise<string> {
+  const settings = await db.userSettings.findFirst({ select: { userId: true } });
+  if (settings) return settings.userId;
+  const user = await db.user.findFirst({ select: { id: true } });
+  if (!user) throw new Error("No user found in the database");
+  return user.id;
+}
+
 async function main() {
-  const userId = await getCurrentUserId();
+  const userId = await resolveUserId();
   console.log(`User: ${userId}`);
   console.log(APPLY ? "MODE: APPLY (writes)" : "MODE: DRY RUN (pass --apply to write)");
   if (FORCE) console.log("FORCE: existing values will be replaced");
