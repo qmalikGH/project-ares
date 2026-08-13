@@ -2,7 +2,7 @@
 // Each datatype is fetched independently with its own try/catch so partial
 // breakage produces a PARTIAL log entry instead of zero data.
 import { toUserDateString } from "@/lib/date";
-import { getGarminClient } from "./client";
+import { clearGarminSession, getGarminClient } from "./client";
 
 const GC_API = "https://connectapi.garmin.com";
 
@@ -30,6 +30,8 @@ export interface SyncStatusFlags {
   bodyBatterySyncOk: boolean;
   rhrSyncOk: boolean;
   activitiesSyncOk: boolean;
+  /** Sprint 2.8. Without this, SUCCESS said nothing about the calorie columns. */
+  energySyncOk: boolean;
 }
 
 export interface SyncResult {
@@ -38,6 +40,12 @@ export interface SyncResult {
   snapshot: GarminDailySnapshot;
   activitiesCount: number;
   errors: { datatype: string; message: string }[];
+  /**
+   * Sprint 2.8: set when the failure was authentication. Callers need to branch
+   * on this (clear the session, alert) and string-matching the message is how
+   * that kind of branch rots.
+   */
+  authFailed?: boolean;
 }
 
 function dateKey(date: Date): string {
@@ -56,13 +64,17 @@ interface ApiClient {
  * Pull all 5 datatypes for `date`. Per spec section 9.4, every datatype gets
  * its own ok/fail flag for the GarminSyncLog row.
  */
-export async function syncGarminForDate(date: Date): Promise<SyncResult> {
+export async function syncGarminForDate(
+  date: Date,
+  deps?: { client?: ApiClient },
+): Promise<SyncResult> {
   const flags: SyncStatusFlags = {
     hrvSyncOk: false,
     sleepSyncOk: false,
     bodyBatterySyncOk: false,
     rhrSyncOk: false,
     activitiesSyncOk: false,
+    energySyncOk: false,
   };
   const snapshot: GarminDailySnapshot = {
     hrvStatus: null,
@@ -82,14 +94,19 @@ export async function syncGarminForDate(date: Date): Promise<SyncResult> {
 
   let client: ApiClient;
   try {
-    client = (await getGarminClient()) as unknown as ApiClient;
+    client = (deps?.client ?? (await getGarminClient())) as unknown as ApiClient;
   } catch (e) {
+    // Sprint 2.8: drop the cached session before giving up. It lives for 30
+    // minutes (client.ts), so without this a single 403 kept every subsequent
+    // attempt pointed at the same dead session until the TTL expired.
+    clearGarminSession();
     return {
       status: "FAILURE",
       flags,
       snapshot,
       activitiesCount: 0,
       errors: [{ datatype: "auth", message: e instanceof Error ? e.message : String(e) }],
+      authFailed: true,
     };
   }
 
@@ -99,8 +116,13 @@ export async function syncGarminForDate(date: Date): Promise<SyncResult> {
     const profile = await client.getUserProfile();
     displayName = profile?.displayName ?? "";
   } catch {
-    /* non-fatal */
+    /* non-fatal — see the fallback below */
   }
+  // Sprint 2.8: a profile hiccup used to take the whole daily-summary block with
+  // it (the throw at the top of that try), i.e. body battery AND all three
+  // calorie fields, reported under the wrong datatype. The env fallback keeps
+  // the block alive; if both are empty we now say so honestly instead.
+  if (!displayName) displayName = process.env.GARMIN_DISPLAY_NAME ?? "";
 
   // Sleep ------------------------------------------------------------------
   // Garmin returns multiple score fields with subtle differences:
@@ -136,7 +158,10 @@ export async function syncGarminForDate(date: Date): Promise<SyncResult> {
       const seconds = sleep.dailySleepDTO.sleepTimeSeconds;
       snapshot.sleepScore = score;
       snapshot.sleepDurationMin = typeof seconds === "number" ? Math.round(seconds / 60) : null;
-      flags.sleepSyncOk = true;
+      // Sprint 2.8: the flag used to be set merely because the DTO existed, so
+      // "sleepSyncOk" could be true with a null score. A flag that says the call
+      // succeeded rather than that data arrived is what made SUCCESS meaningless.
+      flags.sleepSyncOk = score != null;
     }
   } catch (e) {
     errors.push({ datatype: "sleep", message: e instanceof Error ? e.message : String(e) });
@@ -162,7 +187,7 @@ export async function syncGarminForDate(date: Date): Promise<SyncResult> {
     if (hrv.hrvSummary) {
       snapshot.hrvRmssd = hrv.hrvSummary.lastNightAvg ?? hrv.hrvSummary.weeklyAvg ?? null;
       snapshot.hrvStatus = hrv.hrvSummary.status ?? null;
-      flags.hrvSyncOk = true;
+      flags.hrvSyncOk = snapshot.hrvRmssd != null; // same reasoning as sleep above
     }
   } catch (e) {
     errors.push({ datatype: "hrv", message: e instanceof Error ? e.message : String(e) });
@@ -172,7 +197,13 @@ export async function syncGarminForDate(date: Date): Promise<SyncResult> {
   // One endpoint, many fields: body battery (morning + end), TDEE / calorie
   // breakdown, average stress. Sprint v0.16 Phase A2.2.
   try {
-    if (!displayName) throw new Error("Missing displayName for daily user-summary endpoint");
+    if (!displayName) {
+      errors.push({
+        datatype: "profile",
+        message: "No Garmin displayName (profile call failed and GARMIN_DISPLAY_NAME unset) — daily summary skipped",
+      });
+      throw new SkipSummary();
+    }
     const url = `${GC_API}/usersummary-service/usersummary/daily/${displayName}?calendarDate=${dateKey(date)}`;
     const summary = (await client.get<{
       bodyBatteryMostRecentValue?: number;
@@ -208,6 +239,11 @@ export async function syncGarminForDate(date: Date): Promise<SyncResult> {
     if (typeof summary.bmrKilocalories === "number") {
       snapshot.bmrKilocalories = Math.round(summary.bmrKilocalories);
     }
+    // Sprint 2.8: active is intentionally not required — a genuine rest day can
+    // be 0, and the value is derivable from total − bmr anyway.
+    if (snapshot.totalKilocalories != null && snapshot.bmrKilocalories != null) {
+      flags.energySyncOk = true;
+    }
 
     // Stress (0-100, daily average; -1 / -2 in Garmin = no data)
     if (
@@ -217,7 +253,13 @@ export async function syncGarminForDate(date: Date): Promise<SyncResult> {
       snapshot.averageStress = summary.averageStressLevel;
     }
   } catch (e) {
-    errors.push({ datatype: "body_battery", message: e instanceof Error ? e.message : String(e) });
+    // The skip already recorded its own, more specific error.
+    if (!(e instanceof SkipSummary)) {
+      // One endpoint feeds body battery, energy and stress — attributing its
+      // failure to "body_battery" mislabelled every energy outage as a body
+      // battery one. The flags say which fields actually landed.
+      errors.push({ datatype: "daily_summary", message: e instanceof Error ? e.message : String(e) });
+    }
   }
 
   // Activities (last 5; we only count, not parse details here)
@@ -229,16 +271,30 @@ export async function syncGarminForDate(date: Date): Promise<SyncResult> {
     errors.push({ datatype: "activities", message: e instanceof Error ? e.message : String(e) });
   }
 
+  // Sprint 2.8: derive the ceiling from the flag set instead of a literal. The
+  // hardcoded 5 is why adding a sixth flag would silently have made SUCCESS
+  // unreachable.
   const okCount = Object.values(flags).filter(Boolean).length;
-  const status = okCount === 5 ? "SUCCESS" : okCount === 0 ? "FAILURE" : "PARTIAL";
+  const flagCount = Object.keys(flags).length;
+  const status = okCount === flagCount ? "SUCCESS" : okCount === 0 ? "FAILURE" : "PARTIAL";
 
-  return { status, flags, snapshot, activitiesCount, errors };
+  // An auth error surfacing mid-run leaves the cached session dead too.
+  const authFailed = errors.some((e) => classifyError(e.message) === "AUTH_FAILURE");
+  if (authFailed) clearGarminSession();
+
+  return { status, flags, snapshot, activitiesCount, errors, authFailed };
 }
+
+/** Internal sentinel: skip the daily-summary block without logging a second error. */
+class SkipSummary extends Error {}
 
 /** Classify a thrown error from sync into the spec's errorType buckets. */
 export function classifyError(message: string): string {
   const lower = message.toLowerCase();
-  if (/auth|unauthor|login|credential|password/.test(lower)) return "AUTH_FAILURE";
+  // Sprint 2.8: bare status codes added. A Garmin 403 often carries only
+  // "Forbidden" as its body, which classified as API_CHANGED — so nothing that
+  // keys off AUTH_FAILURE (session clear, alerting) would ever have fired.
+  if (/auth|unauthor|login|credential|password|forbidden|\b401\b|\b403\b/.test(lower)) return "AUTH_FAILURE";
   if (/rate.?limit|429|throttl/.test(lower)) return "RATE_LIMIT";
   if (/parse|json|unexpected token/.test(lower)) return "PARSE_ERROR";
   if (/network|fetch|timeout|econnreset|enotfound/.test(lower)) return "NETWORK";

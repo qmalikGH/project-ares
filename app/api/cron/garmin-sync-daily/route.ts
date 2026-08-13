@@ -5,13 +5,21 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db/client";
 import { userTodayForUser } from "@/lib/date";
-import { syncGarminForDate, classifyError } from "@/lib/garmin/sync";
+import { syncGarminForDate } from "@/lib/garmin/sync";
+import { persistGarminSync, writeGarminSyncFailureLog } from "@/lib/garmin/persist";
 import { calibrateMealPlan } from "@/lib/nutrition/calibration";
 import { recalibrateHrRest } from "@/lib/coach-engine/hr-calibration";
 import { recalibrateVdot } from "@/lib/coach-engine/vdot-recalibration";
 
 /** Sprint v1.8 #4: damp dynamic-deficit recompute to ~once per week. */
 const RECALIBRATION_INTERVAL_MS = 7 * 86400000;
+
+/** Sprint 2.8: how far back the gap sweep looks for days worth re-syncing. */
+const GAP_SWEEP_DAYS = 3;
+
+// Sync + up to three recalibrations, one of which regenerates AND materializes.
+// The route never declared a duration.
+export const maxDuration = 60;
 
 function authorized(req: Request): boolean {
   const auth = req.headers.get("authorization") ?? "";
@@ -35,6 +43,10 @@ export async function GET(req: Request) {
     status: string;
     errors: number;
     syncedFor?: string;
+    wrote?: boolean;
+    skippedReason?: string;
+    preserved?: string[];
+    gapsRepaired?: string[];
     recalibrated?: string;
     hrRecalibrated?: string;
     vdotRecalibrated?: string;
@@ -44,65 +56,38 @@ export async function GET(req: Request) {
     // Per-user "yesterday" — respects each user's persisted timezone.
     const today = await userTodayForUser(user.id);
     const yesterday = new Date(today.getTime() - 86400000);
+    let loggedThisRun = false;
     try {
-      const result = await syncGarminForDate(yesterday);
-      await db.garminSyncLog.create({
-        data: {
+      let result = await syncGarminForDate(yesterday);
+      // Sprint 2.8: one in-process retry after an auth failure. syncGarminForDate
+      // drops the cached session on its way out, so the retry re-authenticates
+      // instead of hammering the same dead 30-minute session.
+      if (result.authFailed) {
+        result = await syncGarminForDate(yesterday);
+      }
+
+      // One writer for both routes: log row, merge-write, failure notification.
+      const outcome = await persistGarminSync({ userId: user.id, date: yesterday, result });
+      loggedThisRun = true;
+
+      // Sprint 2.8: a failed sync leaves nothing new to calibrate against, and
+      // these three are the expensive part of the invocation.
+      if (result.status === "FAILURE") {
+        results.push({
           userId: user.id,
           status: result.status,
-          hrvSyncOk: result.flags.hrvSyncOk,
-          sleepSyncOk: result.flags.sleepSyncOk,
-          bodyBatterySyncOk: result.flags.bodyBatterySyncOk,
-          rhrSyncOk: result.flags.rhrSyncOk,
-          activitiesSyncOk: result.flags.activitiesSyncOk,
-          errorType: result.errors[0] ? classifyError(result.errors[0].message) : null,
-          errorMessage: result.errors.length > 0
-            ? result.errors.map((e) => `${e.datatype}: ${e.message}`).join(" | ")
-            : null,
-        },
-      });
-
-      // Existing fields stay in the `garmin` JSON (camelCase, matches the rest
-      // of the codebase: lib/coach-engine/readiness, lib/db/queries/sensors-aggregate).
-      // The v0.16 wellness columns are top-level for queryability (calorie
-      // averaging, nutrition adjustment).
-      const garminPayload = {
-        hrvStatus: result.snapshot.hrvStatus,
-        hrvRmssd: result.snapshot.hrvRmssd,
-        sleepScore: result.snapshot.sleepScore,
-        sleepDurationMin: result.snapshot.sleepDurationMin,
-        bodyBatteryMorning: result.snapshot.bodyBatteryMorning,
-        rhr: result.snapshot.rhr,
-      };
-      const v016Fields = {
-        totalKilocalories: result.snapshot.totalKilocalories,
-        activeKilocalories: result.snapshot.activeKilocalories,
-        bmrKilocalories: result.snapshot.bmrKilocalories,
-        bodyBatteryEnd: result.snapshot.bodyBatteryEnd,
-        averageStress: result.snapshot.averageStress,
-      };
-      const existing = await db.dailySensorData.findFirst({ where: { userId: user.id, date: yesterday } });
-      if (existing) {
-        await db.dailySensorData.update({
-          where: { id: existing.id },
-          data: {
-            garmin: garminPayload,
-            ...v016Fields,
-            garminLastSyncAt: new Date(),
-            updatedAt: new Date(),
-          },
+          errors: result.errors.length,
+          syncedFor: yesterday.toISOString().slice(0, 10),
+          wrote: outcome.wrote,
+          skippedReason: outcome.skippedReason,
         });
-      } else {
-        await db.dailySensorData.create({
-          data: {
-            userId: user.id,
-            date: yesterday,
-            garmin: garminPayload,
-            ...v016Fields,
-            garminLastSyncAt: new Date(),
-          },
-        });
+        continue;
       }
+
+      // Gap sweep: re-sync recent days that are still incomplete and whose last
+      // attempt did not succeed. This is what would have healed 2026-08-12 on its
+      // own instead of needing a person to notice.
+      const gapsRepaired = await sweepRecentGaps(user.id, yesterday);
 
       // Sprint v1.8 #4 — Dynamic deficit: weekly damped re-calibration. Recompute
       // rolling Garmin-TDEE targets only if ≥7 days since last calibration, so
@@ -167,28 +152,68 @@ export async function GET(req: Request) {
         status: result.status,
         errors: result.errors.length,
         syncedFor: yesterday.toISOString().slice(0, 10),
+        wrote: outcome.wrote,
+        preserved: outcome.preserved.length > 0 ? outcome.preserved : undefined,
+        gapsRepaired: gapsRepaired.length > 0 ? gapsRepaired : undefined,
         recalibrated,
         hrRecalibrated,
         vdotRecalibrated,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await db.garminSyncLog.create({
-        data: {
-          userId: user.id,
-          status: "FAILURE",
-          hrvSyncOk: false,
-          sleepSyncOk: false,
-          bodyBatterySyncOk: false,
-          rhrSyncOk: false,
-          activitiesSyncOk: false,
-          errorType: classifyError(message),
-          errorMessage: message,
-        },
-      });
+      // Only log here if persist didn't already — otherwise a throw after a
+      // successful persist wrote TWO failure rows for one run and inflated the
+      // consecutive-failure count that drives alerting.
+      if (!loggedThisRun) {
+        await writeGarminSyncFailureLog(user.id, message);
+      }
       results.push({ userId: user.id, status: "FAILURE", errors: 1 });
     }
   }
 
-  return NextResponse.json({ ranAt: new Date().toISOString(), results });
+  // Sprint 2.8: the route used to answer 200 unconditionally, so a total outage
+  // looked green in Vercel's cron dashboard for two months. Vercel does not
+  // retry a failed invocation — this is purely about being visible. A PARTIAL
+  // stays 200: a night without the watch is not an incident.
+  const allFailed = results.length > 0 && results.every((r) => r.status === "FAILURE");
+  return NextResponse.json(
+    { ranAt: new Date().toISOString(), results },
+    { status: allFailed ? 500 : 200 },
+  );
+}
+
+/**
+ * Re-sync recent days that look incomplete and whose last attempt did not
+ * succeed. Bounded to GAP_SWEEP_DAYS and only reached after a successful primary
+ * sync, so a broken Garmin connection cannot turn this into a retry storm.
+ */
+async function sweepRecentGaps(userId: string, primaryDate: Date): Promise<string[]> {
+  const repaired: string[] = [];
+  const lastLog = await db.garminSyncLog.findFirst({
+    where: { userId },
+    orderBy: { createdAt: "desc" },
+    select: { status: true },
+  });
+  if (!lastLog || lastLog.status === "FAILURE") return repaired;
+
+  for (let i = 1; i <= GAP_SWEEP_DAYS; i++) {
+    const day = new Date(primaryDate.getTime() - i * 86400000);
+    const row = await db.dailySensorData.findFirst({
+      where: { userId, date: day },
+      select: { garmin: true, totalKilocalories: true },
+    });
+    const g = (row?.garmin ?? null) as { rhr?: number | null; sleepScore?: number | null } | null;
+    const incomplete = !row || g?.rhr == null || g?.sleepScore == null || row.totalKilocalories == null;
+    if (!incomplete) continue;
+
+    try {
+      const res = await syncGarminForDate(day);
+      if (res.status === "FAILURE") break; // connection went bad — stop sweeping
+      const out = await persistGarminSync({ userId, date: day, result: res });
+      if (out.wrote) repaired.push(day.toISOString().slice(0, 10));
+    } catch {
+      break;
+    }
+  }
+  return repaired;
 }

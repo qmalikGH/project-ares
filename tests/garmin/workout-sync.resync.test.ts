@@ -19,6 +19,10 @@ vi.mock("@/lib/db/client", () => {
 
 vi.mock("@/lib/garmin/client", () => ({
   getGarminClient: vi.fn(),
+  // Sprint 2.8: a partial factory returns undefined for anything it omits, which
+  // only fails at call time. sync.ts now calls clearGarminSession, so keep the
+  // mock complete rather than waiting for the import graph to reach it.
+  clearGarminSession: vi.fn(),
 }));
 
 vi.mock("@/lib/db/queries/settings", () => ({

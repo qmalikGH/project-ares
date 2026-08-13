@@ -173,6 +173,8 @@ export interface SyncHealthEntry {
   bodyBatterySyncOk: boolean;
   rhrSyncOk: boolean;
   activitiesSyncOk: boolean;
+  /** Sprint 2.8 — the calorie columns finally have a signal of their own. */
+  energySyncOk: boolean;
   errorType: string | null;
   errorMessage: string | null;
 }
@@ -194,6 +196,7 @@ export async function getSyncHealth(
     bodyBatterySyncOk: r.bodyBatterySyncOk,
     rhrSyncOk: r.rhrSyncOk,
     activitiesSyncOk: r.activitiesSyncOk,
+    energySyncOk: r.energySyncOk,
     errorType: r.errorType,
     errorMessage: r.errorMessage,
   }));

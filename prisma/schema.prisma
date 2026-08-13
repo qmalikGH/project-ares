@@ -360,12 +360,16 @@ model GarminSyncLog {
   syncedAt DateTime @default(now())
   status   String // "SUCCESS" | "FAILURE" | "PARTIAL"
 
-  // Detailed status
+  // Detailed status. Sprint 2.8: energySyncOk added — until then the calorie
+  // columns on DailySensorData had no flag at all, so status "SUCCESS" was
+  // structurally compatible with totalKilocalories/bmrKilocalories being NULL.
+  // That is exactly what happened on 2026-08-12 and 2026-08-13.
   hrvSyncOk         Boolean
   sleepSyncOk       Boolean
   bodyBatterySyncOk Boolean
   rhrSyncOk         Boolean
   activitiesSyncOk  Boolean
+  energySyncOk      Boolean @default(false)
 
   errorType    String? // "AUTH_FAILURE" | "RATE_LIMIT" | "API_CHANGED" | "NETWORK" | "PARSE_ERROR"
   errorMessage String? @db.Text

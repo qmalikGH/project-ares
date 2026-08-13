@@ -35,6 +35,14 @@ export async function GET(req: NextRequest) {
         date: true,
         garmin: true,
         garminLastSyncAt: true,
+        // Sprint 2.8: the five v0.16 energy columns were missing from this
+        // select, which is why two months of NULL calories were invisible in
+        // the one endpoint built to make Garmin state visible.
+        totalKilocalories: true,
+        activeKilocalories: true,
+        bmrKilocalories: true,
+        bodyBatteryEnd: true,
+        averageStress: true,
         readinessScore: true,
         readinessBand: true,
         therapyPhase: true,
@@ -51,6 +59,7 @@ export async function GET(req: NextRequest) {
         bodyBatterySyncOk: true,
         rhrSyncOk: true,
         activitiesSyncOk: true,
+        energySyncOk: true,
         errorType: true,
         errorMessage: true,
       },
