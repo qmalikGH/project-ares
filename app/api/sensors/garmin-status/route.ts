@@ -20,6 +20,7 @@ export async function GET() {
       bodyBatterySyncOk: true,
       rhrSyncOk: true,
       activitiesSyncOk: true,
+      energySyncOk: true,
       errorType: true,
     },
   });

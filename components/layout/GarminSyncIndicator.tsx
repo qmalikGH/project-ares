@@ -12,6 +12,7 @@ type GarminStatus = {
     bodyBatterySyncOk: boolean;
     rhrSyncOk: boolean;
     activitiesSyncOk: boolean;
+    energySyncOk: boolean;
   } | null;
   consecutiveFailures: number;
 };
@@ -105,7 +106,8 @@ export function GarminSyncIndicator({ compact = false }: { compact?: boolean }) 
               <div>Sleep: {status.lastSync.sleepSyncOk ? "✓" : "✗"}</div>
               <div>Body Battery: {status.lastSync.bodyBatterySyncOk ? "✓" : "✗"}</div>
               <div>RHR: {status.lastSync.rhrSyncOk ? "✓" : "✗"}</div>
-              <div className="col-span-2">Activities: {status.lastSync.activitiesSyncOk ? "✓" : "✗"}</div>
+              <div>Kalorien: {status.lastSync.energySyncOk ? "✓" : "✗"}</div>
+              <div>Activities: {status.lastSync.activitiesSyncOk ? "✓" : "✗"}</div>
             </div>
           )}
           {status?.consecutiveFailures && status.consecutiveFailures > 0 ? (
