@@ -7,6 +7,7 @@ import { db } from "@/lib/db/client";
 import { userTodayForUser } from "@/lib/date";
 import { syncGarminForDate } from "@/lib/garmin/sync";
 import { persistGarminSync, writeGarminSyncFailureLog } from "@/lib/garmin/persist";
+import { autoImportRecent } from "@/lib/garmin/auto-import";
 import { calibrateMealPlan } from "@/lib/nutrition/calibration";
 import { recalibrateHrRest } from "@/lib/coach-engine/hr-calibration";
 import { recalibrateVdot } from "@/lib/coach-engine/vdot-recalibration";
@@ -16,6 +17,14 @@ const RECALIBRATION_INTERVAL_MS = 7 * 86400000;
 
 /** Sprint 2.8: how far back the gap sweep looks for days worth re-syncing. */
 const GAP_SWEEP_DAYS = 3;
+
+/**
+ * Sprint 2.9: how far back the session auto-import looks. Wider than the gap
+ * sweep because a missed import is not self-healing the way a missed sensor row
+ * is — an unimported session stays "planned" forever and keeps the feedback
+ * loops starved.
+ */
+const AUTO_IMPORT_DAYS = 7;
 
 // Sync + up to three recalibrations, one of which regenerates AND materializes.
 // The route never declared a duration.
@@ -47,6 +56,8 @@ export async function GET(req: Request) {
     skippedReason?: string;
     preserved?: string[];
     gapsRepaired?: string[];
+    autoImported?: string[];
+    needsConfirmation?: number;
     recalibrated?: string;
     hrRecalibrated?: string;
     vdotRecalibrated?: string;
@@ -88,6 +99,24 @@ export async function GET(req: Request) {
       // attempt did not succeed. This is what would have healed 2026-08-12 on its
       // own instead of needing a person to notice.
       const gapsRepaired = await sweepRecentGaps(user.id, yesterday);
+
+      // Sprint 2.9 — session auto-import. The activity list was already being
+      // fetched here and thrown away; now a run started from a workout we
+      // pushed completes itself. Identity match only (activity.workoutId ===
+      // Workout.garminWorkoutId), so an ad-hoc run on the same day cannot be
+      // mistaken for the planned one. Best-effort: a failure here must not cost
+      // us the sensor sync that already succeeded.
+      let autoImported: string[] | undefined;
+      let needsConfirmation: number | undefined;
+      try {
+        const imp = await autoImportRecent(user.id, yesterday, AUTO_IMPORT_DAYS);
+        if (imp.imported.length > 0) {
+          autoImported = imp.imported.map((i) => `${i.date} ${i.type}`);
+        }
+        if (imp.needsConfirmation.length > 0) needsConfirmation = imp.needsConfirmation.length;
+      } catch (impErr) {
+        console.error("[cron] auto-import failed:", impErr);
+      }
 
       // Sprint v1.8 #4 — Dynamic deficit: weekly damped re-calibration. Recompute
       // rolling Garmin-TDEE targets only if ≥7 days since last calibration, so
@@ -155,6 +184,8 @@ export async function GET(req: Request) {
         wrote: outcome.wrote,
         preserved: outcome.preserved.length > 0 ? outcome.preserved : undefined,
         gapsRepaired: gapsRepaired.length > 0 ? gapsRepaired : undefined,
+        autoImported,
+        needsConfirmation,
         recalibrated,
         hrRecalibrated,
         vdotRecalibrated,

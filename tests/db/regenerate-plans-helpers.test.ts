@@ -78,3 +78,68 @@ describe("deriveVolumeGate — resting HR downgrade", () => {
     expect(deriveVolumeGate({ ...BASE, recentShin: 3, latestRhr: 40 }).gate).toBe("hold");
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sprint 2.9 — auto-imported sessions are not evidence of wellbeing
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("deriveVolumeGate — attested vs merely completed", () => {
+  // This is the regression guard for the whole auto-import feature. Without it,
+  // a nightly import flips the gate to "progress, shin calm" on the strength of
+  // sessions nobody rated — the exact Sprint 2.4 bug, through a new door.
+  it("holds when sessions were completed but none were rated", () => {
+    const d = deriveVolumeGate({
+      recentShin: null,
+      completedInWindow: 4,
+      attestedInWindow: 0,
+      latestRhr: 48,
+      baselineRhr: 50,
+    });
+    expect(d.gate).toBe("hold");
+    expect(d.reason).toContain("none rated");
+  });
+
+  it("progresses once at least one session carries a shin report", () => {
+    const d = deriveVolumeGate({
+      recentShin: 1,
+      completedInWindow: 4,
+      attestedInWindow: 1,
+      latestRhr: 48,
+      baselineRhr: 50,
+    });
+    expect(d.gate).toBe("progress");
+  });
+
+  it("keeps the original message when nothing was completed at all", () => {
+    const d = deriveVolumeGate({
+      recentShin: null,
+      completedInWindow: 0,
+      attestedInWindow: 0,
+      latestRhr: 48,
+      baselineRhr: 50,
+    });
+    expect(d.gate).toBe("hold");
+    expect(d.reason).toContain("no completed session");
+  });
+
+  it("defaults to the old behaviour when the caller omits the new counter", () => {
+    const d = deriveVolumeGate({
+      recentShin: 1,
+      completedInWindow: 2,
+      latestRhr: 48,
+      baselineRhr: 50,
+    });
+    expect(d.gate).toBe("progress");
+  });
+
+  it("a reported shin still outranks everything", () => {
+    const d = deriveVolumeGate({
+      recentShin: 5,
+      completedInWindow: 4,
+      attestedInWindow: 0,
+      latestRhr: 48,
+      baselineRhr: 50,
+    });
+    expect(d.gate).toBe("regress");
+  });
+});

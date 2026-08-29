@@ -16,6 +16,16 @@ export type ActivityCategory = "run" | "strength" | "other";
 interface RawActivity {
   activityId: number;
   activityName?: string;
+  /**
+   * Sprint 2.9: present ONLY when the activity was started from a structured
+   * workout that we pushed to the watch — it is the id returned by
+   * addWorkout() and stored as Workout.garminWorkoutId. Ad-hoc runs omit the
+   * key entirely, which is exactly the planned/spontaneous distinction we need.
+   * The field always arrived from Garmin; it simply was not declared here, so
+   * an exact link was invisible to TypeScript and the code guessed by
+   * date + category instead.
+   */
+  workoutId?: number | null;
   startTimeLocal?: string;
   startTimeGMT?: string;
   // The list endpoint (getActivities) returns these flat. The single-activity
@@ -81,6 +91,7 @@ function unwrapActivity(a: RawActivity): RawActivity {
     // activityTypeDTO is the single-endpoint variant; classifyActivity reads
     // activityType, so mirror the typeKey across.
     activityType: a.activityType ?? a.activityTypeDTO,
+    workoutId: a.workoutId ?? null,
   };
 }
 
@@ -129,6 +140,8 @@ export interface ActivitySummary {
   averagePaceSecPerKm: number | null;
   elevationGainM: number | null;
   calories: number | null;
+  /** Garmin workout id when this activity was run from a pushed workout. */
+  workoutId: number | null;
 }
 
 function toSummary(a: RawActivity): ActivitySummary {
@@ -152,6 +165,7 @@ function toSummary(a: RawActivity): ActivitySummary {
     elevationGainM:
       typeof a.elevationGain === "number" ? Math.round(a.elevationGain) : null,
     calories: typeof a.calories === "number" ? Math.round(a.calories) : null,
+    workoutId: typeof a.workoutId === "number" ? a.workoutId : null,
   };
 }
 

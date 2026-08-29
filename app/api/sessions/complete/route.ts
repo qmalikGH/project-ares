@@ -13,10 +13,8 @@ import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { userTodayDynamic } from "@/lib/date";
-import { getActivityDetail, getActivityHrZones } from "@/lib/garmin/activities";
-import { mapGarminZonesToPolarizedTID } from "@/lib/coach-engine/hr-zones";
+import { buildRunImport } from "@/lib/garmin/run-import";
 import {
-  RunExecutedSessionSchema,
   StrengthExecutedSessionSchema,
   type SessionPlan,
   type W1CalibrationRunData,
@@ -104,41 +102,13 @@ export async function POST(req: Request) {
 
   if (parsed.data.garminActivityId) {
     try {
-      const detail = await getActivityDetail(parsed.data.garminActivityId);
-      // Sprint v0.7: pull HR-time-in-zones for this activity so /progress
-      // can build TID directly from Garmin's data instead of approximating
-      // from splits. Best-effort — null on any failure.
-      const garminHrZones = await getActivityHrZones(parsed.data.garminActivityId);
-      const polarizedTID = garminHrZones
-        ? mapGarminZonesToPolarizedTID(garminHrZones)
-        : null;
-
-      const runExec = RunExecutedSessionSchema.parse({
-        type: "run",
-        source: "garmin_import",
-        garminActivityId: parsed.data.garminActivityId,
-        startTimeLocal: detail.startTimeLocal,
-        durationSec: detail.durationSec,
-        distanceM: detail.distanceM,
-        averagePaceSecPerKm: detail.averagePaceSecPerKm,
-        averageHr: detail.averageHr,
-        maxHr: detail.maxHr,
-        elevationGainM: detail.elevationGainM,
-        calories: detail.calories,
-        splits: detail.splits.map((s) => ({
-          splitNumber: s.splitNumber,
-          distanceM: s.distanceM,
-          durationSec: s.durationSec,
-          paceSecPerKm: s.paceSecPerKm,
-          averageHr: s.averageHr,
-          maxHr: s.maxHr,
-        })),
-        garminHrZones,
-        polarizedTID,
-      });
-      executedSession = runExec;
-      durationActualMin = Math.max(1, Math.round(detail.durationSec / 60));
-      garminActivityIdStr = String(parsed.data.garminActivityId);
+      // Sprint 2.9: the payload builder moved to lib/garmin/run-import.ts so the
+      // unattended nightly import produces byte-identical sessions. Two copies
+      // would drift the first time one of them learned a new Garmin field.
+      const run = await buildRunImport(parsed.data.garminActivityId, "garmin_import");
+      executedSession = run.executedSession;
+      durationActualMin = run.durationActualMin;
+      garminActivityIdStr = run.activityId;
     } catch (e) {
       console.error("[complete] garmin import failed:", e);
       // Fall through to manual completion below.

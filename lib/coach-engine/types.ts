@@ -413,7 +413,14 @@ export const StrengthExecutedExerciseSchema = z.object({
 /** Run executed session — typically auto-imported from Garmin. */
 export const RunExecutedSessionSchema = z.object({
   type: z.literal("run"),
-  source: z.enum(["garmin_import", "manual"]),
+  /**
+   * Sprint 2.9: "garmin_auto" marks a session the nightly import completed on
+   * its own, matched by workout id. It is a real, fully-populated Garmin
+   * session — but nobody attested to it, so it carries no RPE and no shin
+   * score. Consumers that treat a completed session as evidence of wellbeing
+   * must check for the attesting fields, not for the status.
+   */
+  source: z.enum(["garmin_import", "garmin_auto", "manual"]),
   garminActivityId: z.number().nullable(),
 
   startTimeLocal: z.string(),

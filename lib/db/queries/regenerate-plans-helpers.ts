@@ -14,6 +14,14 @@ export interface VolumeGateInput {
   recentShin: number | null;
   /** How many sessions were completed in that window at all. */
   completedInWindow: number;
+  /**
+   * Sprint 2.9: of those, how many carry a shin report — i.e. how many a human
+   * actually attested to. The nightly Garmin import can complete a session
+   * without anyone rating it, so "a session exists" stopped being the same
+   * claim as "someone checked how it felt". Defaults to completedInWindow so
+   * callers that predate the import keep their old behaviour.
+   */
+  attestedInWindow?: number;
   /** Most recent Garmin resting HR inside the freshness window; null if none. */
   latestRhr: number | null;
   /** The user's calibrated resting-HR baseline; null if never set. */
@@ -49,10 +57,18 @@ export function deriveVolumeGate(input: VolumeGateInput): VolumeGateDecision {
     return { gate: "hold", reason: "shin NRS 3" };
   }
 
-  if (completedInWindow === 0) {
+  // The evidence test is about ATTESTED sessions, not rows. An auto-imported
+  // session proves the athlete trained; it proves nothing about how the shin
+  // felt. Counting it here would resurrect the exact Sprint 2.4 bug described
+  // at the top of this file, just through a different door.
+  const attested = input.attestedInWindow ?? completedInWindow;
+  if (attested === 0) {
     return {
       gate: "hold",
-      reason: "no completed session in the last 10 days — readiness unknown",
+      reason:
+        completedInWindow === 0
+          ? "no completed session in the last 10 days — readiness unknown"
+          : `${completedInWindow} session(s) completed but none rated — wellbeing unknown`,
     };
   }
 
