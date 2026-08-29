@@ -11,7 +11,11 @@ export type NotificationType =
   // Sprint 2.7 (A5): the nutrition cascade is all-or-nothing, so a failure
   // leaves the stores split without changing anything the user can see. It went
   // unnoticed from 2026-06-15 to 2026-08-12. This is the alarm.
-  | "NUTRITION_CASCADE_FAILED";
+  | "NUTRITION_CASCADE_FAILED"
+  // Sprint 3.0: sessions the Garmin import completed or could not prove, still
+  // waiting for an RPE and a shin score. Without them the volume gate stays on
+  // hold and the training max cannot move.
+  | "SESSIONS_AWAITING_CONFIRMATION";
 
 export type NotificationSeverity = "INFO" | "WARNING" | "CRITICAL";
 

@@ -18,6 +18,9 @@ import type {
 import { WeekStrip } from "@/components/training/WeekStrip";
 import type { Exercise } from "@/lib/coach-engine/types";
 import { cn } from "@/lib/utils";
+// Sprint 3.0: lifted out of this file so the confirmation screen can use the
+// same control. Local copies of severity()/SEV_* went with it.
+import { NumberSelector } from "@/components/ui/NumberSelector";
 import { getSessionColor } from "@/lib/ui/session-colors";
 
 // ─────────────────────────────────────────────────────
@@ -78,30 +81,6 @@ type WorkoutStateMap = Record<string, WorkoutState>;
 // ─────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────
-// Severity helpers (for NumberSelector coloring)
-// ─────────────────────────────────────────────────────
-
-type Severity = "good" | "ok" | "bad";
-
-function severity(n: number, highIsGood: boolean): Severity {
-  const level = n >= 7 ? "high" : n >= 4 ? "mid" : "low";
-  const map = highIsGood
-    ? { high: "good", mid: "ok", low: "bad" }
-    : { high: "bad", mid: "ok", low: "good" };
-  return map[level] as Severity;
-}
-
-const SEV_TEXT: Record<Severity, string> = {
-  good: "text-emerald-400",
-  ok:   "text-yellow-300",
-  bad:  "text-red-400",
-};
-
-const SEV_BUTTON: Record<Severity, string> = {
-  good: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-  ok:   "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
-  bad:  "bg-red-500/20 text-red-400 border-red-500/30",
-};
 
 // ─────────────────────────────────────────────────────
 // Knee-pill visibility (unchanged engine logic)
@@ -692,60 +671,6 @@ function TwoADaySection({
 // adjust_run_volume, set_therapy_phase, skip_session) — no more proactive
 // daily summaries that cost tokens for content the user rarely reads.
 
-// ─────────────────────────────────────────────────────
-// Number selector (replaces <input type="range">)
-// ─────────────────────────────────────────────────────
-
-function NumberSelector({
-  label,
-  hint,
-  value,
-  onChange,
-  highIsGood = true,
-}: {
-  label: string;
-  hint: string;
-  value: number;
-  onChange: (v: number) => void;
-  highIsGood?: boolean;
-}) {
-  return (
-    <div>
-      <div className="mb-2 flex items-baseline justify-between">
-        <label className="text-sm font-medium text-[var(--text-primary)]">
-          {label}
-        </label>
-        <span className={cn("text-sm font-bold tabular-nums transition-colors", SEV_TEXT[severity(value, highIsGood)])}>
-          {value}/10
-        </span>
-      </div>
-      <div className="flex gap-1">
-        {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => {
-          const isSelected = value === n;
-          return (
-            <button
-              key={n}
-              type="button"
-              aria-pressed={isSelected}
-              onClick={() => onChange(n)}
-              className={cn(
-                "flex h-8 min-w-0 flex-1 items-center justify-center rounded border",
-                "text-xs font-medium transition-all duration-150",
-                "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent-ring)]",
-                isSelected
-                  ? SEV_BUTTON[severity(n, highIsGood)]
-                  : "border-[var(--border-subtle)] bg-white/[0.04] text-[var(--text-tertiary)] hover:bg-white/[0.07] hover:text-[var(--text-secondary)]",
-              )}
-            >
-              {n}
-            </button>
-          );
-        })}
-      </div>
-      <p className="mt-1.5 text-[11px] text-[var(--text-tertiary)]">{hint}</p>
-    </div>
-  );
-}
 
 // ─────────────────────────────────────────────────────
 // Morning ritual
@@ -1016,6 +941,18 @@ export default function TodayDashboard() {
     refreshWorkoutMap();
   }, [refreshWorkoutMap]);
 
+  // Sprint 3.0: sessions the Garmin import completed or could not prove, still
+  // waiting for an RPE and a shin score. This banner is the entry point to
+  // /confirm — the nav is already at six items, and this is where he is every
+  // morning anyway.
+  const [openCount, setOpenCount] = useState(0);
+  useEffect(() => {
+    fetch("/api/sessions/open?days=7")
+      .then((r) => r.json())
+      .then((d) => setOpenCount((d?.count as number) ?? 0))
+      .catch(() => {});
+  }, []);
+
   useEffect(() => { refresh(); }, [refresh]);
 
   if (loading && !today) return <DashboardSkeleton />;
@@ -1093,6 +1030,25 @@ export default function TodayDashboard() {
       {/* Ready: full dashboard — design prototype hierarchy */}
       {today.status === "READY" && (
         <>
+          {openCount > 0 && (
+            <div className="mb-6 flex items-center justify-between rounded-lg border-l-4 border-amber-500 bg-amber-500/8 px-4 py-3">
+              <div>
+                <p className="label" style={{ color: "rgb(245 158 11)" }}>
+                  {openCount} Einheit{openCount === 1 ? "" : "en"} unbestätigt
+                </p>
+                <p className="mt-0.5 text-xs text-[var(--color-foreground-secondary)]">
+                  Nur RPE und Schienbein fehlen — den Rest hat die Uhr geliefert.
+                </p>
+              </div>
+              <Link
+                href="/confirm"
+                className="shrink-0 rounded-md bg-amber-500/15 px-3 py-1.5 text-xs font-semibold text-amber-400 transition-colors hover:bg-amber-500/25"
+              >
+                Nachtragen →
+              </Link>
+            </div>
+          )}
+
           {today.week.weekNumber >= 17 && !today.macrocycleEvaluated && (
             <div className="mb-6 flex items-center justify-between rounded-lg border-l-4 border-[var(--color-session-calibration)] bg-[var(--color-session-calibration)]/8 px-4 py-3">
               <div>
