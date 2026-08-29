@@ -190,11 +190,18 @@ async function loadBrakes(
     select: { executedSession: true },
   });
   let recentShin: number | null = null;
+  // Sprint 2.9: count only sessions somebody actually rated. An auto-imported
+  // session is proof the athlete ran, not proof the shin was quiet — and this
+  // gate is one of the two brakes on raising the VDOT.
+  let attestedInWindow = 0;
   for (const w of recent) {
     const parsed = ExecutedSessionSchema.safeParse(w.executedSession);
     if (!parsed.success) continue;
     const s = (parsed.data as { shinPainNrs?: number }).shinPainNrs;
-    if (typeof s === "number") recentShin = recentShin === null ? s : Math.max(recentShin, s);
+    if (typeof s === "number") {
+      recentShin = recentShin === null ? s : Math.max(recentShin, s);
+      attestedInWindow++;
+    }
   }
 
   const rhrRows = await db.dailySensorData.findMany({
@@ -219,6 +226,7 @@ async function loadBrakes(
   const { gate } = deriveVolumeGate({
     recentShin,
     completedInWindow: recent.length,
+    attestedInWindow,
     latestRhr,
     baselineRhr: baseline?.hrRest ?? null,
   });

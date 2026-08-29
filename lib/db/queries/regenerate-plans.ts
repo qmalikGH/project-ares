@@ -46,7 +46,7 @@ import type {
 async function loadRecentShinSignal(
   userId: string,
   before: Date,
-): Promise<{ data: WeekStrengthData | null; completedInWindow: number }> {
+): Promise<{ data: WeekStrengthData | null; completedInWindow: number; attestedInWindow: number }> {
   const cutoff = new Date(before.getTime() - 10 * 86400000);
   const workouts = await db.workout.findMany({
     where: { userId, status: "completed", date: { gte: cutoff, lte: before } },
@@ -54,19 +54,28 @@ async function loadRecentShinSignal(
     select: { type: true, executedSession: true, rpe: true },
   });
   let shin: number | undefined;
+  // Sprint 2.9: sessions the nightly Garmin import completed carry no shin
+  // score, so "how many sessions exist" and "how many were rated" are now two
+  // different numbers. Only the second one is evidence about the athlete.
+  let attestedInWindow = 0;
   const rpeByType = new Map<string, number>();
   for (const w of workouts) {
     const parsed = ExecutedSessionSchema.safeParse(w.executedSession);
     if (parsed.success) {
       const s = (parsed.data as { shinPainNrs?: number }).shinPainNrs;
-      if (typeof s === "number") shin = shin === undefined ? s : Math.max(shin, s);
+      if (typeof s === "number") {
+        shin = shin === undefined ? s : Math.max(shin, s);
+        attestedInWindow++;
+      }
     }
     if (["strength_a", "strength_b", "strength_c"].includes(w.type) && !rpeByType.has(w.type) && w.rpe != null) {
       rpeByType.set(w.type, w.rpe);
     }
   }
   const completedInWindow = workouts.length;
-  if (shin === undefined && rpeByType.size === 0) return { data: null, completedInWindow };
+  if (shin === undefined && rpeByType.size === 0) {
+    return { data: null, completedInWindow, attestedInWindow };
+  }
   const types = ["strength_a", "strength_b", "strength_c"] as const;
   return {
     data: {
@@ -74,6 +83,7 @@ async function loadRecentShinSignal(
       sessions: types.map((t) => ({ type: t, shinPainNrs: shin, rpeReported: rpeByType.get(t) })),
     },
     completedInWindow,
+    attestedInWindow,
   };
 }
 
@@ -203,6 +213,7 @@ export async function regeneratePlansFromNow(
   const gateDecision = deriveVolumeGate({
     recentShin: prevWeekData?.sessions?.[0]?.shinPainNrs ?? null,
     completedInWindow: shinSignal.completedInWindow,
+    attestedInWindow: shinSignal.attestedInWindow,
     latestRhr,
     baselineRhr: userSettings?.hrRest ?? null,
   });
