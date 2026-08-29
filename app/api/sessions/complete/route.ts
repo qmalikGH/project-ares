@@ -15,14 +15,16 @@ import { getCurrentUserId } from "@/lib/auth/current-user";
 import { userTodayDynamic } from "@/lib/date";
 import { buildRunImport } from "@/lib/garmin/run-import";
 import {
+  buildExerciseLogRows,
+  replaceExerciseLogsForWorkout,
+  resolveWeekInBlockSnapshot,
+} from "@/lib/db/queries/exercise-log-write";
+import {
   StrengthExecutedSessionSchema,
   type SessionPlan,
   type W1CalibrationRunData,
 } from "@/lib/coach-engine/types";
 import { calibrateVDOTFromW1 } from "@/lib/coach-engine/run-coach";
-import { estimateOneRM } from "@/lib/coach-engine/strength-coach/one-rm";
-import { weekInBlockOf } from "@/lib/coach-engine/strength-coach/periodization";
-import type { PhaseConfig } from "@/lib/coach-engine/types";
 import { getEffectiveVdot } from "@/lib/db/queries/settings";
 import { regenerateFutureSessionPaces } from "@/lib/db/queries/regenerate";
 import { createNotification } from "@/lib/notifications/create";
@@ -183,78 +185,25 @@ export async function POST(req: Request) {
   // wildly with each session and undermine the user's mental anchor.
   if (parsed.data.strengthExecution) {
     try {
+      // Sprint 3.0: row construction + the periodization snapshot moved to
+      // lib/db/queries/exercise-log-write.ts so the confirmation screen writes
+      // byte-identical rows. Behaviour is pinned by tests/sessions/.
       const sessionStartLocal = parsed.data.strengthExecution.startTimeLocal;
-      const sessionDate = sessionStartLocal
-        ? new Date(sessionStartLocal)
-        : new Date();
+      const sessionDate = sessionStartLocal ? new Date(sessionStartLocal) : new Date();
+      const { weekInBlock, isDeload } = await resolveWeekInBlockSnapshot(userId, workout.date);
 
-      // Sprint 2.1 #0: resolve the periodization snapshot (slot/weekInBlock/
-      // isDeload) at WRITE time so it stays stable against later resetBlock
-      // week-renumbering. slot = the Workout's session type (strength_a/b/c).
-      // weekInBlock comes from the WeeklyPlan covering the workout date, using
-      // config.durationWeeks (the SAME source the plan generator uses) — NOT
-      // the Phase.durationWeeks column (which resetBlock extends).
-      const slot = workout.type;
-      let weekInBlock: number | null = null;
-      let isDeload = false;
-      try {
-        const coveringPlan = await db.weeklyPlan.findFirst({
-          where: {
-            phase: { macrocycle: { userId, status: "active" } },
-            startDate: { lte: workout.date },
-            endDate: { gt: workout.date },
-          },
-          include: { phase: true },
-        });
-        if (coveringPlan) {
-          const cfg = coveringPlan.phase.config as unknown as PhaseConfig;
-          const dur = cfg?.durationWeeks ?? 4;
-          weekInBlock = weekInBlockOf(coveringPlan.weekNumber, dur);
-          isDeload = weekInBlock === 4;
-        }
-      } catch (e) {
-        console.error("[complete] weekInBlock snapshot resolution failed:", e);
-      }
-
-      const rows: Array<{
-        userId: string;
-        exerciseName: string;
-        weightKg: number;
-        repsCompleted: number;
-        rpe: number | null;
-        estimatedOneRM: number;
-        date: Date;
-        workoutId: string;
-        slot: string;
-        isDeload: boolean;
-        weekInBlock: number | null;
-      }> = [];
-      for (const ex of parsed.data.strengthExecution.exercises) {
-        if (ex.skipped) continue;
-        for (const set of ex.actualSets) {
-          // Skip isometrics (Wall Sit) and any set without a real load+rep pair.
-          if (!set.loadKg || set.loadKg <= 0) continue;
-          if (!set.reps || set.reps <= 0) continue;
-          const est = estimateOneRM(set.loadKg, set.reps, set.rpe ?? undefined);
-          if (est <= 0) continue;
-          rows.push({
-            userId,
-            exerciseName: ex.name,
-            weightKg: set.loadKg,
-            repsCompleted: set.reps,
-            rpe: set.rpe ?? null,
-            estimatedOneRM: est,
-            date: sessionDate,
-            workoutId: workout.id,
-            slot,
-            isDeload,
-            weekInBlock,
-          });
-        }
-      }
-      if (rows.length > 0) {
-        await db.exerciseLog.createMany({ data: rows });
-      }
+      const rows = buildExerciseLogRows({
+        userId,
+        workoutId: workout.id,
+        slot: workout.type,
+        date: sessionDate,
+        weekInBlock,
+        isDeload,
+        exercises: parsed.data.strengthExecution.exercises,
+      });
+      // Replace rather than append: re-completing a session must not leave a
+      // duplicate set of rows behind (ExerciseLog has no unique constraint).
+      await replaceExerciseLogsForWorkout(userId, workout.id, rows);
     } catch (e) {
       console.error("[complete] exerciseLog write failed:", e);
     }

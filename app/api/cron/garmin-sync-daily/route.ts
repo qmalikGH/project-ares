@@ -8,6 +8,7 @@ import { userTodayForUser } from "@/lib/date";
 import { syncGarminForDate } from "@/lib/garmin/sync";
 import { persistGarminSync, writeGarminSyncFailureLog } from "@/lib/garmin/persist";
 import { autoImportRecent } from "@/lib/garmin/auto-import";
+import { createNotificationIfNew } from "@/lib/notifications/create";
 import { calibrateMealPlan } from "@/lib/nutrition/calibration";
 import { recalibrateHrRest } from "@/lib/coach-engine/hr-calibration";
 import { recalibrateVdot } from "@/lib/coach-engine/vdot-recalibration";
@@ -114,6 +115,27 @@ export async function GET(req: Request) {
           autoImported = imp.imported.map((i) => `${i.date} ${i.type}`);
         }
         if (imp.needsConfirmation.length > 0) needsConfirmation = imp.needsConfirmation.length;
+
+        // Sprint 3.0: nudge toward /confirm. Counts BOTH the sessions we just
+        // imported (they carry no RPE and no shin score) and the ones Garmin
+        // could not prove — the volume gate stays on hold until at least one of
+        // them is rated, and nothing else in the app says so.
+        const awaiting = imp.imported.length + imp.needsConfirmation.length;
+        if (awaiting > 0) {
+          await createNotificationIfNew(
+            {
+              userId: user.id,
+              type: "SESSIONS_AWAITING_CONFIRMATION",
+              title: `${awaiting} Einheit${awaiting === 1 ? "" : "en"} unbestätigt`,
+              message:
+                "Die Uhr hat Dauer, Strecke und Puls geliefert. Es fehlen nur RPE und Schienbein — " +
+                "solange die fehlen, bleibt die Volumen-Bremse auf hold.",
+              severity: "INFO",
+              actionUrl: "/confirm",
+            },
+            20 * 60, // once a day at most
+          );
+        }
       } catch (impErr) {
         console.error("[cron] auto-import failed:", impErr);
       }

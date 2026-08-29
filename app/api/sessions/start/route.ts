@@ -86,10 +86,42 @@ export async function POST(req: Request) {
 
   // Find/create the Workout row keyed by (userId, date, type) — critical for
   // two-a-days so the Easy Run row and the Strength row stay separate.
+  //
+  // Sprint 3.0: the status filter is new and it matters. Since the nightly
+  // Garmin import lands sessions as "completed", this findFirst could pick up a
+  // finished session and the update below would knock it back to "in_progress"
+  // — silently removing it from every `status: "completed"` filter (ACWR, the
+  // training-max evaluation, the clean-TDEE pool, the volume gate) while its
+  // rpe and executedSession sat there unreachable.
   const existing = await db.workout.findFirst({
-    where: { userId, date: todayDay, type: finalSession.type },
+    where: {
+      userId,
+      date: todayDay,
+      type: finalSession.type,
+      status: { in: ["planned", "in_progress"] },
+    },
     orderBy: { createdAt: "desc" },
   });
+
+  // A finished session for this slot is terminal: don't create a second row
+  // alongside it either, or /today would show a duplicate.
+  const finished = existing
+    ? null
+    : await db.workout.findFirst({
+        where: {
+          userId,
+          date: todayDay,
+          type: finalSession.type,
+          status: { in: ["completed", "skipped"] },
+        },
+        select: { id: true, status: true },
+      });
+  if (finished) {
+    return NextResponse.json(
+      { status: "SESSION_ALREADY_COMPLETED", workoutId: finished.id, sessionStatus: finished.status },
+      { status: 409 },
+    );
+  }
   const workout = existing
     ? await db.workout.update({
         where: { id: existing.id },
