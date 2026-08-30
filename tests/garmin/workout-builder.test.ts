@@ -57,10 +57,16 @@ describe("isPushableSessionType", () => {
     expect(isPushableSessionType("calibration_run")).toBe(true);
     expect(isPushableSessionType("tempo_run")).toBe(true);
   });
-  it("rejects strength + non-run sessions", () => {
-    expect(isPushableSessionType("strength_a")).toBe(false);
-    expect(isPushableSessionType("strength_b")).toBe(false);
-    expect(isPushableSessionType("strength_c")).toBe(false);
+  // Sprint 3.1: strength became pushable. Not as a guided set-by-set workout —
+  // as a plain timed block, purely so the resulting activity carries our
+  // workoutId and the session can complete itself.
+  it("accepts strength sessions", () => {
+    expect(isPushableSessionType("strength_a")).toBe(true);
+    expect(isPushableSessionType("strength_b")).toBe(true);
+    expect(isPushableSessionType("strength_c")).toBe(true);
+  });
+
+  it("rejects non-trainable sessions", () => {
     expect(isPushableSessionType("rest")).toBe(false);
     expect(isPushableSessionType("active_recovery")).toBe(false);
     expect(isPushableSessionType("time_trial_5k")).toBe(false);
@@ -70,9 +76,6 @@ describe("isPushableSessionType", () => {
 });
 
 describe("buildGarminWorkout — pushability gate", () => {
-  it("strength_a returns null", () => {
-    expect(buildGarminWorkout(s({ type: "strength_a" }), PACES)).toBeNull();
-  });
   it("rest returns null", () => {
     expect(buildGarminWorkout(s({ type: "rest" }), PACES)).toBeNull();
   });
@@ -250,5 +253,70 @@ describe("buildGarminWorkout — purity (no input mutation)", () => {
     const before = JSON.stringify(session);
     buildGarminWorkout(session, PACES);
     expect(JSON.stringify(session)).toBe(before);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sprint 3.1 — strength pushed as a plain timed workout
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("buildGarminWorkout — strength", () => {
+  const strengthSession = (over: Record<string, unknown> = {}) =>
+    s({
+      type: "strength_a",
+      durationMin: 60,
+      hrTarget: undefined,
+      exercises: [
+        { name: "Warmup Goblet Squat", sets: 2, reps: 10, loadAbs: 20, isWarmup: true },
+        { name: "Hex Bar Deadlift", sets: 4, reps: 5, loadPct: 82, loadAbs: 117.5 },
+        { name: "Face Pulls", sets: 3, reps: 15 },
+      ],
+      ...over,
+    });
+
+  it("produces a strength_training workout", () => {
+    const w = buildGarminWorkout(strengthSession(), PACES)!;
+    expect(w).not.toBeNull();
+    expect(w.sportType.sportTypeKey).toBe("strength_training");
+    expect(w.sportType.sportTypeId).toBe(5);
+  });
+
+  // Strength sessions carry no hrTarget; the guard for runs used to drop them
+  // before the dispatch ever ran.
+  it("does not require an HR target", () => {
+    expect(buildGarminWorkout(strengthSession({ hrTarget: undefined }), PACES)).not.toBeNull();
+  });
+
+  it("is one open timed block, not a step per set", () => {
+    const w = buildGarminWorkout(strengthSession(), PACES)!;
+    const steps = w.workoutSegments[0].workoutSteps;
+    expect(steps).toHaveLength(1);
+    expect(w.estimatedDurationInSecs).toBe(3600);
+  });
+
+  it("puts the work sets in the description so the watch can show them", () => {
+    const w = buildGarminWorkout(strengthSession(), PACES)!;
+    expect(w.description).toContain("Hex Bar Deadlift 4x5 @ 117.5kg");
+    expect(w.description).toContain("Face Pulls 3x15");
+  });
+
+  it("leaves warmups out of the description", () => {
+    const w = buildGarminWorkout(strengthSession(), PACES)!;
+    expect(w.description).not.toContain("Warmup Goblet Squat");
+  });
+
+  it("survives a session with no exercises", () => {
+    const w = buildGarminWorkout(strengthSession({ exercises: [] }), PACES)!;
+    expect(w).not.toBeNull();
+    expect(w.description).toBe("Krafteinheit");
+  });
+
+  it("names the session by slot", () => {
+    expect(buildGarminWorkout(strengthSession({ type: "strength_c" }), PACES)!.workoutName).toBe("Kraft C");
+  });
+
+  it("floors an implausibly short duration at 10 minutes", () => {
+    const w = buildGarminWorkout(strengthSession({ durationMin: 2 }), PACES)!;
+    expect(w.estimatedDurationInSecs).toBe(600);
   });
 });

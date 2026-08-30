@@ -20,6 +20,15 @@ import type { SessionPlan } from "@/lib/coach-engine/types";
 // workoutTargetTypeId / Key:  1=no.target, 4=heart.rate.zone, 6=pace.zone
 
 const SPORT_RUNNING = { sportTypeId: 1, sportTypeKey: "running" as const };
+/** Sprint 3.1. Verified against the live API: Garmin accepts a strength workout
+ *  with a single open time step. We do NOT emit per-exercise steps — the watch
+ *  would then demand a tap between every set, and the athlete's own data shows
+ *  the passive rep/weight detection is unusable anyway (9 "sets" for a 110-min
+ *  session, zero weights). The point of pushing strength is only the id link, so
+ *  the session recognises itself on the way back. */
+const SPORT_STRENGTH = { sportTypeId: 5, sportTypeKey: "strength_training" as const };
+
+type GarminSportType = typeof SPORT_RUNNING | typeof SPORT_STRENGTH;
 
 const STEP_TYPE = {
   warmup: { stepTypeId: 1, stepTypeKey: "warmup" as const },
@@ -55,13 +64,13 @@ export interface GarminStructuredWorkout {
   workoutName: string;
   description?: string;
   estimatedDurationInSecs: number;
-  sportType: typeof SPORT_RUNNING;
+  sportType: GarminSportType;
   workoutSegments: GarminWorkoutSegment[];
 }
 
 export interface GarminWorkoutSegment {
   segmentOrder: number;
-  sportType: typeof SPORT_RUNNING;
+  sportType: GarminSportType;
   workoutSteps: GarminWorkoutStep[];
 }
 
@@ -99,11 +108,10 @@ export interface RepeatGroupStep {
 // Pushability gate
 // ============================================
 
+// Sprint 3.1: strength_a/b/c left this set. They are pushed as a plain
+// timed workout so the resulting activity carries our workoutId.
 const NON_PUSHABLE_TYPES = new Set([
   "rest",
-  "strength_a",
-  "strength_b",
-  "strength_c",
   "active_recovery",
   "time_trial_5k",
   "cross_training",
@@ -154,6 +162,13 @@ export function buildGarminWorkout(
   paces: VdotPaceLookup,
 ): GarminStructuredWorkout | null {
   if (!isPushableSessionType(session.type)) return null;
+
+  // Strength first: these carry no hrTarget, and the guard below would drop
+  // them before the switch ever ran.
+  if (session.type.startsWith("strength")) {
+    return buildStrengthSession(session);
+  }
+
   if (!session.hrTarget) return null;
 
   switch (session.type) {
@@ -228,20 +243,64 @@ function wrap(
   description: string,
   totalSec: number,
   steps: GarminWorkoutStep[],
+  sport: GarminSportType = SPORT_RUNNING,
 ): GarminStructuredWorkout {
   return {
     workoutName: name,
     description,
     estimatedDurationInSecs: totalSec,
-    sportType: SPORT_RUNNING,
+    sportType: sport,
     workoutSegments: [
       {
         segmentOrder: 1,
-        sportType: SPORT_RUNNING,
+        sportType: sport,
         workoutSteps: steps,
       },
     ],
   };
+}
+
+const STRENGTH_LABEL: Record<string, string> = {
+  strength_a: "Kraft A",
+  strength_b: "Kraft B",
+  strength_c: "Kraft C",
+};
+
+/**
+ * A strength session as one open timed block — Sprint 3.1.
+ *
+ * Deliberately NOT a step-per-exercise workout. Garmin's schema can express
+ * that, but it would demand a tap between every set, and the athlete's own
+ * watch data shows the passive detection it would replace is unusable anyway:
+ * a 110-minute session produced nine "sets", four of them UNKNOWN, none with a
+ * weight. The sets are attested afterwards in /confirm with a single tap.
+ *
+ * What this push actually buys is the workoutId on the resulting activity, so
+ * the session recognises itself on the way back and completes on its own.
+ *
+ * The prescribed exercises go into the description, which the watch displays —
+ * the plan becomes readable on the wrist without opening the app.
+ */
+function buildStrengthSession(session: SessionPlan): GarminStructuredWorkout {
+  const totalSec = Math.max(600, (session.durationMin ?? 60) * 60);
+  const name = STRENGTH_LABEL[session.type] ?? "Kraft";
+
+  const lines = (session.exercises ?? [])
+    .filter((ex) => !ex.isWarmup)
+    .map((ex) => {
+      const load = typeof ex.loadAbs === "number" && ex.loadAbs > 0 ? " @ " + ex.loadAbs + "kg" : "";
+      return ex.name + " " + ex.sets + "x" + ex.reps + load;
+    });
+  // Garmin truncates long descriptions on the device; work sets only.
+  const description = lines.length > 0 ? lines.join(" | ").slice(0, 1024) : "Krafteinheit";
+
+  return wrap(
+    name,
+    description,
+    totalSec,
+    [timeStep({ stepOrder: 1, type: "interval", durationSec: totalSec, description })],
+    SPORT_STRENGTH,
+  );
 }
 
 // ============================================
