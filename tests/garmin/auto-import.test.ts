@@ -8,12 +8,16 @@ const workoutFindMany = vi.hoisted(() => vi.fn());
 const workoutUpdate = vi.hoisted(() => vi.fn());
 const listActivities = vi.hoisted(() => vi.fn());
 const buildRun = vi.hoisted(() => vi.fn());
+const buildStrength = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/db/client", () => ({
   db: { workout: { findMany: workoutFindMany, update: workoutUpdate } },
 }));
 vi.mock("@/lib/garmin/activities", () => ({ listActivitiesForDate: listActivities }));
-vi.mock("@/lib/garmin/run-import", () => ({ buildRunImport: buildRun }));
+vi.mock("@/lib/garmin/run-import", () => ({
+  buildRunImport: buildRun,
+  buildStrengthImport: buildStrength,
+}));
 
 import { autoImportSessionsForDate } from "@/lib/garmin/auto-import";
 import type { ActivitySummary } from "@/lib/garmin/activities";
@@ -157,5 +161,68 @@ describe("what it refuses to write", () => {
 
     expect(r.errors).toHaveLength(1);
     expect(r.imported).toHaveLength(1); // the second one still went through
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sprint 3.1 — strength is pushed too, so an EXACT_MATCH may be a strength row
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("strength import", () => {
+  function plannedStrength(over: Record<string, unknown> = {}) {
+    return { id: "s1", date: DATE, type: "strength_a", garminWorkoutId: "1680706423", ...over };
+  }
+  function strengthActivity(over: Partial<ActivitySummary> = {}): ActivitySummary {
+    return activity({
+      activityId: 24152463452,
+      activityName: "Kraft A",
+      category: "strength",
+      distanceM: null,
+      averagePaceSecPerKm: null,
+      durationSec: 6600,
+      workoutId: 1680706423,
+      ...over,
+    });
+  }
+
+  it("uses the strength builder, not the run one", async () => {
+    workoutFindMany.mockResolvedValue([plannedStrength()]);
+    listActivities.mockResolvedValue([strengthActivity()]);
+    buildStrength.mockResolvedValue({
+      executedSession: { type: "strength", source: "garmin_auto", exercises: [] },
+      durationActualMin: 110,
+      activityId: "24152463452",
+    });
+
+    await autoImportSessionsForDate("u1", DATE);
+
+    expect(buildStrength).toHaveBeenCalledWith(24152463452);
+    expect(buildRun).not.toHaveBeenCalled();
+  });
+
+  it("writes no sets — the watch cannot report a usable load", async () => {
+    workoutFindMany.mockResolvedValue([plannedStrength()]);
+    listActivities.mockResolvedValue([strengthActivity()]);
+    buildStrength.mockResolvedValue({
+      executedSession: { type: "strength", source: "garmin_auto", exercises: [] },
+      durationActualMin: 110,
+      activityId: "24152463452",
+    });
+
+    await autoImportSessionsForDate("u1", DATE);
+
+    const data = workoutUpdate.mock.calls[0][0].data;
+    expect((data.executedSession as { exercises: unknown[] }).exercises).toHaveLength(0);
+    expect(Object.prototype.hasOwnProperty.call(data, "rpe")).toBe(false);
+  });
+
+  it("still refuses a strength activity with no id link", async () => {
+    workoutFindMany.mockResolvedValue([plannedStrength({ garminWorkoutId: null })]);
+    listActivities.mockResolvedValue([strengthActivity({ workoutId: null })]);
+
+    const r = await autoImportSessionsForDate("u1", DATE);
+
+    expect(workoutUpdate).not.toHaveBeenCalled();
+    expect(r.needsConfirmation).toHaveLength(1);
   });
 });

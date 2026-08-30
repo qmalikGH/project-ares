@@ -55,8 +55,10 @@ export async function GET(req: Request) {
       const dayAfter = new Date(tomorrowKey.getTime() + 86400000);
 
       // Each user can have multiple sessions per day (run AM + strength PM).
-      // Push every PLANNED run-style session — buildGarminWorkout filters
-      // strength/rest/etc to null automatically.
+      // Push every PLANNED session — buildGarminWorkout returns null for the
+      // ones that do not belong on a watch (rest, mobility, the 5k time trial).
+      // Sprint 3.1: strength IS pushed now, as a plain timed block, so the
+      // activity comes back carrying our workout id.
       let tomorrowWorkouts = await db.workout.findMany({
         where: {
           userId: settings.userId,

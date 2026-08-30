@@ -487,7 +487,14 @@ export const RunExecutedSessionSchema = z.object({
 /** Strength executed session — manual set-by-set logger. */
 export const StrengthExecutedSessionSchema = z.object({
   type: z.literal("strength"),
-  source: z.literal("manual"),
+  /**
+   * Sprint 3.1: "garmin_auto" joined "manual". Strength is now pushed to the
+   * watch as a plain timed block, so the activity comes back carrying our
+   * workout id and the session completes itself — with duration, HR and
+   * calories from Garmin but `exercises: []`, because the watch cannot report
+   * a usable load. The sets arrive later through /confirm.
+   */
+  source: z.enum(["manual", "garmin_auto"]),
   garminActivityId: z.number().nullable(),
 
   startTimeLocal: z.string(),

@@ -7,7 +7,10 @@
 
 import { getActivityDetail, getActivityHrZones } from "./activities";
 import { mapGarminZonesToPolarizedTID } from "@/lib/coach-engine/hr-zones";
-import { RunExecutedSessionSchema } from "@/lib/coach-engine/types";
+import {
+  RunExecutedSessionSchema,
+  StrengthExecutedSessionSchema,
+} from "@/lib/coach-engine/types";
 
 export interface ImportedRun {
   executedSession: unknown;
@@ -67,4 +70,38 @@ export async function buildRunImport(
     durationActualMin: Math.max(1, Math.round(detail.durationSec / 60)),
     activityId: String(activityId),
   };
+}
+
+/**
+ * Build a strength executedSession from a Garmin activity — Sprint 3.1.
+ *
+ * `exercises` is deliberately empty. Garmin does return per-set data for a
+ * strength activity, but the athlete's own recordings show what it is worth: a
+ * 110-minute session yielded nine "sets", four of them categorised UNKNOWN, and
+ * not one carrying a weight. Writing that into ExerciseLog would put noise into
+ * the training-max evaluation, which is the one place a wrong number does real
+ * damage. Duration, HR and calories are trustworthy and are all we take.
+ *
+ * The sets come later, from the athlete, via /confirm.
+ */
+export async function buildStrengthImport(
+  activityId: number,
+  source: "garmin_auto" = "garmin_auto",
+): Promise<ImportedRun> {
+  const detail = await getActivityDetail(activityId);
+  const durationActualMin = Math.max(1, Math.round(detail.durationSec / 60));
+
+  const executedSession = StrengthExecutedSessionSchema.parse({
+    type: "strength",
+    source,
+    garminActivityId: activityId,
+    startTimeLocal: detail.startTimeLocal,
+    durationActualMin,
+    exercises: [],
+    averageHr: detail.averageHr,
+    maxHr: detail.maxHr,
+    calories: detail.calories,
+  });
+
+  return { executedSession, durationActualMin, activityId: String(activityId) };
 }

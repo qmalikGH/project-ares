@@ -23,7 +23,7 @@
 import { db } from "@/lib/db/client";
 import { listActivitiesForDate } from "./activities";
 import { matchSessionToActivity } from "./match";
-import { buildRunImport } from "./run-import";
+import { buildRunImport, buildStrengthImport } from "./run-import";
 import type { SessionType } from "@/lib/coach-engine/types";
 
 export interface AutoImportEntry {
@@ -93,7 +93,14 @@ export async function autoImportSessionsForDate(
 
     const activity = match.bestMatch;
     try {
-      const run = await buildRunImport(activity.activityId, "garmin_auto");
+      // Sprint 3.1: strength is pushed too now, so an EXACT_MATCH is no longer
+      // necessarily a run. A strength activity gets a strength payload with no
+      // sets — the watch cannot report a usable load, and inventing one would
+      // feed the training-max evaluation.
+      const isStrength = workout.type.startsWith("strength");
+      const run = isStrength
+        ? await buildStrengthImport(activity.activityId)
+        : await buildRunImport(activity.activityId, "garmin_auto");
       await db.workout.update({
         where: { id: workout.id },
         data: {
