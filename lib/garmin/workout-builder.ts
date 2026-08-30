@@ -161,6 +161,9 @@ export function buildGarminWorkout(
   session: SessionPlan,
   paces: VdotPaceLookup,
 ): GarminStructuredWorkout | null {
+  // A malformed plannedSession must skip, not throw: this runs inside the
+  // nightly push loop, and one bad row should not take the whole cron with it.
+  if (typeof session?.type !== "string") return null;
   if (!isPushableSessionType(session.type)) return null;
 
   // Strength first: these carry no hrTarget, and the guard below would drop
