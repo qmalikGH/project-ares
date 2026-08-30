@@ -320,3 +320,13 @@ describe("buildGarminWorkout — strength", () => {
     expect(w.estimatedDurationInSecs).toBe(600);
   });
 });
+
+describe("buildGarminWorkout — malformed input", () => {
+  // It runs inside the nightly push loop; one bad plannedSession row must not
+  // take the whole cron down.
+  it("skips rather than throws when the session has no type", () => {
+    expect(buildGarminWorkout({} as never, PACES)).toBeNull();
+    expect(buildGarminWorkout(null as never, PACES)).toBeNull();
+    expect(buildGarminWorkout("not-a-session" as never, PACES)).toBeNull();
+  });
+});
