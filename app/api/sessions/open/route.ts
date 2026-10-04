@@ -16,17 +16,11 @@ import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { userTodayDynamic } from "@/lib/date";
 import { willLogExercise } from "@/lib/coach-engine/attest";
+import { TM_COMPOUNDS } from "@/lib/coach-engine/strength-coach/progression-mode";
+import { disciplineOf } from "@/lib/garmin/confirm-candidates";
 import type { Exercise, SessionPlan, SessionType } from "@/lib/coach-engine/types";
 
 export type OpenCohort = "planned" | "garmin_auto";
-
-const RUN_PREFIXES = ["easy_run", "threshold_run", "tempo_run", "long_run", "vo2max_intervals", "calibration_run", "time_trial_5k"];
-
-function disciplineOf(type: string): "run" | "strength" | "other" {
-  if (RUN_PREFIXES.includes(type)) return "run";
-  if (type.startsWith("strength")) return "strength";
-  return "other";
-}
 
 export async function GET(req: NextRequest) {
   const userId = await getCurrentUserId();
@@ -85,6 +79,9 @@ export async function GET(req: NextRequest) {
                 // The honesty contract: the screen shows exactly which
                 // exercises the "as prescribed" tap will actually record.
                 willLog: willLogExercise(ex),
+                // Sprint 3.2a: training-max lifts get a top-set field. Only a
+                // typed-in top set can move a TM (see buildConfirmedExercises).
+                isTm: TM_COMPOUNDS.has(ex.name),
               })),
           }
         : null;

@@ -38,7 +38,8 @@ interface TmProposal {
     | "reset_double_stall"
     | "hold_shin"
     | "stepback_shin"
-    | "initial_rebaseline";
+    | "initial_rebaseline"
+    | "rebaseline_down";
   actionable: boolean;
   dataPoints: number;
   note: string;
@@ -200,6 +201,7 @@ export default function BlockReviewClient({ phaseId }: { phaseId: string }) {
 const TM_REASON_LABELS: Record<TmProposal["reason"], string> = {
   earned: "Sauberer Zyklus → Steigerung",
   initial_rebaseline: "Re-Baseline aus echtem Satz",
+  rebaseline_down: "Re-Baseline nach unten (bewerteter Satz)",
   reset_double_stall: "2× Stall → Re-Set −10%",
   stepback_shin: "Shin-Schutz → −5%",
   hold_stall: "Stall → halten",

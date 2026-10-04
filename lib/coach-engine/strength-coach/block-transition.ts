@@ -14,6 +14,16 @@
 // TM >10% above the stored value (the too-low starting TMs), propose snapping
 // to that earned estimate instead of a small increment.
 //
+// Sprint 3.2a — the mirror image: a RATED heavy set (RPE ≥ 7) implying a TM
+// >10% BELOW the stored value proposes a re-baseline down. Before this, a TM
+// could only fall after two stalled cycles in a row, and /confirm could not
+// produce a stall at all — so after a layoff the stored TMs could only rise.
+//
+// Sprint 3.2a also tightens what "clean" means. A set without an RPE is no
+// longer evidence (the "as prescribed" tap writes exactly that, so a tap was
+// enough to earn an increment), and a set lifted at a reduced load — comeback
+// ramp ×0.75/0.85 — says nothing about the TM it was derived from.
+//
 // All proposals are PROPOSED — never auto-applied. The W4 review page lets Q
 // confirm/reject each one; confirmation runs through POST /api/coach/tm-confirm.
 //
@@ -31,7 +41,8 @@ export type TmProposalReason =
   | "reset_double_stall"
   | "hold_shin"
   | "stepback_shin"
-  | "initial_rebaseline";
+  | "initial_rebaseline"
+  | "rebaseline_down";
 
 export interface TmProposal {
   exerciseName: string;
@@ -60,6 +71,13 @@ export interface CompletionTarget {
   reps: number;
   /** RPE ceiling — a set at/under this counts as clean. */
   rpeCeil: number;
+  /**
+   * Sprint 3.2a: the load a clean top set has to reach — 95% of the block's
+   * regular working load for this lift. A set lifted during the comeback ramp
+   * (×0.75/0.85) meets the reps at a low RPE by construction and says nothing
+   * about the TM. Omitted when no TM is stored yet.
+   */
+  minLoadKg?: number;
 }
 
 export interface LoggedSet {
@@ -70,10 +88,16 @@ export interface LoggedSet {
 
 /**
  * Did the athlete complete the cycle cleanly for this exercise?
- *   - null  → no usable data (skip; no proposal)
- *   - true  → the heaviest working set met the prescribed reps at/under the RPE
- *             ceiling (RPE missing but reps met also counts as clean)
- *   - false → stall (top set missed reps, or was over the RPE ceiling)
+ *   - null  → no usable evidence (skip; no proposal): no RATED set at all, or
+ *             the rated top set met reps and RPE but below `minLoadKg`
+ *   - true  → the heaviest rated set reached `minLoadKg`, met the prescribed
+ *             reps and stayed at/under the RPE ceiling
+ *   - false → stall (rated top set missed reps, or was over the RPE ceiling)
+ *
+ * Sprint 3.2a: a set without an RPE is not evidence. It used to count as
+ * clean whenever the reps were met — and the /confirm "as prescribed" tap
+ * writes exactly that: the prescribed weight and reps with `rpe: null`. One
+ * tap was enough to earn an increment, and nothing could ever stall.
  *
  * Pure.
  */
@@ -81,14 +105,18 @@ export function evaluateCycleClean(
   sets: LoggedSet[],
   target: CompletionTarget,
 ): boolean | null {
-  if (sets.length === 0) return null;
+  const rated = sets.filter((s) => s.rpe != null);
+  if (rated.length === 0) return null;
   // The top working set = heaviest; tie-break on most reps.
-  const top = [...sets].sort(
+  const top = [...rated].sort(
     (a, b) => b.weightKg - a.weightKg || b.repsCompleted - a.repsCompleted,
   )[0];
   const repsOk = top.repsCompleted >= target.reps;
-  const rpeOk = top.rpe == null || top.rpe <= target.rpeCeil;
-  return repsOk && rpeOk;
+  const rpeOk = (top.rpe as number) <= target.rpeCeil;
+  if (!repsOk || !rpeOk) return false;
+  // Met reps and RPE — but at a reduced load that is no evidence either way.
+  if (target.minLoadKg != null && top.weightKg < target.minLoadKg) return null;
+  return true;
 }
 
 /**
@@ -96,9 +124,10 @@ export function evaluateCycleClean(
  * reads happen in the caller.
  *
  * Precedence:
- *   1. HSR shin gate (HSR lifts only): >5 → step back; 4–5 → hold.
- *   2. Initial re-baseline: bestEstimate >10% above currentTm → snap up.
- *   3. Clean → +increment.  Stall → hold, or −10% on a 2nd consecutive stall.
+ *   1. Initial re-baseline: bestEstimate >10% above currentTm → snap up.
+ *   2. Re-baseline down: bestRatedEstimate >10% below currentTm → snap down.
+ *   3. HSR shin gate (HSR lifts only): >5 → step back; 4–5 → hold.
+ *   4. Clean → +increment.  Stall → hold, or −10% on a 2nd consecutive stall.
  */
 export function decideTmProposal(params: {
   exerciseName: string;
@@ -109,6 +138,12 @@ export function decideTmProposal(params: {
   shinNrs: number | null;
   /** Best 1RM/TM implied by the best real logged set (for initial re-baseline). */
   bestEstimate: number | null;
+  /**
+   * Sprint 3.2a: best 1RM implied by a set rated RPE ≥ 7 — the only sets whose
+   * RIR-adjusted estimate is trustworthy enough to LOWER a TM. Easy sets (RPE 5,
+   * like the comeback-week RDL 60×10) leave too much in reserve to estimate from.
+   */
+  bestRatedEstimate?: number | null;
   dataPoints: number;
 }): TmProposal | null {
   const {
@@ -119,6 +154,7 @@ export function decideTmProposal(params: {
     prevCycleStalled,
     shinNrs,
     bestEstimate,
+    bestRatedEstimate = null,
     dataPoints,
   } = params;
 
@@ -174,6 +210,22 @@ export function decideTmProposal(params: {
     }
   }
 
+  // 1b. Sprint 3.2a — re-baseline DOWN: a rated heavy set says the stored TM is
+  // >10% above what the athlete can currently lift (after a layoff, or after
+  // losing weight). Also a data correction, so it fires before the shin gate;
+  // lowering the anchor is never the unsafe direction.
+  if (bestRatedEstimate && bestRatedEstimate > 0 && bestRatedEstimate < currentTm * 0.9) {
+    const proposedTm = snap2p5(bestRatedEstimate);
+    if (proposedTm < currentTm) {
+      const pct = Math.round((1 - bestRatedEstimate / currentTm) * 100);
+      return mk(
+        proposedTm,
+        "rebaseline_down",
+        `Bester bewerteter Satz impliziert ${Math.round(bestRatedEstimate)} kg (−${pct}%) → Re-Baseline ${proposedTm} kg.`,
+      );
+    }
+  }
+
   // 2. HSR shin gate — overrides normal (earned/stall) progression.
   if (isHsr && shinNrs != null) {
     if (shinNrs > 5) {
@@ -212,12 +264,13 @@ export function decideTmProposal(params: {
 
 // ── DB aggregate ──────────────────────────────────────────────────────────
 
-/** Pull the prescribed reps + RPE ceiling for a TM compound from a block's templates. */
+/** Pull the prescribed reps + RPE ceiling (+ base load %TM) for a TM compound
+ *  from a block's templates. */
 function targetFor(
   blockNumber: BlockNumber,
   exerciseName: string,
   fallbackRpeCeil: number,
-): CompletionTarget | null {
+): (CompletionTarget & { loadPct: number }) | null {
   const slots = ["strength_a", "strength_b", "strength_c"] as const;
   let best: { reps: number; rpeCeil: number; loadPct: number } | null = null;
   for (const slot of slots) {
@@ -233,7 +286,28 @@ function targetFor(
       }
     }
   }
-  return best ? { reps: best.reps, rpeCeil: best.rpeCeil } : null;
+  return best ? { reps: best.reps, rpeCeil: best.rpeCeil, loadPct: best.loadPct } : null;
+}
+
+/** Below this share of the block's regular working load a clean set is not
+ *  evidence (Sprint 3.2a). 0.95 lets comeback-ramp week 3 (×0.95) count and
+ *  keeps weeks 1–2 (×0.75 / ×0.85) out. */
+const MIN_CLEAN_LOAD_SHARE = 0.95;
+
+/** A rated set needs at least this RPE before its RIR-adjusted 1RM estimate
+ *  may LOWER a TM (Sprint 3.2a). */
+const MIN_RPE_FOR_DOWNWARD_ESTIMATE = 7;
+
+/**
+ * Best 1RM estimate from sets heavy enough to lower a TM on (RPE ≥ 7), or null.
+ * An RPE-5 set leaves ~5 reps in reserve — the comeback-week RDL 60×10 @5 would
+ * otherwise "prove" a TM of 90 against a stored 115. Pure.
+ */
+export function bestRatedEstimate(
+  sets: ReadonlyArray<{ rpe: number | null; estimatedOneRM: number }>,
+): number | null {
+  const heavy = sets.filter((s) => s.rpe != null && s.rpe >= MIN_RPE_FOR_DOWNWARD_ESTIMATE);
+  return heavy.length > 0 ? Math.max(...heavy.map((s) => s.estimatedOneRM)) : null;
 }
 
 /** Worst recent shin NRS across completed sessions (run + strength), or null. */
@@ -277,7 +351,17 @@ export async function buildTrainingMaxProposals(
 
   for (const exerciseName of TM_COMPOUNDS) {
     const currentTm = currentMaxEstimates[exerciseName] ?? 0;
-    const target = targetFor(ctx.blockNumber, exerciseName, ctx.baselineRpeCap);
+    const template = targetFor(ctx.blockNumber, exerciseName, ctx.baselineRpeCap);
+    const target: CompletionTarget | null = template
+      ? {
+          reps: template.reps,
+          rpeCeil: template.rpeCeil,
+          minLoadKg:
+            currentTm > 0 && template.loadPct > 0
+              ? (currentTm * template.loadPct * MIN_CLEAN_LOAD_SHARE) / 100
+              : undefined,
+        }
+      : null;
 
     // This-cycle working sets (non-deload), via the snapshot slot column.
     const thisSets = await db.exerciseLog.findMany({
@@ -330,6 +414,7 @@ export async function buildTrainingMaxProposals(
       prevCycleStalled,
       shinNrs,
       bestEstimate,
+      bestRatedEstimate: bestRatedEstimate(thisSets),
       dataPoints: thisSets.length,
     });
     if (proposal) proposals.push(proposal);

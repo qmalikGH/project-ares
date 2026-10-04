@@ -419,12 +419,22 @@ export const RunExecutedSessionSchema = z.object({
    * session — but nobody attested to it, so it carries no RPE and no shin
    * score. Consumers that treat a completed session as evidence of wellbeing
    * must check for the attesting fields, not for the status.
+   *
+   * Sprint 3.2a: "attested" marks a run confirmed in /confirm that no watch
+   * recorded. Until then it was written as "manual" — indistinguishable from a
+   * hand-logged run with a real duration — while carrying the PLANNED duration.
    */
-  source: z.enum(["garmin_import", "garmin_auto", "manual"]),
+  source: z.enum(["garmin_import", "garmin_auto", "manual", "attested"]),
   garminActivityId: z.number().nullable(),
 
   startTimeLocal: z.string(),
   durationSec: z.number(),
+  /**
+   * Sprint 3.2a: true when `durationSec` is the planned duration standing in for
+   * an unknown one. The Workout.durationActualMin column stays null in that
+   * case; only the load estimate in getRecentDailyLoads reads the plan.
+   */
+  durationEstimated: z.boolean().optional(),
   distanceM: z.number().nullable(),
   averagePaceSecPerKm: z.number().nullable(),
   averageHr: z.number().nullable(),
@@ -493,12 +503,19 @@ export const StrengthExecutedSessionSchema = z.object({
    * workout id and the session completes itself — with duration, HR and
    * calories from Garmin but `exercises: []`, because the watch cannot report
    * a usable load. The sets arrive later through /confirm.
+   *
+   * Sprint 3.2a: "garmin_import" — a Garmin strength activity the athlete
+   * picked in /confirm (the strength twin of the run picker). "attested" — a
+   * session confirmed in /confirm without any watch data.
    */
-  source: z.enum(["manual", "garmin_auto"]),
+  source: z.enum(["manual", "garmin_auto", "garmin_import", "attested"]),
   garminActivityId: z.number().nullable(),
 
   startTimeLocal: z.string(),
   durationActualMin: z.number(),
+  /** Sprint 3.2a: true when `durationActualMin` is the planned duration standing
+   *  in for an unknown one (see the run schema). */
+  durationEstimated: z.boolean().optional(),
 
   exercises: z.array(StrengthExecutedExerciseSchema),
 
