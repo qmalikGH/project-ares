@@ -4,9 +4,11 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import {
   buildAttestedRunSession,
   buildAttestedStrengthSession,
+  buildConfirmedExercises,
   materialisePrescribedSets,
   mergeShinIntoExecuted,
   sessionTimestampFor,
+  topSetLiftsFor,
   willLogExercise,
 } from "@/lib/coach-engine/attest";
 import { buildExerciseLogRows } from "@/lib/db/queries/exercise-log-write";
@@ -128,7 +130,9 @@ describe("built sessions survive the schema", () => {
     }
   });
 
-  it("strength payload parses and is stamped manual", () => {
+  // Sprint 3.2a — was "manual", which made a confirmation without any watch
+  // data indistinguishable from a hand-logged session with real numbers.
+  it("strength payload parses and is stamped attested", () => {
     const p = StrengthExecutedSessionSchema.safeParse(
       buildAttestedStrengthSession({
         workoutDate: WORKOUT_DATE, durationActualMin: 60,
@@ -137,7 +141,116 @@ describe("built sessions survive the schema", () => {
       }),
     );
     expect(p.success).toBe(true);
-    if (p.success) expect(p.data.source).toBe("manual");
+    if (p.success) {
+      expect(p.data.source).toBe("attested");
+      expect(p.data.durationEstimated).toBeUndefined();
+    }
+  });
+});
+
+describe("Sprint 3.2a — the plan is never passed off as a measurement", () => {
+  it("run without a typed-in duration: plan stands in, flagged, and survives zod", () => {
+    // 31.08.: the plan's 30 min were stored as measured for a 13-minute run.
+    const p = RunExecutedSessionSchema.safeParse(
+      buildAttestedRunSession({
+        workoutDate: WORKOUT_DATE, durationActualMin: null, plannedDurationMin: 30, shinPainNrs: 0,
+      }),
+    );
+    expect(p.success).toBe(true);
+    if (p.success) {
+      expect(p.data.source).toBe("attested");
+      expect(p.data.durationSec).toBe(1800);
+      // The flag must survive a parse — zod strips unknown keys.
+      expect(p.data.durationEstimated).toBe(true);
+    }
+  });
+
+  it("run with a typed-in duration is not flagged", () => {
+    const run = buildAttestedRunSession({
+      workoutDate: WORKOUT_DATE, durationActualMin: 13, plannedDurationMin: 30, shinPainNrs: 0,
+    });
+    expect(run.durationSec).toBe(780);
+    expect(run).not.toHaveProperty("durationEstimated");
+  });
+
+  it("strength without a typed-in duration is flagged", () => {
+    const p = StrengthExecutedSessionSchema.safeParse(
+      buildAttestedStrengthSession({
+        workoutDate: WORKOUT_DATE, durationActualMin: null, plannedDurationMin: 59,
+        exercises: [], shinPainNrs: 0,
+      }),
+    );
+    expect(p.success).toBe(true);
+    if (p.success) {
+      expect(p.data.durationActualMin).toBe(59);
+      expect(p.data.durationEstimated).toBe(true);
+    }
+  });
+});
+
+describe("Sprint 3.2a — top sets", () => {
+  const plan = {
+    type: "strength_a",
+    exercises: [
+      ex({ name: "Warmup Goblet Squat", isWarmup: true }),
+      ex({ name: "Hex Bar Deadlift", sets: 3, reps: 5, loadAbs: 87.5 }),
+      ex({ name: "Incline DB Press", sets: 2, reps: 8, loadAbs: 17.5 }),
+      ex({ name: "Face Pulls", sets: 2, reps: 15, loadPct: undefined, loadAbs: undefined }),
+      ex({ name: "Bulgarian Split Squat", sets: 2, reps: "8/leg", loadAbs: undefined }),
+    ],
+  } as unknown as SessionPlan;
+
+  it("offers a top-set field only for training-max lifts the plan contains", () => {
+    expect(topSetLiftsFor(plan)).toEqual(["Hex Bar Deadlift", "Incline DB Press"]);
+  });
+
+  it("a top set becomes ONE set carrying the session RPE", () => {
+    const { exercises, rejected } = buildConfirmedExercises({
+      plannedSession: plan,
+      topSets: [{ exercise: "Hex Bar Deadlift", weightKg: 100, reps: 5 }],
+      asPrescribed: false,
+      sessionRpe: 8,
+    });
+    expect(rejected).toEqual([]);
+    expect(exercises).toHaveLength(1);
+    expect(exercises[0].actualSets).toEqual([{ reps: 5, loadKg: 100, rpe: 8, durationSec: null }]);
+  });
+
+  it("as-prescribed fills in the rest but never doubles a lift with a top set", () => {
+    const { exercises } = buildConfirmedExercises({
+      plannedSession: plan,
+      topSets: [{ exercise: "Hex Bar Deadlift", weightKg: 100, reps: 5 }],
+      asPrescribed: true,
+      sessionRpe: 8,
+    });
+    const hex = exercises.filter((e) => e.name === "Hex Bar Deadlift");
+    expect(hex).toHaveLength(1);
+    expect(hex[0].actualSets).toHaveLength(1);
+    const incline = exercises.find((e) => e.name === "Incline DB Press")!;
+    expect(incline.actualSets.every((s) => s.rpe === null)).toBe(true);
+  });
+
+  it("rejects top sets for accessories, unknown lifts and duplicates", () => {
+    const { exercises, rejected } = buildConfirmedExercises({
+      plannedSession: plan,
+      topSets: [
+        { exercise: "Face Pulls", weightKg: 25, reps: 15 },
+        { exercise: "Bench Press", weightKg: 80, reps: 5 },
+        { exercise: "Incline DB Press", weightKg: 20, reps: 8 },
+        { exercise: "Incline DB Press", weightKg: 22, reps: 8 },
+      ],
+      asPrescribed: false,
+      sessionRpe: 7,
+    });
+    expect(rejected).toEqual(["Face Pulls", "Bench Press", "Incline DB Press"]);
+    expect(exercises.map((e) => e.name)).toEqual(["Incline DB Press"]);
+  });
+
+  it("nothing entered and no claim → no sets", () => {
+    const { exercises } = buildConfirmedExercises({
+      plannedSession: plan, topSets: [], asPrescribed: false, sessionRpe: 7,
+    });
+    expect(exercises).toEqual([]);
   });
 });
 

@@ -17,6 +17,19 @@
 //           zod strips unknowns on every re-parse, so it would vanish silently.
 //   shin  -> inside executedSession, merged into the raw JSON without a parse
 //           round-trip, so nothing the importer stores gets dropped.
+//
+// SPRINT 3.2a — ACTUAL, NOT PLAN
+//   duration -> Workout.durationActualMin ONLY when it was measured (a Garmin
+//           activity the athlete picked) or typed in. Otherwise the column stays
+//           null and the executedSession carries the plan as `durationEstimated`;
+//           getRecentDailyLoads is the one place that turns that into a load.
+//           Until now the plan was stored as measured (31.08.: 30 min for a
+//           13-minute run).
+//   garminActivityId -> an ad-hoc recording the athlete recognised as this
+//           session. Imported exactly like the completion wizard does it.
+//   topSets -> one rated set per training-max lift. The only /confirm input
+//           that can move a TM; "as prescribed" now only records volume.
+//           Also for garmin_auto strength, which used to get no sets at all.
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -26,9 +39,10 @@ import { getCurrentUserId } from "@/lib/auth/current-user";
 import {
   buildAttestedRunSession,
   buildAttestedStrengthSession,
-  materialisePrescribedSets,
+  buildConfirmedExercises,
   mergeShinIntoExecuted,
 } from "@/lib/coach-engine/attest";
+import { buildRunImport, buildStrengthImport, type ImportedRun } from "@/lib/garmin/run-import";
 import {
   buildExerciseLogRows,
   replaceExerciseLogsForWorkout,
@@ -49,6 +63,18 @@ const ItemSchema = z
     asPrescribed: z.boolean().optional(),
     durationActualMin: z.number().int().min(1).max(600).optional(),
     notes: z.string().max(2000).optional(),
+    // Sprint 3.2a
+    garminActivityId: z.number().int().positive().optional(),
+    topSets: z
+      .array(
+        z.object({
+          exercise: z.string().min(1).max(80),
+          weightKg: z.number().min(0.5).max(500),
+          reps: z.number().int().min(1).max(50),
+        }),
+      )
+      .max(10)
+      .optional(),
   })
   .superRefine((v, ctx) => {
     if (v.action !== "attest") return;
@@ -74,6 +100,7 @@ type Outcome =
   | "not_eligible"
   | "not_skippable"
   | "not_found"
+  | "activity_taken"
   | "error";
 
 export async function POST(req: Request) {
@@ -95,10 +122,17 @@ export async function POST(req: Request) {
     cohort?: "planned" | "garmin_auto";
     exerciseLogRows?: number;
     dailyLoadAu?: number | null;
+    /** Sprint 3.2a: the load rests on the planned duration, not a measured one. */
+    loadEstimated?: boolean;
+    /** Sprint 3.2a: top sets refused (not a training-max lift of this session). */
+    rejectedTopSets?: string[];
     error?: string;
   }> = [];
 
   let changed = 0;
+  // Sprint 3.2a: a Garmin activity may back exactly one session — also within
+  // one batch, where the same ad-hoc run is offered for Monday and Tuesday.
+  const activitiesUsedInBatch = new Set<string>();
 
   for (const item of parsed.data.items) {
     try {
@@ -157,16 +191,52 @@ export async function POST(req: Request) {
       const planned = (workout.plannedSession ?? null) as SessionPlan | null;
       const shin = item.shinPainNrs as number;
       const rpe = item.rpe as number;
-
-      // Cohort (a) rows carry no duration, and getRecentDailyLoads needs BOTH
-      // rpe and durationActualMin — without this the sRPE load stays invisible
-      // for exactly the sessions this screen exists to capture.
-      const duration =
-        item.durationActualMin ?? workout.durationActualMin ?? planned?.durationMin ?? null;
-
       const isStrength = workout.type.startsWith("strength");
-      let exerciseLogRows = 0;
 
+      // Sprint 3.2a — a Garmin activity the athlete recognised as this session.
+      // Only for planned rows: a garmin_auto row already has its recording.
+      let imported: ImportedRun | null = null;
+      if (item.garminActivityId !== undefined) {
+        if (cohort !== "planned") {
+          results.push({ workoutId: item.workoutId, outcome: "not_eligible", cohort });
+          continue;
+        }
+        const activityId = String(item.garminActivityId);
+        const owner = activitiesUsedInBatch.has(activityId)
+          ? { id: "batch" }
+          : await db.workout.findFirst({
+              where: { userId, garminActivityId: activityId, NOT: { id: workout.id } },
+              select: { id: true },
+            });
+        if (owner) {
+          results.push({ workoutId: item.workoutId, outcome: "activity_taken", cohort });
+          continue;
+        }
+        // Throws on any Garmin failure → outcome "error". Deliberately no
+        // fallback to the plan: the athlete asked for the recording.
+        imported = isStrength
+          ? await buildStrengthImport(item.garminActivityId, "garmin_import")
+          : await buildRunImport(item.garminActivityId, "garmin_import");
+        activitiesUsedInBatch.add(activityId);
+      }
+
+      // Measured or typed in — nothing else is an actual duration.
+      const realDuration =
+        imported?.durationActualMin ?? item.durationActualMin ?? workout.durationActualMin ?? null;
+      // What the load estimate in getRecentDailyLoads will fall back to.
+      const loadMinutes = realDuration ?? planned?.durationMin ?? null;
+
+      // Strength: rated top sets + the optional as-prescribed rest (both cohorts).
+      const confirmed = isStrength
+        ? buildConfirmedExercises({
+            plannedSession: planned,
+            topSets: item.topSets ?? [],
+            asPrescribed: item.asPrescribed === true,
+            sessionRpe: rpe,
+          })
+        : { exercises: [], rejected: [] as string[] };
+
+      let exerciseLogRows = 0;
       const data: Record<string, unknown> = { rpe, updatedAt: new Date() };
       if (item.notes !== undefined) data.notes = item.notes;
 
@@ -174,25 +244,38 @@ export async function POST(req: Request) {
         // Merge only. `status` and `garminActivityId` are deliberately absent
         // from the update payload so the imported session cannot be disturbed.
         const merged = mergeShinIntoExecuted(exec, shin, item.shinPainNote);
+        if (merged && isStrength && confirmed.exercises.length > 0) {
+          merged.exercises = confirmed.exercises;
+        }
         if (merged) data.executedSession = merged;
-        if (duration != null && workout.durationActualMin == null) data.durationActualMin = duration;
-      } else if (isStrength) {
-        const exercises = item.asPrescribed ? materialisePrescribedSets(planned) : [];
+        if (realDuration != null && workout.durationActualMin == null) {
+          data.durationActualMin = realDuration;
+        }
+      } else if (imported) {
+        const merged = mergeShinIntoExecuted(imported.executedSession, shin, item.shinPainNote);
+        if (merged && isStrength) merged.exercises = confirmed.exercises;
         data.status = "completed";
-        data.durationActualMin = duration;
+        data.executedSession = merged;
+        data.durationActualMin = imported.durationActualMin;
+        data.garminActivityId = imported.activityId;
+      } else if (isStrength) {
+        data.status = "completed";
+        if (realDuration != null) data.durationActualMin = realDuration;
         data.executedSession = buildAttestedStrengthSession({
           workoutDate: workout.date,
-          durationActualMin: duration,
-          exercises,
+          durationActualMin: realDuration,
+          plannedDurationMin: planned?.durationMin ?? null,
+          exercises: confirmed.exercises,
           shinPainNrs: shin,
           shinPainNote: item.shinPainNote,
         });
       } else {
         data.status = "completed";
-        data.durationActualMin = duration;
+        if (realDuration != null) data.durationActualMin = realDuration;
         data.executedSession = buildAttestedRunSession({
           workoutDate: workout.date,
-          durationActualMin: duration,
+          durationActualMin: realDuration,
+          plannedDurationMin: planned?.durationMin ?? null,
           shinPainNrs: shin,
           shinPainNote: item.shinPainNote,
         });
@@ -202,7 +285,8 @@ export async function POST(req: Request) {
 
       // ExerciseLog is rewritten, not appended, so a second confirmation — or a
       // correction that un-claims the session — leaves the right rows behind.
-      if (isStrength && cohort === "planned") {
+      // Sprint 3.2a: for garmin_auto strength too — it used to get no rows.
+      if (isStrength) {
         const { weekInBlock, isDeload } = await resolveWeekInBlockSnapshot(userId, workout.date);
         const rows = buildExerciseLogRows({
           userId,
@@ -211,7 +295,7 @@ export async function POST(req: Request) {
           date: workout.date,
           weekInBlock,
           isDeload,
-          exercises: item.asPrescribed ? materialisePrescribedSets(planned) : [],
+          exercises: confirmed.exercises,
         });
         await replaceExerciseLogsForWorkout(userId, workout.id, rows);
         exerciseLogRows = rows.length;
@@ -220,10 +304,12 @@ export async function POST(req: Request) {
       changed++;
       results.push({
         workoutId: item.workoutId,
-        outcome: duration == null ? "attested_no_load" : "attested",
+        outcome: loadMinutes == null ? "attested_no_load" : "attested",
         cohort,
         exerciseLogRows,
-        dailyLoadAu: duration != null ? rpe * duration : null,
+        dailyLoadAu: loadMinutes != null ? rpe * loadMinutes : null,
+        loadEstimated: realDuration == null && loadMinutes != null,
+        ...(confirmed.rejected.length > 0 ? { rejectedTopSets: confirmed.rejected } : {}),
       });
     } catch (e) {
       results.push({
@@ -262,7 +348,7 @@ export async function POST(req: Request) {
     attested: results.filter((r) => r.outcome === "attested" || r.outcome === "attested_no_load").length,
     skipped: results.filter((r) => r.outcome === "skipped").length,
     failed: results.filter((r) =>
-      ["not_found", "not_eligible", "not_skippable", "error"].includes(r.outcome),
+      ["not_found", "not_eligible", "not_skippable", "activity_taken", "error"].includes(r.outcome),
     ).length,
     results,
     regenerate,

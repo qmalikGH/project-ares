@@ -86,7 +86,8 @@ export async function buildRunImport(
  */
 export async function buildStrengthImport(
   activityId: number,
-  source: "garmin_auto" = "garmin_auto",
+  // Sprint 3.2a: "garmin_import" when the athlete picked the activity in /confirm.
+  source: "garmin_auto" | "garmin_import" = "garmin_auto",
 ): Promise<ImportedRun> {
   const detail = await getActivityDetail(activityId);
   const durationActualMin = Math.max(1, Math.round(detail.durationSec / 60));

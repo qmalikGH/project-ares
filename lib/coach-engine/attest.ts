@@ -11,7 +11,15 @@
 //     ran as written
 //
 // No db, no next/*.
+//
+// Sprint 3.2a — nothing here may pass the plan off as a measurement any more.
+// A confirmed session without watch data is `source: "attested"`, and a
+// duration nobody measured or typed in is carried as `durationEstimated: true`.
+// For strength, the athlete enters the top set of each training-max lift; the
+// "as prescribed" claim only fills in the rest and never reaches the TM review
+// (its sets carry no RPE, see evaluateCycleClean).
 
+import { TM_COMPOUNDS } from "./strength-coach/progression-mode";
 import type { Exercise, SessionPlan, StrengthExecutedSession } from "./types";
 
 /** Noon UTC on the workout's own day — never `new Date()`. A backdated
@@ -48,19 +56,27 @@ export function mergeShinIntoExecuted(
  * in particular it carries the `type` discriminant, unlike the untyped blob the
  * completion route falls back to, which every safeParse consumer silently drops
  * (and with it the shin score it was carrying).
+ *
+ * Sprint 3.2a: `durationActualMin` is ONLY a duration the athlete typed in.
+ * Without one, the planned duration stands in and is flagged as an estimate —
+ * on 31.08. the plan's 30 min were stored as measured for a 13-minute run.
  */
 export function buildAttestedRunSession(input: {
   workoutDate: Date;
   durationActualMin: number | null;
+  plannedDurationMin?: number | null;
   shinPainNrs: number;
   shinPainNote?: string;
 }): Record<string, unknown> {
+  const estimated = input.durationActualMin == null;
+  const minutes = input.durationActualMin ?? input.plannedDurationMin ?? 0;
   return {
     type: "run",
-    source: "manual",
+    source: "attested",
     garminActivityId: null,
     startTimeLocal: sessionTimestampFor(input.workoutDate),
-    durationSec: (input.durationActualMin ?? 0) * 60,
+    durationSec: minutes * 60,
+    ...(estimated ? { durationEstimated: true } : {}),
     distanceM: null,
     averagePaceSecPerKm: null,
     averageHr: null,
@@ -131,21 +147,24 @@ export function materialisePrescribedSets(
     });
 }
 
-/** A strength executedSession for a confirmed session. `source` is a literal
- *  "manual" in the schema — there is no garmin variant for strength. */
+/** A strength executedSession for a session confirmed without watch data.
+ *  Same duration rule as the run: only a typed-in duration is a measurement. */
 export function buildAttestedStrengthSession(input: {
   workoutDate: Date;
   durationActualMin: number | null;
+  plannedDurationMin?: number | null;
   exercises: StrengthExecutedSession["exercises"];
   shinPainNrs: number;
   shinPainNote?: string;
 }): Record<string, unknown> {
+  const estimated = input.durationActualMin == null;
   return {
     type: "strength",
-    source: "manual",
+    source: "attested",
     garminActivityId: null,
     startTimeLocal: sessionTimestampFor(input.workoutDate),
-    durationActualMin: input.durationActualMin ?? 0,
+    durationActualMin: input.durationActualMin ?? input.plannedDurationMin ?? 0,
+    ...(estimated ? { durationEstimated: true } : {}),
     exercises: input.exercises,
     averageHr: null,
     maxHr: null,
@@ -153,4 +172,79 @@ export function buildAttestedStrengthSession(input: {
     shinPainNrs: input.shinPainNrs,
     ...(input.shinPainNote !== undefined ? { shinPainNote: input.shinPainNote } : {}),
   };
+}
+
+// ── Sprint 3.2a: top sets ────────────────────────────────────────────────
+
+/** The heaviest set of one training-max lift, as typed in /confirm. */
+export interface TopSetInput {
+  exercise: string;
+  weightKg: number;
+  reps: number;
+}
+
+/**
+ * The lifts in this session whose top set the athlete may enter: training-max
+ * compounds the plan actually contains. Accessories carry no usable 1RM signal
+ * and never reach the TM review, so asking for them would be work for nothing.
+ */
+export function topSetLiftsFor(plannedSession: SessionPlan | null | undefined): string[] {
+  return (plannedSession?.exercises ?? [])
+    .filter((ex) => !ex.isWarmup && TM_COMPOUNDS.has(ex.name))
+    .map((ex) => ex.name);
+}
+
+/**
+ * Executed exercises for a confirmed strength session.
+ *
+ *   - Each accepted top set becomes ONE set that carries the session RPE. The
+ *     heaviest set is what a strength session's RPE is mostly about — a proxy,
+ *     but one that can say "too hard" or "too light", which the as-prescribed
+ *     claim never could. It is the only path by which /confirm data can move a
+ *     training max, in either direction.
+ *   - `asPrescribed` fills in the remaining loggable exercises, rpe null, so
+ *     volume is recorded without pretending to be evidence.
+ *   - A lift with a top set is never materialised a second time.
+ *   - Top sets for anything outside topSetLiftsFor are returned as rejected.
+ *
+ * Pure.
+ */
+export function buildConfirmedExercises(input: {
+  plannedSession: SessionPlan | null | undefined;
+  topSets: readonly TopSetInput[];
+  asPrescribed: boolean;
+  sessionRpe: number;
+}): { exercises: StrengthExecutedSession["exercises"]; rejected: string[] } {
+  const allowed = new Set(topSetLiftsFor(input.plannedSession));
+  const planned = new Map(
+    (input.plannedSession?.exercises ?? [])
+      .filter((ex) => !ex.isWarmup)
+      .map((ex) => [ex.name, ex] as const),
+  );
+
+  const rejected: string[] = [];
+  const top: StrengthExecutedSession["exercises"] = [];
+  const seen = new Set<string>();
+  for (const t of input.topSets) {
+    if (!allowed.has(t.exercise) || seen.has(t.exercise)) {
+      rejected.push(t.exercise);
+      continue;
+    }
+    seen.add(t.exercise);
+    const ex = planned.get(t.exercise) as Exercise;
+    top.push({
+      name: t.exercise,
+      plannedSets: ex.sets,
+      plannedReps: ex.reps,
+      plannedLoadPct: ex.loadPct ?? null,
+      actualSets: [{ reps: t.reps, loadKg: t.weightKg, rpe: input.sessionRpe, durationSec: null }],
+      skipped: false,
+    });
+  }
+
+  const rest = input.asPrescribed
+    ? materialisePrescribedSets(input.plannedSession).filter((ex) => !seen.has(ex.name))
+    : [];
+
+  return { exercises: [...top, ...rest], rejected };
 }

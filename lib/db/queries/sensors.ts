@@ -95,6 +95,13 @@ export function rowsToKneeLogs(rows: Awaited<ReturnType<typeof getRecentSensorDa
 /**
  * Recent daily loads (sRPE × duration) for ACWR.
  * Sourced from completed workouts in the last `days`.
+ *
+ * Sprint 3.2a: this is the ONE place a planned duration may stand in for an
+ * actual one. A session confirmed in /confirm without watch data or typed-in
+ * minutes keeps `durationActualMin` null — it is not a measurement, and the
+ * block review, history and coaching export must not read it as one. ACWR
+ * still needs a load for it, or exactly the sessions /confirm exists to
+ * capture would vanish from the acute window. So the estimate lives here.
  */
 export async function getRecentDailyLoads(userId: string, days: number) {
   const cutoff = dayKey(new Date());
@@ -105,11 +112,29 @@ export async function getRecentDailyLoads(userId: string, days: number) {
       status: "completed",
       date: { gte: cutoff },
       rpe: { not: null },
-      durationActualMin: { not: null },
     },
-    select: { date: true, rpe: true, durationActualMin: true },
+    select: { date: true, rpe: true, durationActualMin: true, plannedSession: true },
   });
-  return workouts
-    .filter((w) => w.rpe != null && w.durationActualMin != null)
-    .map((w) => ({ date: w.date, load: (w.rpe as number) * (w.durationActualMin as number) }));
+  return dailyLoadsFrom(workouts);
+}
+
+/** Pure core of getRecentDailyLoads — measured duration first, plan as the
+ *  documented fallback, rows with neither dropped. */
+export function dailyLoadsFrom(
+  workouts: ReadonlyArray<{
+    date: Date;
+    rpe: number | null;
+    durationActualMin: number | null;
+    plannedSession: unknown;
+  }>,
+): { date: Date; load: number }[] {
+  const out: { date: Date; load: number }[] = [];
+  for (const w of workouts) {
+    if (w.rpe == null) continue;
+    const planned = (w.plannedSession as { durationMin?: number } | null)?.durationMin;
+    const minutes = w.durationActualMin ?? (typeof planned === "number" ? planned : null);
+    if (minutes == null) continue;
+    out.push({ date: w.date, load: w.rpe * minutes });
+  }
+  return out;
 }

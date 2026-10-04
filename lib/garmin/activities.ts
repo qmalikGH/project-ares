@@ -198,6 +198,29 @@ export async function listActivitiesForDate(date: Date): Promise<ActivitySummary
     );
 }
 
+/**
+ * Sprint 3.2a — every activity whose local start date lies in [from, to], in
+ * ONE Garmin call. /confirm offers candidates for a whole week of open
+ * sessions; one listActivitiesForDate per card would be one login-gated round
+ * trip each. 40 covers a week at several activities a day.
+ */
+export async function listActivitiesInRange(from: Date, to: Date): Promise<ActivitySummary[]> {
+  const client = (await getGarminClient()) as unknown as GarminAPI;
+  const raw = (await client.getActivities(0, 40)) as RawActivity[];
+  const fromKey = toUserDateString(from);
+  const toKey = toUserDateString(to);
+  return raw
+    .filter((a) => {
+      const k = (a.startTimeLocal ?? "").slice(0, 10);
+      return k >= fromKey && k <= toKey;
+    })
+    .map(toSummary)
+    .sort(
+      (a, b) =>
+        new Date(a.startTimeLocal).getTime() - new Date(b.startTimeLocal).getTime(),
+    );
+}
+
 export interface SplitDetail {
   splitNumber: number;
   distanceM: number;
