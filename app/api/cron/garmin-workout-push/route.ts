@@ -95,7 +95,7 @@ export async function GET(req: Request) {
         });
       }
 
-      // Each user can have multiple sessions per day (run AM + strength PM).
+      // Each user can have multiple sessions per day (strength + easy run).
       // Push every PLANNED session — buildGarminWorkout returns null for the
       // ones that do not belong on a watch (rest, mobility).
       // Sprint 3.1: strength IS pushed now, as a plain timed block, so the

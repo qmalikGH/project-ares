@@ -89,6 +89,7 @@ export interface PeriodizationAdjustment {
 
 /** HSR lifts that drive tendon-loading. Pain-guided overrides apply only to these. */
 const HSR_LIFTS: ReadonlySet<string> = new Set([
+  "Deadlift", // Sprint 3.3: conventional, replaces the hex bar
   "Hex Bar Deadlift",
   "Romanian Deadlift",
   "RDL",

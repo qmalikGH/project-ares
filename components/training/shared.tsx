@@ -87,7 +87,7 @@ export const SESSION_LABEL: Record<string, string> = {
   rest: "Rest",
   active_recovery: "Active Recovery",
   cross_training: "Cross-training",
-  mobility: "Mobility",
+  mobility: "Heim-Prävention",
 };
 
 export const BAND_COLORS: Record<string, string> = {

@@ -253,6 +253,9 @@ export interface WeeklyStrengthVolume {
 export interface VolumeTrends {
   weeklyRunKm: WeeklyRunVolume[];
   weeklyStrengthSets: WeeklyStrengthVolume[];
+  /** Sprint 3.3 (A4): home prevention routine per ISO week — not training,
+   *  kept out of the compliance rate. */
+  weeklyPrevention: { week: string; prevention: { done: number; planned: number } }[];
 }
 
 export interface TrainingHistorySection {

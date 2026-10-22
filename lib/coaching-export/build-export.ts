@@ -82,7 +82,7 @@ export async function safeSection<T>(fn: () => Promise<T>, fallback?: T): Promis
 const DEFAULT_TRAINING_HISTORY: TrainingHistorySection = {
   last28Days: { planned: 0, completed: 0, skipped: 0, complianceRate: 0 },
   sessions: [],
-  volumeTrends: { weeklyRunKm: [], weeklyStrengthSets: [] },
+  volumeTrends: { weeklyRunKm: [], weeklyStrengthSets: [], weeklyPrevention: [] },
 };
 
 const DEFAULT_WELLNESS: WellnessSection = { days: [], baselines: null };
@@ -329,10 +329,19 @@ async function buildTrainingHistory(userId: string, today: Date): Promise<Traini
 
   const runVolByWeek = new Map<string, { planned: number; actual: number }>();
   const strengthByWeek = new Map<string, { totalSets: number; totalTonnageKg: number }>();
+  const preventionByWeek = new Map<string, { done: number; planned: number }>();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sessions: TrainingSession[] = workouts.map((w: any) => {
-    if (w.type !== "rest") {
+    if (w.type === "mobility") {
+      // Sprint 3.3 (A4): the home routine is counted on its own, never as a
+      // training session in the compliance rate.
+      const key = isoWeekKey(w.date);
+      const entry = preventionByWeek.get(key) ?? { done: 0, planned: 0 };
+      entry.planned++;
+      if (w.status === "completed") entry.done++;
+      preventionByWeek.set(key, entry);
+    } else if (w.type !== "rest") {
       if (w.status === "completed") completedCount++;
       else if (w.status === "skipped" || w.status === "skipped_illness") skippedCount++;
       else plannedCount++;
@@ -402,7 +411,13 @@ async function buildTrainingHistory(userId: string, today: Date): Promise<Traini
       complianceRate: computeComplianceRate(completedCount, total),
     },
     sessions,
-    volumeTrends: { weeklyRunKm, weeklyStrengthSets },
+    volumeTrends: {
+      weeklyRunKm,
+      weeklyStrengthSets,
+      weeklyPrevention: Array.from(preventionByWeek.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([week, prevention]) => ({ week, prevention })),
+    },
   };
 }
 
@@ -698,7 +713,8 @@ async function buildAthlete(userId: string): Promise<AthleteSection> {
   if (currentWeight && settings?.exerciseMaxEstimates) {
     const estimates = settings.exerciseMaxEstimates as Record<string, number>;
     const targets: Record<string, number> = {
-      "Hex Bar Deadlift": 2.0,
+      // Sprint 3.3: conventional Deadlift replaced the hex bar.
+      "Deadlift": 2.0,
       "Bench Press": 1.0,
       "Squat": 1.5,
     };

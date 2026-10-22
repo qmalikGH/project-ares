@@ -170,6 +170,13 @@ export interface Exercise {
    * the UI + engine share one source of truth.
    */
   progressionMode?: "training_max" | "rep_rpe" | "none";
+  /**
+   * Sprint 3.3 (A2): back-off sets after the top sets of the same lift (the
+   * Deadlift that used to be Kraft C's hinge). Same name as the main entry, so
+   * TM and ExerciseLog stay on one lift — but name-keyed code (top-set fields,
+   * "rest as prescribed") must treat it as its own row.
+   */
+  isBackoff?: boolean;
 }
 
 export interface SessionPlan {

@@ -32,6 +32,7 @@ import { regeneratePlansFromNow } from "@/lib/db/queries/regenerate-plans";
 import { materializeWorkouts } from "@/lib/coach-engine/materialize";
 import { createNotificationIfNew } from "@/lib/notifications/create";
 import { ExecutedSessionSchema } from "@/lib/coach-engine/types";
+import { NON_TRAINING_TYPES } from "@/lib/coach-engine/prevention";
 import {
   decideVdotUpdate,
   VDOT_SOURCE_AUTO,
@@ -250,7 +251,8 @@ async function loadBrakes(
       userId,
       status: "completed",
       date: { gte: new Date(today0.getTime() - 180 * 86400000), lte: today0 },
-      NOT: { type: { in: ["rest", "active_recovery"] } },
+      // Sprint 3.3 (A4): the home prevention routine must not hide a layoff.
+      NOT: { type: { in: [...NON_TRAINING_TYPES] } },
     },
     orderBy: { date: "asc" },
     select: { date: true },
@@ -272,7 +274,12 @@ async function loadBrakes(
 
   const shinCutoff = new Date(today0.getTime() - SHIN_WINDOW_DAYS * 86400000);
   const recent = await db.workout.findMany({
-    where: { userId, status: "completed", date: { gte: shinCutoff, lte: today0 } },
+    where: {
+      userId,
+      status: "completed",
+      date: { gte: shinCutoff, lte: today0 },
+      NOT: { type: { in: [...NON_TRAINING_TYPES] } },
+    },
     select: { executedSession: true },
   });
   let recentShin: number | null = null;

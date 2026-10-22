@@ -202,8 +202,9 @@ export interface TopSetInput {
  * and never reach the TM review, so asking for them would be work for nothing.
  */
 export function topSetLiftsFor(plannedSession: SessionPlan | null | undefined): string[] {
+  // Sprint 3.3: a back-off entry carries its lift's name but is not a second lift.
   return (plannedSession?.exercises ?? [])
-    .filter((ex) => !ex.isWarmup && TM_COMPOUNDS.has(ex.name))
+    .filter((ex) => !ex.isWarmup && !ex.isBackoff && TM_COMPOUNDS.has(ex.name))
     .map((ex) => ex.name);
 }
 
@@ -229,9 +230,11 @@ export function buildConfirmedExercises(input: {
   sessionRpe: number;
 }): { exercises: StrengthExecutedSession["exercises"]; rejected: string[] } {
   const allowed = new Set(topSetLiftsFor(input.plannedSession));
+  // Sprint 3.3: keyed by name, so the back-off entry (same name) stays out —
+  // it would overwrite the main entry the top set belongs to.
   const planned = new Map(
     (input.plannedSession?.exercises ?? [])
-      .filter((ex) => !ex.isWarmup)
+      .filter((ex) => !ex.isWarmup && !ex.isBackoff)
       .map((ex) => [ex.name, ex] as const),
   );
 
@@ -255,9 +258,17 @@ export function buildConfirmedExercises(input: {
     });
   }
 
-  const rest = input.asPrescribed
-    ? materialisePrescribedSets(input.plannedSession).filter((ex) => !seen.has(ex.name))
-    : [];
+  // A lift with a top set is not materialised again — but its back-off sets
+  // are a separate prescription and are (Sprint 3.3).
+  const rest =
+    input.asPrescribed && input.plannedSession
+      ? materialisePrescribedSets({
+          ...input.plannedSession,
+          exercises: (input.plannedSession.exercises ?? []).filter(
+            (ex) => ex.isBackoff || !seen.has(ex.name),
+          ),
+        })
+      : [];
 
   return { exercises: [...top, ...rest], rejected };
 }

@@ -289,3 +289,45 @@ describe("mergeShinIntoExecuted — the imported payload must survive untouched"
     expect(mergeShinIntoExecuted(garmin, 2, "linkes Schienbein")!.shinPainNote).toBe("linkes Schienbein");
   });
 });
+
+// Sprint 3.3 (A2): Kraft C's hinge became back-off sets after A's top sets —
+// same name as the lift, so name-keyed code must keep the two apart.
+describe("back-off sets (Sprint 3.3)", () => {
+  const plan: SessionPlan = {
+    date: WORKOUT_DATE,
+    type: "strength_a",
+    exercises: [
+      ex({ name: "Deadlift", sets: 1, reps: 5, loadPct: 41, loadAbs: 60, isWarmup: true }),
+      ex({ name: "Deadlift", sets: 4, reps: 5, loadPct: 82, loadAbs: 120 }),
+      ex({ name: "Deadlift", sets: 3, reps: 6, loadPct: 75, loadAbs: 110, isBackoff: true }),
+    ],
+  };
+
+  it("the top-set field belongs to the main entry only", () => {
+    expect(topSetLiftsFor(plan)).toEqual(["Deadlift"]);
+  });
+
+  it("a top set is read against the main entry, not overwritten by the back-off", () => {
+    const { exercises } = buildConfirmedExercises({
+      plannedSession: plan,
+      topSets: [{ exercise: "Deadlift", weightKg: 122.5, reps: 5 }],
+      asPrescribed: false,
+      sessionRpe: 8,
+    });
+    expect(exercises).toHaveLength(1);
+    expect(exercises[0]).toMatchObject({ plannedSets: 4, plannedReps: 5, plannedLoadPct: 82 });
+  });
+
+  it("'rest as prescribed' still logs the back-off sets next to a top set", () => {
+    const { exercises } = buildConfirmedExercises({
+      plannedSession: plan,
+      topSets: [{ exercise: "Deadlift", weightKg: 122.5, reps: 5 }],
+      asPrescribed: true,
+      sessionRpe: 8,
+    });
+    expect(exercises).toHaveLength(2);
+    expect(exercises[1]).toMatchObject({ name: "Deadlift", plannedSets: 3, plannedLoadPct: 75 });
+    expect(exercises[1].actualSets).toHaveLength(3);
+    expect(exercises[1].actualSets.every((s) => s.rpe === null && s.loadKg === 110)).toBe(true);
+  });
+});

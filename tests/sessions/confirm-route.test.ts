@@ -576,3 +576,48 @@ describe("Sprint 3.2a — top sets", () => {
     expect(rows.every((r: { rpe: number | null }) => r.rpe === null)).toBe(true);
   });
 });
+
+// Sprint 3.3 (A4): the home prevention routine is ticked off, never rated.
+describe("Sprint 3.3 — home prevention (mobility)", () => {
+  function plannedMobility() {
+    return {
+      id: "w-mob", date: WORKOUT_DATE, type: "mobility", status: "planned",
+      rpe: null, durationActualMin: null, notes: null,
+      plannedSession: { type: "mobility", durationMin: 10, exercises: [] },
+      executedSession: null,
+    };
+  }
+
+  it("'done' completes it without RPE, shin score or regeneration", async () => {
+    workoutFindFirst.mockResolvedValueOnce(plannedMobility());
+    const res = await POST(post({ items: [{ workoutId: "w-mob", action: "done" }] }));
+    const data = workoutUpdate.mock.calls[0][0].data;
+    expect(data.status).toBe("completed");
+    expect(data).not.toHaveProperty("rpe");
+    expect(data).not.toHaveProperty("executedSession");
+    const body = await res.json();
+    expect(body.results[0]).toMatchObject({ outcome: "done" });
+    expect(body.done).toBe(1);
+    expect(regenerate).not.toHaveBeenCalled();
+  });
+
+  it("cannot be attested — a shin score from ten minutes at home is no evidence", async () => {
+    workoutFindFirst.mockResolvedValueOnce(plannedMobility());
+    const res = await POST(post({ items: [{ workoutId: "w-mob", action: "attest", rpe: 3, shinPainNrs: 0 }] }));
+    expect(workoutUpdate).not.toHaveBeenCalled();
+    expect((await res.json()).results[0]).toMatchObject({ outcome: "not_eligible" });
+  });
+
+  it("nothing else can be 'done'", async () => {
+    workoutFindFirst.mockResolvedValueOnce(plannedRun());
+    const res = await POST(post({ items: [{ workoutId: "w-run", action: "done" }] }));
+    expect(workoutUpdate).not.toHaveBeenCalled();
+    expect((await res.json()).results[0]).toMatchObject({ outcome: "not_eligible" });
+  });
+
+  it("can still be marked as missed", async () => {
+    workoutFindFirst.mockResolvedValueOnce(plannedMobility());
+    await POST(post({ items: [{ workoutId: "w-mob", action: "skip" }] }));
+    expect(workoutUpdate.mock.calls[0][0].data.status).toBe("skipped");
+  });
+});

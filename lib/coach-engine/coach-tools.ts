@@ -140,7 +140,7 @@ export interface SubstituteExerciseInput {
 /**
  * Replace every occurrence of `exerciseName` in future strength sessions with
  * the given replacement, within the chosen scope. Only sessions on dates ≥
- * today are touched. HSR-protected lifts (Hex Bar Deadlift, Romanian Deadlift)
+ * today are touched. HSR-protected lifts (Deadlift, Romanian Deadlift)
  * are refused — Kongsgaard 2009 tendon protocol consistency. Returns a short
  * German status string for the model's tool_result.
  */
@@ -148,7 +148,7 @@ export async function substituteExercise(
   userId: string,
   input: SubstituteExerciseInput,
 ): Promise<string> {
-  const HSR_PROTECTED = new Set(["Hex Bar Deadlift", "Romanian Deadlift"]);
+  const HSR_PROTECTED = new Set(["Deadlift", "Hex Bar Deadlift", "Romanian Deadlift"]);
   if (HSR_PROTECTED.has(input.exerciseName)) {
     return `${input.exerciseName} ist ein HSR-geschützter Lift (Kongsgaard 2009 Tendon-Protokoll) und wird nicht ersetzt. Wenn Schmerzen das Problem sind, lieber Therapy-Phase auf REACTIVE/DISREPAIR setzen.`;
   }

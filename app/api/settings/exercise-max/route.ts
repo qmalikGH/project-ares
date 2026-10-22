@@ -46,7 +46,7 @@ function collectRelevantExercises(
   for (const b of blocks) {
     const tpl = BLOCK_TEMPLATES[b] ?? BLOCK_TEMPLATES[1];
     if (!tpl) continue;
-    for (const slot of ["strength_a", "strength_b", "strength_c"] as const) {
+    for (const slot of ["strength_a", "strength_b"] as const) {
       for (const ex of tpl[slot] as Exercise[]) {
         if (typeof ex.loadPct !== "number") continue;
         const existing = seen.get(ex.name);

@@ -217,15 +217,16 @@ describe("Volume audit — Structural invariants", () => {
     }
   });
 
-  it("HSR-Lifts (Hex Bar DL, RDL) have IDENTICAL TEMPLATE parameters across Block 1-4", async () => {
+  it("HSR-Lifts (Deadlift, RDL) have IDENTICAL TEMPLATE parameters across Block 1-4", async () => {
     // Compare at the TEMPLATE level (pre-mode-multiplier). Live-generated
     // sets differ because maintenance/minimal modes reduce them, but the
     // template parameters (sets, loadPct, tempo, reps) must stay identical
     // per Kongsgaard 2009 tendon-loading protocol consistency.
     const { BLOCK_TEMPLATES } = await import("@/lib/coach-engine/strength-coach");
 
-    const findHex = (blockNumber: BlockNumber, slot: "strength_a" | "strength_b" | "strength_c") =>
-      BLOCK_TEMPLATES[blockNumber]?.[slot].find((e) => e.name === "Hex Bar Deadlift");
+    // Sprint 3.3: the conventional Deadlift replaced the hex bar.
+    const findHex = (blockNumber: BlockNumber, slot: "strength_a" | "strength_b") =>
+      BLOCK_TEMPLATES[blockNumber]?.[slot].find((e) => e.name === "Deadlift");
     const findRdl = (blockNumber: BlockNumber) =>
       BLOCK_TEMPLATES[blockNumber]?.strength_b.find((e) => e.name === "Romanian Deadlift");
 
@@ -233,10 +234,10 @@ describe("Volume audit — Structural invariants", () => {
     const b1RdlB = findRdl(1);
     for (const b of [2, 3, 4] as const) {
       const hexA = findHex(b, "strength_a");
-      expect(hexA?.sets, `Block ${b} Hex Bar StrA sets`).toBe(b1HexA?.sets);
-      expect(hexA?.loadPct, `Block ${b} Hex Bar StrA loadPct`).toBe(b1HexA?.loadPct);
-      expect(hexA?.tempo, `Block ${b} Hex Bar StrA tempo`).toBe(b1HexA?.tempo);
-      expect(hexA?.reps, `Block ${b} Hex Bar StrA reps`).toBe(b1HexA?.reps);
+      expect(hexA?.sets, `Block ${b} Deadlift StrA sets`).toBe(b1HexA?.sets);
+      expect(hexA?.loadPct, `Block ${b} Deadlift StrA loadPct`).toBe(b1HexA?.loadPct);
+      expect(hexA?.tempo, `Block ${b} Deadlift StrA tempo`).toBe(b1HexA?.tempo);
+      expect(hexA?.reps, `Block ${b} Deadlift StrA reps`).toBe(b1HexA?.reps);
 
       const rdl = findRdl(b);
       expect(rdl?.sets, `Block ${b} RDL sets`).toBe(b1RdlB?.sets);
@@ -252,7 +253,6 @@ describe("Volume audit — Structural invariants", () => {
       const all = [
         ...(BLOCK_TEMPLATES[b]?.strength_a ?? []),
         ...(BLOCK_TEMPLATES[b]?.strength_b ?? []),
-        ...(BLOCK_TEMPLATES[b]?.strength_c ?? []),
       ];
       const press = all.find((e) => e.name === "DB Shoulder Press");
       expect(press, `Block ${b} missing DB Shoulder Press`).toBeTruthy();
@@ -267,7 +267,6 @@ describe("Volume audit — Structural invariants", () => {
       [
         ...(BLOCK_TEMPLATES[b]?.strength_a ?? []),
         ...(BLOCK_TEMPLATES[b]?.strength_b ?? []),
-        ...(BLOCK_TEMPLATES[b]?.strength_c ?? []),
       ].map((e) => e.name);
     expect(names(1)).toContain("Broad Jumps");
     expect(names(2)).toContain("Box Jumps");
@@ -277,7 +276,7 @@ describe("Volume audit — Structural invariants", () => {
   const MAIN_LIFTS = new Set([
     "Bench Press", "Incline DB Press", "DB Bench Press", "Barbell Row", "Pull-ups",
   ]);
-  const HSR = new Set(["Hex Bar Deadlift", "Romanian Deadlift", "RDL"]);
+  const HSR = new Set(["Deadlift", "Hex Bar Deadlift", "Romanian Deadlift", "RDL"]);
 
   it("Accessory rpeCap <= 8 in W3 (no W3→9 bump on accessories)", () => {
     for (const b of [1, 2] as const) {

@@ -111,6 +111,30 @@ describe("regeneratePlansFromNow — run progression", () => {
     expect(r.progression[1]).toMatchObject({ weekStart: "2026-11-02", capMin: 44 });
   });
 
+  // Sprint 3.3 (A4): ticking off the home routine must neither hide a layoff
+  // nor count as a rated session for the volume gate.
+  it("leaves the home prevention routine out of the layoff and shin queries", async () => {
+    await regeneratePlansFromNow("u1");
+    const calls = workoutFindMany.mock.calls.map((c) => c[0] as { select: Record<string, boolean>; where: { NOT?: { type: { in: string[] } } } });
+    const layoff = calls.find((c) => Object.keys(c.select).join() === "date")!;
+    const shin = calls.find((c) => c.select.rpe)!;
+    expect(layoff.where.NOT?.type.in).toContain("mobility");
+    expect(shin.where.NOT?.type.in).toContain("mobility");
+  });
+
+  it("puts the prevention routine on the forced rest days", async () => {
+    settingsFindUnique.mockResolvedValueOnce({
+      forcedRestDays: [3, 5, 7], preferredLongRunDay: 6, hrMax: 190, hrRest: 60,
+      exerciseMaxEstimates: null, therapyPhaseOverride: null, garminWorkoutPushEnabled: false,
+      preventionExercises: ["Tibialis Anterior Raises"],
+    });
+    await regeneratePlansFromNow("u1");
+    const days = written("wp-9")
+      .filter((s) => s.type === "mobility")
+      .map((s) => new Date(s.date).getUTCDay());
+    expect(days).toEqual([3, 5, 0]);
+  });
+
   it("horizonWeeks limits the regenerated weeks", async () => {
     await regeneratePlansFromNow("u1", { horizonWeeks: 2 });
     expect(weeklyPlanFindMany.mock.calls[0][0].take).toBe(2);

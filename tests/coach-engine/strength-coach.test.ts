@@ -59,12 +59,12 @@ describe("adjustLoadForRPE", () => {
 describe("generateWeekStrengthPlan", () => {
   const monday = new Date("2026-04-27");
 
-  it("generates 3 sessions for linear_progression mode", () => {
+  // Sprint 3.3 (A1): four training days — Kraft C merged into A and B.
+  it("generates 2 sessions for linear_progression mode (A + B, no C)", () => {
     const plan = generateWeekStrengthPlan(block1Config, 1, monday);
-    expect(plan.sessions).toHaveLength(3);
+    expect(plan.sessions).toHaveLength(2);
     expect(plan.sessions[0].type).toBe("strength_a");
     expect(plan.sessions[1].type).toBe("strength_b");
-    expect(plan.sessions[2].type).toBe("strength_c");
   });
 
   it("generates 2 sessions for minimal mode (Sprint v1.4: StrA + StrB)", () => {
@@ -74,18 +74,20 @@ describe("generateWeekStrengthPlan", () => {
     expect(plan.sessions[1].type).toBe("strength_b");
   });
 
-  it("Strength A includes Hex Bar Deadlift", () => {
+  // Sprint 3.3 (A2): no hex bar in the office gym.
+  it("Strength A includes the conventional Deadlift, not the hex bar", () => {
     const plan = generateWeekStrengthPlan(block1Config, 1, monday);
     const a = plan.sessions[0];
-    expect(a.exercises?.some((e) => e.name === "Hex Bar Deadlift")).toBe(true);
+    expect(a.exercises?.some((e) => e.name === "Deadlift")).toBe(true);
+    expect(a.exercises?.some((e) => e.name === "Hex Bar Deadlift")).toBe(false);
   });
 
-  it("Strength C uses Broad Jumps (knee-friendly)", () => {
+  it("Strength A opens with Broad Jumps (knee-friendly plyo, moved from C)", () => {
     const plan = generateWeekStrengthPlan(block1Config, 1, monday);
-    const c = plan.sessions[2];
-    expect(c.exercises?.some((e) => e.name === "Broad Jumps")).toBe(true);
+    const a = plan.sessions[0];
+    expect(a.exercises?.find((e) => !e.isWarmup)?.name).toBe("Broad Jumps");
     // Should NOT have box jumps or depth jumps
-    expect(c.exercises?.some((e) => /box|depth/i.test(e.name))).toBe(false);
+    expect(a.exercises?.some((e) => /box|depth/i.test(e.name))).toBe(false);
   });
 
   it("respects RPE cap from phase config", () => {
@@ -105,11 +107,10 @@ describe("generateWeekStrengthPlan", () => {
       sessions: [
         { type: "strength_a", rpeReported: 6 }, // well under cap-1=7 → +2.5%
         { type: "strength_b", rpeReported: 8 },
-        { type: "strength_c", rpeReported: 9 },
       ],
     };
     const plan = generateWeekStrengthPlan(block1Config, 2, monday, prevWeek);
-    const aDeadlift = plan.sessions[0].exercises?.find((e) => e.name === "Hex Bar Deadlift" && !e.isWarmup);
+    const aDeadlift = plan.sessions[0].exercises?.find((e) => e.name === "Deadlift" && !e.isWarmup && !e.isBackoff);
     expect(aDeadlift?.loadPct).toBeGreaterThan(82); // bumped up from base 82
   });
 
@@ -175,10 +176,10 @@ describe("Exercise tempo + rest defaults", () => {
   const monday = new Date("2026-04-27");
   const plan = generateWeekStrengthPlan(block1Config, 1, monday);
 
-  it("HSR lifts (Hex Bar Deadlift, Romanian Deadlift) use 3-3-1 tempo + ≥120s rest", () => {
+  it("HSR lifts (Deadlift, Romanian Deadlift) use 3-3-1 tempo + ≥120s rest", () => {
     const allExercises = plan.sessions.flatMap((s) => s.exercises ?? []);
     const hsrLifts = allExercises.filter((ex) =>
-      /Hex Bar Deadlift|Romanian Deadlift/i.test(ex.name) && !ex.isWarmup,
+      /^Deadlift$|Romanian Deadlift/i.test(ex.name) && !ex.isWarmup,
     );
     expect(hsrLifts.length).toBeGreaterThan(0);
     hsrLifts.forEach((ex) => {

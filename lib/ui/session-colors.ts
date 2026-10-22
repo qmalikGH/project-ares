@@ -29,6 +29,8 @@ export const SESSION_COLORS: Record<string, SessionColorMap> = {
   rest:            { color: "var(--color-session-rest)",        bg: "var(--color-session-rest-bg)",        stripe: "session-stripe-rest",        label: "Rest" },
   active_recovery: { color: "var(--color-session-easy)",        bg: "var(--color-session-easy-bg)",        stripe: "session-stripe-easy",        label: "Recovery" },
   time_trial_5k:   { color: "var(--color-session-vo2max)",      bg: "var(--color-session-vo2max-bg)",      stripe: "session-stripe-vo2max",      label: "Time Trial" },
+  // Sprint 3.3 (A4): home prevention routine on rest days.
+  mobility:        { color: "var(--color-session-easy)",        bg: "var(--color-session-easy-bg)",        stripe: "session-stripe-easy",        label: "Prävention" },
 };
 
 export function getSessionColor(type: SessionType | string): SessionColorMap {

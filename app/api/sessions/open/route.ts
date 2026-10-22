@@ -67,7 +67,8 @@ export async function GET(req: NextRequest) {
     const discipline = disciplineOf(w.type);
 
     const prescribed =
-      discipline === "strength" && planned?.exercises?.length
+      // Sprint 3.3 (A4): the home prevention routine shows its exercises too.
+      (discipline === "strength" || w.type === "mobility") && planned?.exercises?.length
         ? {
             exercises: (planned.exercises as Exercise[])
               .filter((ex) => !ex.isWarmup)
@@ -81,7 +82,10 @@ export async function GET(req: NextRequest) {
                 willLog: willLogExercise(ex),
                 // Sprint 3.2a: training-max lifts get a top-set field. Only a
                 // typed-in top set can move a TM (see buildConfirmedExercises).
-                isTm: TM_COMPOUNDS.has(ex.name),
+                // Sprint 3.3: a back-off entry shares its lift's name; the top
+                // set belongs to the main entry only.
+                isTm: TM_COMPOUNDS.has(ex.name) && !ex.isBackoff,
+                isBackoff: ex.isBackoff === true,
               })),
           }
         : null;

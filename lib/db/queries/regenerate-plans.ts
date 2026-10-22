@@ -34,6 +34,7 @@ import {
   type CountedRun,
 } from "@/lib/coach-engine/run-progression";
 import { isRunType } from "@/lib/db/queries/progress-helpers";
+import { NON_TRAINING_TYPES } from "@/lib/coach-engine/prevention";
 import {
   constraintsFromUserSettings,
   planWeekSchedule,
@@ -64,7 +65,14 @@ async function loadRecentShinSignal(
 ): Promise<{ data: WeekStrengthData | null; completedInWindow: number; attestedInWindow: number }> {
   const cutoff = new Date(before.getTime() - 10 * 86400000);
   const workouts = await db.workout.findMany({
-    where: { userId, status: "completed", date: { gte: cutoff, lte: before } },
+    // Sprint 3.3 (A4): the home prevention routine is no evidence about the
+    // shin — it only talks under load.
+    where: {
+      userId,
+      status: "completed",
+      date: { gte: cutoff, lte: before },
+      NOT: { type: { in: [...NON_TRAINING_TYPES] } },
+    },
     orderBy: { date: "desc" },
     select: { type: true, executedSession: true, rpe: true },
   });
@@ -243,7 +251,8 @@ export async function regeneratePlansFromNow(
       userId,
       status: "completed",
       date: { gte: new Date(today0.getTime() - 180 * 86400000), lte: today0 },
-      NOT: { type: { in: ["rest", "active_recovery"] } },
+      // Sprint 3.3 (A4): ticking off the home routine must not hide a layoff.
+      NOT: { type: { in: [...NON_TRAINING_TYPES] } },
     },
     orderBy: { date: "asc" },
     select: { date: true },
@@ -363,6 +372,9 @@ export async function regeneratePlansFromNow(
       strengthPlan.sessions,
       plan.startDate,
       constraints,
+      // Sprint 3.3: merged easy minutes stay under the cap (B1); the home
+      // prevention routine goes on the forced rest days (A4).
+      { maxRunMin: capMin, preventionExercises: userSettings?.preventionExercises ?? [] },
     );
 
     await db.weeklyPlan.update({

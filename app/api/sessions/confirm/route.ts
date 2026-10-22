@@ -38,6 +38,10 @@
 //           `duration_required` rather than stored as an estimate.
 //   timeTrialSec -> the 3-km test's own time, required for a test. Moves the
 //           VDOT through the same decider as the rolling calibration.
+//   action "done" -> the home prevention routine (mobility). Ticked off, no RPE,
+//           no shin score: a shin score from ten minutes at home would read as
+//           calm and open the volume gate without a single rated run. A
+//           mobility row cannot be attested, and nothing else can be "done".
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -65,7 +69,7 @@ import type { SessionPlan } from "@/lib/coach-engine/types";
 const ItemSchema = z
   .object({
     workoutId: z.string().min(1).max(64),
-    action: z.enum(["attest", "skip"]),
+    action: z.enum(["attest", "skip", "done"]),
     // min(1), not min(0): an rpe of 0 still passes the `rpe != null` filter in
     // getRecentDailyLoads and would inject a zero-load day into the EWMA.
     rpe: z.number().int().min(1).max(10).optional(),
@@ -107,6 +111,7 @@ const Schema = z.object({
 });
 
 type Outcome =
+  | "done"
   | "attested"
   | "attested_no_load"
   | "skipped"
@@ -201,6 +206,26 @@ export async function POST(req: Request) {
         });
         changed++;
         results.push({ workoutId: item.workoutId, outcome: "skipped", cohort });
+        continue;
+      }
+
+      // -- done (Sprint 3.3, home prevention) ------------------------------
+      const isMobility = workout.type === "mobility";
+      if (item.action === "done" || isMobility) {
+        if (!(item.action === "done" && isMobility && cohort === "planned")) {
+          results.push({ workoutId: item.workoutId, outcome: "not_eligible", cohort });
+          continue;
+        }
+        await db.workout.update({
+          where: { id: workout.id },
+          data: {
+            status: "completed",
+            ...(item.notes !== undefined ? { notes: item.notes } : {}),
+            updatedAt: new Date(),
+          },
+        });
+        // Not counted in `changed`: nothing the plan reads has moved.
+        results.push({ workoutId: item.workoutId, outcome: "done", cohort });
         continue;
       }
 
@@ -407,6 +432,7 @@ export async function POST(req: Request) {
     status: "ok",
     attested: results.filter((r) => r.outcome === "attested" || r.outcome === "attested_no_load").length,
     skipped: results.filter((r) => r.outcome === "skipped").length,
+    done: results.filter((r) => r.outcome === "done").length,
     failed: results.filter((r) =>
       [
         "not_found", "not_eligible", "not_skippable", "activity_taken",

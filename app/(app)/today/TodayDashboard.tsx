@@ -459,6 +459,8 @@ function SessionHeroCard({
     : null;
   const isStrength = final.type.startsWith("strength");
   const isRest = final.type === "rest" || final.type === "active_recovery";
+  // Sprint 3.3 (A4): the home prevention routine is an exercise list too.
+  const hasExerciseList = isStrength || final.type === "mobility";
   const status = workoutState?.status;
 
   const stripeColor = isRest ? "var(--color-session-easy)" : color.color;
@@ -565,8 +567,8 @@ function SessionHeroCard({
         </div>
       )}
 
-      {/* Strength: exercise list */}
-      {isStrength && (
+      {/* Strength (and home prevention): exercise list */}
+      {hasExerciseList && (
         <>
           {final.durationMin && (
             <p className="num text-sm text-[var(--color-foreground-secondary)]">

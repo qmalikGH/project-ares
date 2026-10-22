@@ -20,6 +20,7 @@
  * often carries no loadPct, so it progresses via reps/RPE.
  */
 const TM_LOWER: ReadonlySet<string> = new Set([
+  "Deadlift", // Sprint 3.3: conventional, replaces the hex bar (office gym)
   "Hex Bar Deadlift",
   "Romanian Deadlift",
   "RDL",
