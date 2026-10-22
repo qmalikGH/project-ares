@@ -16,6 +16,12 @@
 //     move a training max; "the rest as prescribed" records volume and is off
 //     by default — it used to be on, and an untouched card claimed every set.
 //   - both also for strength the watch completed, which used to get no sets.
+//
+// Sprint 3.3:
+//   - a run without a recording needs its real minutes. The run progression
+//     reads nothing else, so the field is required and starts empty — no plan
+//     number to nod through.
+//   - the 3-km test asks for its time (mm:ss).
 
 import { useCallback, useEffect, useState } from "react";
 
@@ -41,6 +47,7 @@ interface OpenSession {
   cohort: "planned" | "garmin_auto";
   discipline: "run" | "strength" | "other";
   plannedDurationMin: number | null;
+  testDistanceM: number | null;
   garmin: {
     activityId: string | null;
     durationSec: number | null;
@@ -72,6 +79,7 @@ interface Draft {
   skip: boolean;
   garminActivityId: number | null;
   minutes: string;
+  testTime: string;
   topSets: Record<string, TopSetDraft>;
 }
 
@@ -80,6 +88,7 @@ interface ConfirmResponse {
   skipped: number;
   failed: number;
   results: Array<{ outcome: string; loadEstimated?: boolean }>;
+  timeTrials?: Array<{ measured: number; status: string; newVdot: number | null; reason: string }>;
   regenerate: { gate?: string; gateReason?: string; layoffActive?: boolean; regenerated?: number } | null;
 }
 
@@ -92,6 +101,7 @@ const EMPTY_DRAFT: Draft = {
   skip: false,
   garminActivityId: null,
   minutes: "",
+  testTime: "",
   topSets: {},
 };
 
@@ -125,6 +135,14 @@ function candidateLabel(c: Candidate): string {
 function parseIntField(v: string): number | null {
   const n = Number.parseInt(v, 10);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** "13:45" (or "13.45") → 825 seconds, or null. */
+function parseMmSsField(v: string): number | null {
+  const m = /^\s*(\d{1,3})[:.](\d{2})\s*$/.exec(v);
+  if (!m) return null;
+  const sec = Number(m[1]) * 60 + Number(m[2]);
+  return Number(m[2]) < 60 && sec >= 60 ? sec : null;
 }
 
 /** Positive decimal (comma or dot) from a text field, or null. */
@@ -196,10 +214,18 @@ export default function ConfirmView() {
         .map(([, d]) => d.garminActivityId as number),
     );
 
+  /** Sprint 3.3: a run no watch recorded is confirmable only with its minutes. */
+  const needsMinutes = (s: OpenSession) =>
+    s.discipline === "run" && s.cohort === "planned" && drafts[s.id]?.garminActivityId == null;
+
   const ready = (s: OpenSession) => {
     const d = drafts[s.id];
     if (!d) return false;
-    return d.skip || (d.rpe !== null && d.shin !== null);
+    if (d.skip) return true;
+    if (d.rpe === null || d.shin === null) return false;
+    if (needsMinutes(s) && parseIntField(d.minutes) == null) return false;
+    if (s.testDistanceM != null && parseMmSsField(d.testTime) == null) return false;
+    return true;
   };
 
   const pending = (sessions ?? []).filter((s) => {
@@ -222,6 +248,7 @@ export default function ConfirmView() {
             t.weightKg != null && t.reps != null,
           );
         const minutes = parseIntField(d.minutes);
+        const testSec = s.testDistanceM != null ? parseMmSsField(d.testTime) : null;
 
         return {
           workoutId: s.id,
@@ -232,6 +259,7 @@ export default function ConfirmView() {
           ...(d.garminActivityId == null && minutes != null && s.cohort === "planned"
             ? { durationActualMin: minutes }
             : {}),
+          ...(testSec != null ? { timeTrialSec: testSec } : {}),
           ...(s.discipline === "strength"
             ? { asPrescribed: d.asPrescribed, ...(topSets.length > 0 ? { topSets } : {}) }
             : {}),
@@ -290,6 +318,12 @@ export default function ConfirmView() {
               {takenCount}× war die gewählte Garmin-Aktivität schon einer anderen Einheit zugeordnet.
             </p>
           )}
+          {result.timeTrials?.map((t, i) => (
+            <p key={i} className="mt-1 text-emerald-200/80">
+              Test: VDOT {t.measured} gemessen
+              {t.newVdot != null ? ` — Tempi jetzt auf VDOT ${t.newVdot}` : ""} · {t.reason}
+            </p>
+          ))}
           {/* The plan may have just changed underneath him. Say so, in the
               engine's own words, rather than letting him discover it later. */}
           {result.regenerate?.gateReason && (
@@ -401,7 +435,9 @@ export default function ConfirmView() {
                       )}
                       {d?.garminActivityId == null && (
                         <label className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                          <span className="shrink-0">Minuten</span>
+                          <span className="shrink-0">
+                            {needsMinutes(s) ? "Gelaufene Minuten" : "Minuten"}
+                          </span>
                           <input
                             type="number"
                             inputMode="numeric"
@@ -409,15 +445,35 @@ export default function ConfirmView() {
                             max={600}
                             value={d?.minutes ?? ""}
                             onChange={(e) => patch(s.id, { minutes: e.target.value })}
-                            placeholder={s.plannedDurationMin ? String(s.plannedDurationMin) : "—"}
+                            placeholder="—"
                             className={cn(inputCls, "max-w-24")}
                           />
                           {!parseIntField(d?.minutes ?? "") && (
-                            <span>leer = Schätzung aus dem Plan</span>
+                            <span>
+                              {needsMinutes(s)
+                                ? "Pflicht — nur echte Minuten zählen für die Steigerung"
+                                : "leer = Schätzung aus dem Plan"}
+                            </span>
                           )}
                         </label>
                       )}
                     </div>
+                  )}
+
+                  {s.testDistanceM != null && (
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="shrink-0">Zeit für {s.testDistanceM / 1000} km</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={d?.testTime ?? ""}
+                        onChange={(e) => patch(s.id, { testTime: e.target.value })}
+                        placeholder="mm:ss"
+                        aria-label="Testzeit"
+                        className={cn(inputCls, "max-w-24")}
+                      />
+                      {!parseMmSsField(d?.testTime ?? "") && <span>Pflicht, z. B. 14:05</span>}
+                    </label>
                   )}
 
                   <NumberSelector

@@ -63,8 +63,11 @@ describe("threshold time is capped (~≤30 min), never a growing continuous bloc
       }
     }
   });
-  it("durationMin is derived from the structure (2×10 → 44 min)", () => {
-    expect(thresholdDurationMin(thresholdStructureFor(1, 1, true))).toBe(44);
+  // Sprint 3.3 (B3): 10 min warm-up, no cool-down step — 2×10/2 is 34 min of
+  // running, 2×15/3 is 46.
+  it("durationMin is derived from the structure (2×10 → 34 min, 2×15 → 46 min)", () => {
+    expect(thresholdDurationMin(thresholdStructureFor(1, 1, true))).toBe(34);
+    expect(thresholdDurationMin(thresholdStructureFor(3, 2, true))).toBe(46);
   });
 });
 
@@ -74,13 +77,16 @@ describe("generateWeekRunPlan — threshold day carries structure", () => {
     const t = plan.sessions.find((s) => s.type === "threshold_run")!;
     expect(t.structure?.workIntervals?.[0]).toMatchObject({ repeats: 2, durationMin: 10, restMin: 2 });
   });
-  it("durationMin == Σ structure (+ activation), not the old volume balloon", () => {
+  it("durationMin == Σ structure exactly; activation is carried separately", () => {
     const plan = generateWeekRunPlan(cfg(2), 6, 42, monday, hrCtx);
     const t = plan.sessions.find((s) => s.type === "threshold_run")!;
-    // B2 W2 → 3×10: structure sum 12 + 3×13 + 8 = 59 (+ pre-run activation min).
-    const sum = thresholdDurationMin(thresholdStructureFor(2, 2, true));
-    expect((t.durationMin ?? 0)).toBeGreaterThanOrEqual(sum);
-    expect((t.durationMin ?? 0)).toBeLessThanOrEqual(sum + 10);
+    // B2 W2 → 3×10: structure sum 10 + 3×13 = 49. Sprint 3.3 (B3): the export
+    // used to show every threshold 5 min over Σ structure — the hidden
+    // activation. It now sits in activationMin.
+    expect(t.durationMin).toBe(thresholdDurationMin(thresholdStructureFor(2, 2, true)));
+    expect(t.durationMin).toBe(49);
+    expect(t.activationMin).toBe(5);
+    expect(t.notes).toBe("Auslaufen optional");
   });
   it("not-green clamps the generated threshold to 2×10", () => {
     const plan = generateWeekRunPlan(cfg(3), 10, 42, monday, hrCtx, null, false);
@@ -94,16 +100,19 @@ describe("generateWeekRunPlan — threshold day carries structure", () => {
 });
 
 describe("watch ⇔ app parity — Garmin steps mirror the structure", () => {
-  it("threshold pushes warmup + repeat(reps) + cooldown matching structure", () => {
+  it("threshold pushes warmup + repeat(reps) matching structure, no cool-down step", () => {
     const plan = generateWeekRunPlan(cfg(2), 6, 42, monday, hrCtx); // B2 W2 → 3×10
     const t = plan.sessions.find((s) => s.type === "threshold_run") as SessionPlan;
     const iv = t.structure!.workIntervals![0];
     const w = buildGarminWorkout(t, vdotToPaces(42))!;
     const steps = w.workoutSegments[0].workoutSteps;
-    expect(steps).toHaveLength(3);
+    // Sprint 3.3 (B3): cooldown 0 → the builder adds no step; the recovery jog
+    // after the last rep is the run-out.
+    expect(steps).toHaveLength(2);
     expect(steps[0].stepType.stepTypeKey).toBe("warmup");
     expect(steps[1].stepType.stepTypeKey).toBe("repeat");
-    expect(steps[2].stepType.stepTypeKey).toBe("cooldown");
+    expect(w.estimatedDurationInSecs).toBe((t.durationMin ?? 0) * 60);
+    expect(w.description).toContain("vorher 5 min Aktivierung");
     const rg = steps[1] as RepeatGroupStep;
     expect(rg.numberOfIterations).toBe(iv.repeats);
     expect(rg.workoutSteps[0].endConditionValue).toBe((iv.durationMin ?? 0) * 60);
@@ -180,7 +189,9 @@ describe("comeback ramp (return to training after a layoff)", () => {
   it("week 1 cuts total run volume to roughly half of the block prescription", () => {
     const normal = totalMin(b2w1(null));
     const ramped = totalMin(b2w1(1));
-    expect(normal).toBe(235); // the number this sprint exists for
+    // 235 when this sprint was written; Sprint 3.3 (B3) took the hidden 2×5 min
+    // activation and the 12/8 → 10/0 threshold frame out of the running time.
+    expect(normal).toBe(215);
     expect(ramped).toBeLessThan(140);
     expect(ramped).toBeGreaterThan(100); // still real training, not a token week
   });

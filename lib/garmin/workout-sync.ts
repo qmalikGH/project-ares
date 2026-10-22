@@ -237,6 +237,16 @@ export async function removeWorkoutFromGarmin(
 
 import { vdotToPaces } from "@/lib/coach-engine/run-coach";
 import { getEffectiveVdot } from "@/lib/db/queries/settings";
+import { startOfIsoWeek } from "@/lib/coach-engine/comeback";
+
+/**
+ * Sprint 3.3 — end (exclusive) of the push window: the Monday after next week.
+ * Nothing later is kept on the watch; see resyncFutureWorkoutsToGarmin and
+ * lib/garmin/plan-refresh.ts.
+ */
+export function pushWindowEnd(today0: Date): Date {
+  return new Date(startOfIsoWeek(today0).getTime() + 14 * 86400000);
+}
 
 export interface ResyncResult {
   /** Total future workouts considered. */
@@ -275,11 +285,17 @@ const DEFAULT_RESYNC_DEPS: ResyncDeps = {
  *
  * `deps` is for tests; production callers pass nothing and get the live
  * pushWorkoutToGarmin/removeWorkoutFromGarmin.
+ *
+ * Sprint 3.3: `untilDate` bounds the watch to a window (plan-refresh.ts
+ * `pushWindowEnd`). Rows from then on are not pushed, and any still on the
+ * watch from an earlier, unbounded resync come off it — the run projection
+ * re-plans those weeks every evening, so a copy on the watch would drift.
  */
 export async function resyncFutureWorkoutsToGarmin(
   userId: string,
   cutoffDate: Date,
   deps: ResyncDeps = DEFAULT_RESYNC_DEPS,
+  untilDate?: Date,
 ): Promise<ResyncResult> {
   const result: ResyncResult = {
     considered: 0,
@@ -321,6 +337,15 @@ export async function resyncFutureWorkoutsToGarmin(
     try {
       const session = workout.plannedSession as unknown as SessionPlan;
       const sessionType = session?.type;
+
+      if (untilDate && workout.date >= untilDate) {
+        if (workout.garminWorkoutId) {
+          const r = await deps.remove(workout.id);
+          if (r.removed) result.removed += 1;
+          if (r.error) result.errors.push(`${workout.id}: ${r.error}`);
+        }
+        continue;
+      }
 
       if (workout.garminWorkoutId && sessionType === "rest") {
         // Was pushed but is now a rest day → unschedule + delete.

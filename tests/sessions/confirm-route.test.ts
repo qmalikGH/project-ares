@@ -27,6 +27,8 @@ vi.mock("@/lib/db/client", () => ({
 vi.mock("@/lib/auth/current-user", () => ({ getCurrentUserId: currentUser }));
 vi.mock("@/lib/db/queries/regenerate-plans", () => ({ regeneratePlansFromNow: regenerate }));
 vi.mock("@/lib/garmin/run-import", () => ({ buildRunImport, buildStrengthImport }));
+const applyTimeTrial = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/coach-engine/vdot-recalibration", () => ({ applyTimeTrialResult: applyTimeTrial }));
 
 import { POST } from "@/app/api/sessions/confirm/route";
 
@@ -94,6 +96,10 @@ beforeEach(() => {
   regenerate.mockResolvedValue({
     regenerated: 3, gate: "progress", gateReason: "shin calm, resting HR at baseline",
     layoff: { active: false, gapDays: 0, restartWeekStart: null },
+  });
+  applyTimeTrial.mockResolvedValue({
+    measured: 36,
+    decision: { status: "applied", newVdot: 37, reason: "VDOT 35 → 37" },
   });
 });
 
@@ -458,15 +464,58 @@ describe("Sprint 3.2a — picking the Garmin recording", () => {
     expect((await res.json()).results[0].outcome).toBe("not_eligible");
   });
 
-  it("a run confirmed without recording or minutes keeps the column null", async () => {
+  // Sprint 3.2a stored such a run with the plan as an estimate. Sprint 3.3: the
+  // run progression reads real minutes only, so the run is refused instead —
+  // confirmed without them it would count as not run at all.
+  it("a run confirmed without recording or minutes is refused, not estimated", async () => {
     workoutFindFirst.mockResolvedValueOnce(plannedRun());
     const res = await POST(post({
       items: [{ workoutId: "w-run", action: "attest", rpe: 7, shinPainNrs: 0 }],
     }));
+    expect(workoutUpdate).not.toHaveBeenCalled();
+    const body = await res.json();
+    expect(body.results[0]).toMatchObject({ outcome: "duration_required" });
+    expect(body.failed).toBe(1);
+  });
+});
+
+describe("Sprint 3.3 — 3-km test", () => {
+  function plannedTest() {
+    return {
+      id: "w-tt", date: WORKOUT_DATE, type: "time_trial_5k", status: "planned",
+      rpe: null, durationActualMin: null, notes: null,
+      plannedSession: {
+        type: "time_trial_5k", durationMin: 30,
+        structure: {
+          warmupMin: 10,
+          workIntervals: [{ repeats: 3, durationMin: 1 / 3, restMin: 1 }, { repeats: 1, distanceM: 3000 }],
+          cooldownMin: 0,
+        },
+      },
+      executedSession: null,
+    };
+  }
+
+  it("stores the result next to the session and hands it to the VDOT decider", async () => {
+    workoutFindFirst.mockResolvedValueOnce(plannedTest());
+    const res = await POST(post({
+      items: [{ workoutId: "w-tt", action: "attest", rpe: 10, shinPainNrs: 0, durationActualMin: 32, timeTrialSec: 900 }],
+    }));
     const data = workoutUpdate.mock.calls[0][0].data;
-    expect(data).not.toHaveProperty("durationActualMin");
-    expect(data.executedSession).toMatchObject({ source: "attested", durationSec: 1800, durationEstimated: true });
-    expect((await res.json()).results[0]).toMatchObject({ dailyLoadAu: 210, loadEstimated: true });
+    expect(data.durationActualMin).toBe(32);
+    expect(data.executedSession).toMatchObject({ timeTrial: { distanceM: 3000, resultSec: 900 } });
+    expect(applyTimeTrial).toHaveBeenCalledWith("u1", { distanceM: 3000, resultSec: 900 });
+    expect((await res.json()).timeTrials[0]).toMatchObject({ measured: 36, newVdot: 37 });
+  });
+
+  it("refuses a test without its time", async () => {
+    workoutFindFirst.mockResolvedValueOnce(plannedTest());
+    const res = await POST(post({
+      items: [{ workoutId: "w-tt", action: "attest", rpe: 10, shinPainNrs: 0, durationActualMin: 32 }],
+    }));
+    expect(workoutUpdate).not.toHaveBeenCalled();
+    expect(applyTimeTrial).not.toHaveBeenCalled();
+    expect((await res.json()).results[0]).toMatchObject({ outcome: "result_required" });
   });
 });
 

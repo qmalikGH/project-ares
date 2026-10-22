@@ -1,0 +1,118 @@
+// Sprint 3.3 — regeneratePlansFromNow drives the run progression: real minutes
+// only, history from before the week, projection from today on.
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { BLOCK_CONFIGS } from "@/lib/coach-engine/periodization";
+import type { SessionPlan } from "@/lib/coach-engine/types";
+
+const weeklyPlanFindMany = vi.hoisted(() => vi.fn());
+const weeklyPlanUpdate = vi.hoisted(() => vi.fn());
+const workoutFindMany = vi.hoisted(() => vi.fn());
+const workoutFindFirst = vi.hoisted(() => vi.fn());
+const settingsFindUnique = vi.hoisted(() => vi.fn());
+const sensorFindMany = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/db/client", () => ({
+  db: {
+    weeklyPlan: { findMany: weeklyPlanFindMany, update: weeklyPlanUpdate },
+    workout: { findMany: workoutFindMany, findFirst: workoutFindFirst },
+    userSettings: { findUnique: settingsFindUnique },
+    dailySensorData: { findMany: sensorFindMany },
+  },
+}));
+const today = vi.hoisted(() => ({ value: new Date("2026-10-28T00:00:00.000Z") }));
+vi.mock("@/lib/date", () => ({ userToday: () => today.value }));
+vi.mock("@/lib/db/queries/settings", () => ({ getEffectiveVdot: vi.fn(async () => 35) }));
+vi.mock("@/lib/garmin/workout-sync", () => ({ resyncFutureWorkoutsToGarmin: vi.fn() }));
+
+import { regeneratePlansFromNow } from "@/lib/db/queries/regenerate-plans";
+
+const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+const week = (start: string, weekNumber: number) => ({
+  id: `wp-${weekNumber}`,
+  weekNumber,
+  startDate: d(start),
+  endDate: new Date(d(start).getTime() + 7 * 86400000),
+  loadOverrideWeek: null,
+  phase: { config: BLOCK_CONFIGS[2] },
+});
+
+/** The plan written for a week, by WeeklyPlan id. */
+function written(id: string): SessionPlan[] {
+  const call = weeklyPlanUpdate.mock.calls.find((c) => c[0].where.id === id);
+  return call![0].data.plannedSessions as SessionPlan[];
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  today.value = d("2026-10-28");
+  // B2 deload (26.10., today is Wed 28.10.), then W1 and W2 of the next cycle.
+  weeklyPlanFindMany.mockResolvedValue([week("2026-10-26", 8), week("2026-11-02", 9), week("2026-11-09", 10)]);
+  weeklyPlanUpdate.mockResolvedValue({});
+  settingsFindUnique.mockResolvedValue({
+    forcedRestDays: [3, 7], preferredLongRunDay: 6, hrMax: 190, hrRest: 60,
+    exerciseMaxEstimates: null, therapyPhaseOverride: null, garminWorkoutPushEnabled: false,
+  });
+  sensorFindMany.mockResolvedValue([]);
+  workoutFindFirst.mockResolvedValue(null);
+  workoutFindMany.mockImplementation(async (args: { select?: Record<string, boolean> }) => {
+    const sel = args.select ?? {};
+    if (sel.durationActualMin) {
+      // The run history the progression reads.
+      return [
+        { date: d("2026-10-24"), type: "long_run", durationActualMin: 40, plannedSession: { type: "long_run" } },
+        {
+          date: d("2026-10-22"), type: "threshold_run", durationActualMin: 40,
+          plannedSession: { type: "threshold_run", structure: { warmupMin: 10, workIntervals: [{ repeats: 3, durationMin: 8, restMin: 2 }] } },
+        },
+        // Confirmed without minutes (Sprint 3.2a estimate) — no evidence.
+        { date: d("2026-10-25"), type: "long_run", durationActualMin: null, plannedSession: { type: "long_run", durationMin: 90 } },
+      ];
+    }
+    if (sel.rpe) return []; // shin signal: nothing rated → imminent week on hold
+    return [{ date: d("2026-10-20") }, { date: d("2026-10-24") }]; // no layoff
+  });
+});
+
+describe("regeneratePlansFromNow — run progression", () => {
+  it("caps from measured minutes only (40 → 44), ignoring a run confirmed without minutes", async () => {
+    const r = await regeneratePlansFromNow("u1");
+    expect(r.progression[0]).toMatchObject({ weekStart: "2026-10-26", capMin: 44, thresholdIndex: 2 });
+  });
+
+  it("the next cycle's threshold steps down to what fits under the cap", async () => {
+    const r = await regeneratePlansFromNow("u1");
+    // The deload long run on Sat 31.10. (45 → capped 44) is projected as done,
+    // so week 9's cap is 48. History earned L2 (3×10/3 = 49 min), which does
+    // not fit → L1 (3×8/2 = 40).
+    expect(r.progression[1]).toMatchObject({ weekStart: "2026-11-02", capMin: 48, thresholdIndex: 2 });
+    const t = written("wp-9").find((s) => s.type === "threshold_run")!;
+    expect(t.structure!.workIntervals![0]).toMatchObject({ repeats: 3, durationMin: 8 });
+    // Block 2's 60-min long run is held at the cap.
+    expect(written("wp-9").find((s) => s.type === "long_run")!.durationMin).toBe(48);
+  });
+
+  it("projects planned runs from today on, so the cap climbs week by week", async () => {
+    const r = await regeneratePlansFromNow("u1");
+    // Week 9's long run (48) counts as done for week 10 → 52.
+    expect(r.progression[2]).toMatchObject({ weekStart: "2026-11-09", capMin: 52 });
+    for (const id of ["wp-8", "wp-9", "wp-10"]) {
+      const cap = r.progression[["wp-8", "wp-9", "wp-10"].indexOf(id)].capMin;
+      for (const s of written(id)) {
+        if (s.type !== "rest" && !s.type.startsWith("strength")) expect(s.durationMin ?? 0).toBeLessThanOrEqual(cap);
+      }
+    }
+  });
+
+  it("a past session nobody confirmed is not projected — no data, no progress", async () => {
+    // Sunday 01.11.: Saturday's 44-min long run is past and unconfirmed.
+    today.value = d("2026-11-01");
+    const r = await regeneratePlansFromNow("u1");
+    expect(r.progression[1]).toMatchObject({ weekStart: "2026-11-02", capMin: 44 });
+  });
+
+  it("horizonWeeks limits the regenerated weeks", async () => {
+    await regeneratePlansFromNow("u1", { horizonWeeks: 2 });
+    expect(weeklyPlanFindMany.mock.calls[0][0].take).toBe(2);
+  });
+});

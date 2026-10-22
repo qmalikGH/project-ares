@@ -221,6 +221,27 @@ describe("materializeWorkouts", () => {
     });
   });
 
+  // Sprint 3.3: the Karteileiche mechanism. A dropped row that had been pushed
+  // comes off the watch first; one that never was is just deleted.
+  it("takes pushed orphans off Garmin before deleting them", async () => {
+    findManyWeeklyPlan.mockResolvedValue([]);
+    findManyWorkout.mockResolvedValue([
+      { id: "pushed", status: "planned", date: new Date("2026-06-04"), type: "easy_run", garminWorkoutId: "123" },
+      { id: "never-pushed", status: "planned", date: new Date("2026-06-05"), type: "strength_c", garminWorkoutId: null },
+    ]);
+    const remove = vi.fn().mockRejectedValueOnce(new Error("Garmin down"));
+
+    const result = await materializeWorkouts(userId, new Date("2026-06-01"), new Date("2026-06-08"), {
+      removeFromGarmin: remove,
+    });
+
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledWith("pushed");
+    // Best-effort: a Garmin failure does not keep the row alive.
+    expect(result.deleted).toBe(2);
+    expect(remove.mock.invocationCallOrder[0]).toBeLessThan(deleteManyWorkout.mock.invocationCallOrder[0]);
+  });
+
   it("does NOT delete completed workouts even if not in plan", async () => {
     findManyWeeklyPlan.mockResolvedValue([]);
     // Completed workout — should not be in the orphan query (status=planned filter)

@@ -15,10 +15,25 @@
 // when the change touches anything pushed to the watch.
 import { db } from "@/lib/db/client";
 import { userToday } from "@/lib/date";
-import { generateWeekRunPlan } from "@/lib/coach-engine/run-coach";
+import {
+  generateWeekRunPlan,
+  thresholdLadderIndexOf,
+  timeTrialRun,
+} from "@/lib/coach-engine/run-coach";
 import {
   generateWeekStrengthPlan,
 } from "@/lib/coach-engine/strength-coach";
+import { weekInBlockOf } from "@/lib/coach-engine/strength-coach/periodization";
+import {
+  isTimeTrialWeek,
+  nextThresholdIndex,
+  runCapForWeek,
+  RUN_CAP_WINDOW_DAYS,
+  THRESHOLD_HISTORY_DAYS,
+  type CompletedThreshold,
+  type CountedRun,
+} from "@/lib/coach-engine/run-progression";
+import { isRunType } from "@/lib/db/queries/progress-helpers";
 import {
   constraintsFromUserSettings,
   planWeekSchedule,
@@ -26,7 +41,7 @@ import {
 import { comebackWeekFor, detectLayoff } from "@/lib/coach-engine/comeback";
 import { deriveVolumeGate, type VolumeGate } from "@/lib/db/queries/regenerate-plans-helpers";
 import { getEffectiveVdot } from "@/lib/db/queries/settings";
-import { resyncFutureWorkoutsToGarmin } from "@/lib/garmin/workout-sync";
+import { pushWindowEnd, resyncFutureWorkoutsToGarmin } from "@/lib/garmin/workout-sync";
 import { ExecutedSessionSchema } from "@/lib/coach-engine/types";
 import type {
   PhaseConfig,
@@ -87,8 +102,60 @@ async function loadRecentShinSignal(
   };
 }
 
+/**
+ * Sprint 3.3 (B1/B2/B5): what the athlete has actually run, as the progression
+ * rules read it. Only measured or typed-in minutes (Workout.durationActualMin);
+ * a confirmation without a duration is no evidence (Sprint 3.2a).
+ */
+async function loadRunHistory(
+  userId: string,
+  firstWeekStart: Date,
+  today0: Date,
+): Promise<{ runs: CountedRun[]; thresholds: CompletedThreshold[]; lastTestDate: Date | null }> {
+  const lookbackDays = Math.max(RUN_CAP_WINDOW_DAYS, THRESHOLD_HISTORY_DAYS);
+  const rows = await db.workout.findMany({
+    where: {
+      userId,
+      status: "completed",
+      date: { gte: new Date(firstWeekStart.getTime() - lookbackDays * 86400000), lte: today0 },
+    },
+    select: { date: true, type: true, durationActualMin: true, plannedSession: true },
+  });
+  const runs: CountedRun[] = [];
+  const thresholds: CompletedThreshold[] = [];
+  for (const w of rows) {
+    if (!isRunType(w.type) || w.durationActualMin == null) continue;
+    runs.push({ date: w.date, minutes: w.durationActualMin });
+    if (w.type === "threshold_run") {
+      const index = thresholdLadderIndexOf((w.plannedSession as SessionPlan | null)?.structure);
+      if (index != null) thresholds.push({ date: w.date, index });
+    }
+  }
+  // A test counts once done, however long ago — it spaces the next one.
+  const lastTest = await db.workout.findFirst({
+    where: { userId, status: "completed", type: "time_trial_5k" },
+    orderBy: { date: "desc" },
+    select: { date: true },
+  });
+  return { runs, thresholds, lastTestDate: lastTest?.date ?? null };
+}
+
 export interface RegenerateOptions {
   runGarminResync?: boolean;
+  /**
+   * Sprint 3.3: regenerate only this many weeks, starting with the current one.
+   * The 19:00 push cron uses 2 (this week + next) so the cap reacts to what was
+   * run without rewriting the whole horizon every evening.
+   */
+  horizonWeeks?: number;
+}
+
+/** Sprint 3.3: what the progression rules decided per regenerated week. */
+export interface WeekProgression {
+  weekStart: string;
+  capMin: number;
+  thresholdIndex: number;
+  timeTrial: boolean;
 }
 
 export interface RegenerateResult {
@@ -98,6 +165,7 @@ export interface RegenerateResult {
   gate: VolumeGate;
   gateReason: string;
   layoff: { active: boolean; gapDays: number; restartWeekStart: Date | null };
+  progression: WeekProgression[];
   garminResync?: {
     considered: number;
     removed: number;
@@ -135,6 +203,7 @@ export async function regeneratePlansFromNow(
     },
     include: { phase: true },
     orderBy: { startDate: "asc" },
+    ...(opts.horizonWeeks ? { take: opts.horizonWeeks } : {}),
   });
 
   const userSettings = await db.userSettings.findUnique({ where: { userId } });
@@ -219,10 +288,33 @@ export async function regeneratePlansFromNow(
   });
   const shinVolumeGate = gateDecision.gate;
 
+  // Sprint 3.3: progression from completed sessions. Each generated week is fed
+  // back in (from today on) before the next one is planned — that is what turns
+  // the cap into a +10 % staircase and moves the threshold one rung per week.
+  const history = plansToRegen[0]
+    ? await loadRunHistory(userId, plansToRegen[0].startDate, today0)
+    : { runs: [], thresholds: [], lastTestDate: null };
+  const testDurationMin =
+    timeTrialRun(today0, effectiveVdot).durationMin ?? 0;
+  const progression: WeekProgression[] = [];
+
   const imminentPlanId = plansToRegen[0]?.id;
   for (const plan of plansToRegen) {
     const phaseConfig = plan.phase.config as unknown as PhaseConfig;
     if (!phaseConfig) continue;
+
+    const capMin = runCapForWeek(history.runs, plan.startDate);
+    const weekProgression = {
+      capMin,
+      thresholdIndex: nextThresholdIndex(history.thresholds, plan.startDate),
+      timeTrial: isTimeTrialWeek({
+        testDate: new Date(plan.startDate.getTime() + 86400000),
+        isDeloadWeek: weekInBlockOf(plan.weekNumber, phaseConfig.durationWeeks) === 4,
+        lastTestDate: history.lastTestDate,
+        capMin,
+        testDurationMin,
+      }),
+    };
 
     // Modulate only the imminent (soonest) week; later weeks default to full.
     const weekGate: "progress" | "hold" | "regress" =
@@ -249,6 +341,7 @@ export async function regeneratePlansFromNow(
       weekGreen,
       weekGate,
       weekComeback,
+      weekProgression,
     );
     const strengthPlan: WeekStrengthPlan = generateWeekStrengthPlan(
       phaseConfig,
@@ -278,6 +371,31 @@ export async function regeneratePlansFromNow(
     });
     regenerated += 1;
 
+    // Projection: what is planned from today on counts as done for the weeks
+    // after it. Past sessions nobody confirmed stay out — no data, no progress.
+    let plannedTest = false;
+    for (const s of mergedSessions) {
+      const date = s.date instanceof Date ? s.date : new Date(s.date);
+      if (date.getTime() < today0.getTime() || !isRunType(s.type) || !s.durationMin) continue;
+      history.runs.push({ date, minutes: s.durationMin });
+      if (s.type === "threshold_run") {
+        const index = thresholdLadderIndexOf(s.structure);
+        if (index != null) history.thresholds.push({ date, index });
+      }
+      if (s.type === "time_trial_5k" && s.structure?.workIntervals?.some((iv) => iv.distanceM)) {
+        history.lastTestDate = date;
+        plannedTest = true;
+      }
+    }
+    progression.push({
+      weekStart: plan.startDate.toISOString().slice(0, 10),
+      capMin: weekProgression.capMin,
+      thresholdIndex: weekProgression.thresholdIndex,
+      // What actually got planned — the generator may still refuse the test
+      // (ramp week, held gate).
+      timeTrial: plannedTest,
+    });
+
     prevWeekData = {
       weekNumber: plan.weekNumber,
       sessions: strengthPlan.sessions
@@ -302,10 +420,12 @@ export async function regeneratePlansFromNow(
       gapDays: layoff.gapDays,
       restartWeekStart: layoff.restartWeekStart,
     },
+    progression,
   };
 
   if (opts.runGarminResync && userSettings?.garminWorkoutPushEnabled) {
-    result.garminResync = await resyncFutureWorkoutsToGarmin(userId, today0);
+    // Sprint 3.3: the watch only carries this week + next.
+    result.garminResync = await resyncFutureWorkoutsToGarmin(userId, today0, undefined, pushWindowEnd(today0));
   }
 
   return result;

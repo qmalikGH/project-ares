@@ -18,6 +18,7 @@ import {
 } from "../strength-coach/periodization";
 import { rampFor, type ComebackWeek } from "../comeback";
 import { PRE_RUN_ACTIVATION, ACTIVATION_DURATION_MIN } from "./activation";
+import { raceSecForVdot } from "../vdot-calculator";
 
 // ============================================
 // VDOT → Pace lookup
@@ -323,7 +324,13 @@ function easyRun(
  * Gate: when `greenForProgression` is false (shin NRS > 3 or RHR over baseline),
  * clamp to the conservative 2×10 floor regardless of block/week.
  *
- * Pure — warmup/cooldown fixed at 12/8 min (Q's conservative shins-safe frame).
+ * Sprint 3.3 (B3): 10 min warm-up, no cool-down step. The recovery jog after the
+ * last interval stays inside the repeat block and doubles as the run-out; more
+ * is optional. 2×10/2 is now 34 min of running, 2×15/3 is 46.
+ *
+ * Sprint 3.3 (B2): the regenerate path no longer asks the calendar which rung
+ * comes next — see `thresholdLevelAt` and run-progression.ts. This calendar
+ * version stays for callers that plan without any history (onboarding).
  */
 export interface ThresholdLevel {
   warmupMin: number;
@@ -333,30 +340,54 @@ export interface ThresholdLevel {
   restMin: number;
 }
 
+const THRESHOLD_WARMUP_MIN = 10;
+const THRESHOLD_COOLDOWN_MIN = 0;
+
+/** The ladder, bottom rung first (threshold time capped at ~30 min). */
+const THRESHOLD_LADDER: ReadonlyArray<{ reps: number; workMin: number; restMin: number }> = [
+  { reps: 2, workMin: 10, restMin: 2 }, // L0 — 20 min
+  { reps: 3, workMin: 8, restMin: 2 }, //  L1 — 24 min
+  { reps: 3, workMin: 10, restMin: 3 }, // L2 — 30 min
+  { reps: 2, workMin: 15, restMin: 3 }, // L3 — 30 min
+];
+const THRESHOLD_DELOAD = { reps: 2, workMin: 8, restMin: 2 };
+
+/** Rung `index` of the ladder, clamped to L0..L3. */
+export function thresholdLevelAt(index: number): ThresholdLevel {
+  const i = Math.max(0, Math.min(THRESHOLD_LADDER.length - 1, Math.floor(index)));
+  return { warmupMin: THRESHOLD_WARMUP_MIN, cooldownMin: THRESHOLD_COOLDOWN_MIN, ...THRESHOLD_LADDER[i] };
+}
+
+/** The deload-week threshold. Not a rung: it never counts as progress. */
+export function thresholdDeloadLevel(): ThresholdLevel {
+  return { warmupMin: THRESHOLD_WARMUP_MIN, cooldownMin: THRESHOLD_COOLDOWN_MIN, ...THRESHOLD_DELOAD };
+}
+
+/**
+ * Which rung a planned threshold structure is, or null for anything that is not
+ * on the ladder (the deload 2×8, a hand-edited session). Reads reps × work only,
+ * so a session planned before B3 changed the warm-up still counts.
+ */
+export function thresholdLadderIndexOf(structure: SessionPlan["structure"] | null | undefined): number | null {
+  const iv = structure?.workIntervals?.[0];
+  if (!iv || structure?.workIntervals?.length !== 1) return null;
+  const i = THRESHOLD_LADDER.findIndex((l) => l.reps === iv.repeats && l.workMin === iv.durationMin);
+  return i >= 0 ? i : null;
+}
+
 export function thresholdStructureFor(
   blockNumber: number,
   weekInBlock: number,
   greenForProgression: boolean,
 ): ThresholdLevel {
-  const WU = 12;
-  const CD = 8;
   // Deload week → reduced volume, no anchor.
-  if (weekInBlock === 4) return { warmupMin: WU, cooldownMin: CD, reps: 2, workMin: 8, restMin: 2 };
+  if (weekInBlock === 4) return thresholdDeloadLevel();
   // Not green → conservative 2×10 floor (shin/RHR protective).
-  if (!greenForProgression) return { warmupMin: WU, cooldownMin: CD, reps: 2, workMin: 10, restMin: 2 };
+  if (!greenForProgression) return thresholdLevelAt(0);
 
-  // Ladder levels (threshold time capped at ~30 min).
-  const L0 = { reps: 2, workMin: 10, restMin: 2 }; // 20 min
-  const L1 = { reps: 3, workMin: 8, restMin: 2 }; // 24 min
-  const L2 = { reps: 3, workMin: 10, restMin: 3 }; // 30 min
-  const L3 = { reps: 2, workMin: 15, restMin: 3 }; // 30 min
-
-  let lvl: { reps: number; workMin: number; restMin: number };
-  if (blockNumber <= 1) lvl = weekInBlock <= 2 ? L0 : L1; // B1: W1-2 2×10, W3 3×8
-  else if (blockNumber === 2) lvl = weekInBlock === 1 ? L1 : L2; // B2: W1 3×8, W2-3 3×10
-  else lvl = weekInBlock === 1 ? L2 : L3; // B3: W1 3×10, W2-3 2×15
-
-  return { warmupMin: WU, cooldownMin: CD, ...lvl };
+  if (blockNumber <= 1) return thresholdLevelAt(weekInBlock <= 2 ? 0 : 1); // B1: W1-2 2×10, W3 3×8
+  if (blockNumber === 2) return thresholdLevelAt(weekInBlock === 1 ? 1 : 2); // B2: W1 3×8, W2-3 3×10
+  return thresholdLevelAt(weekInBlock === 1 ? 2 : 3); // B3: W1 3×10, W2-3 2×15
 }
 
 /** Total session minutes implied by a threshold level (= Σ structure). */
@@ -381,6 +412,7 @@ function thresholdRun(
       intensityZone: 2,
       zoneLabel: getZoneLabel("threshold_run"),
       rpeTarget: 7,
+      ...(level.cooldownMin === 0 ? { notes: "Auslaufen optional" } : {}),
       structure: {
         warmupMin: level.warmupMin,
         workIntervals: [
@@ -422,6 +454,47 @@ function vo2maxIntervals(
     "vo2max_intervals",
     hr,
   );
+}
+
+/** Distance of the recurring test (B5). */
+export const TIME_TRIAL_DISTANCE_M = 3000;
+const TIME_TRIAL_WARMUP_MIN = 10;
+const TIME_TRIAL_STRIDES = { repeats: 3, workSec: 20, restSec: 60 };
+
+/**
+ * Sprint 3.3 (B5) — 3-km test: 10 min easy, 3×20 s strides, 3 km all-out, then
+ * an easy jog that is not prescribed (same frame as B3's threshold). Reuses
+ * `time_trial_5k` with a distance step rather than a new type.
+ *
+ * `durationMin` is running time with the 3 km at the pace the current VDOT
+ * predicts — the number the cap is checked against.
+ */
+export function timeTrialRun(date: Date, vdot: number): SessionPlan {
+  const predictedSec = raceSecForVdot(TIME_TRIAL_DISTANCE_M, vdot);
+  const s = TIME_TRIAL_STRIDES;
+  const stridesMin = (s.repeats * (s.workSec + s.restSec)) / 60;
+  const predictedPace = minPerKmToPaceString(predictedSec / 60 / (TIME_TRIAL_DISTANCE_M / 1000));
+  return {
+    date,
+    type: "time_trial_5k",
+    durationMin: Math.round(TIME_TRIAL_WARMUP_MIN + stridesMin + predictedSec / 60),
+    paceTarget: { from: predictedPace, to: predictedPace },
+    intensityZone: 3,
+    zoneLabel: getZoneLabel("time_trial_5k"),
+    rpeTarget: 10,
+    controlMethod: "pace_first",
+    notes:
+      `3-km-Test: ${TIME_TRIAL_WARMUP_MIN} min einlaufen, ${s.repeats}×${s.workSec} s Steigerungen, ` +
+      `3 km all-out (Richtwert ${predictedPace}/km), danach locker austraben. Zeit in /confirm eintragen.`,
+    structure: {
+      warmupMin: TIME_TRIAL_WARMUP_MIN,
+      workIntervals: [
+        { repeats: s.repeats, durationMin: s.workSec / 60, restMin: s.restSec / 60 },
+        { repeats: 1, distanceM: TIME_TRIAL_DISTANCE_M },
+      ],
+      cooldownMin: 0,
+    },
+  };
 }
 
 function longRun(
@@ -547,6 +620,16 @@ export function computeRunVolumeProgression(
   }
 }
 
+/** Sprint 3.3: what completed sessions decide for one week (run-progression.ts). */
+export interface RunProgression {
+  /** B1: no run this week may be longer than this many minutes. */
+  capMin: number;
+  /** B2: threshold rung the week has earned (0 = 2×10 … 3 = 2×15). */
+  thresholdIndex: number;
+  /** B5: this deload week carries the 3-km test. */
+  timeTrial: boolean;
+}
+
 export function generateWeekRunPlan(
   phaseConfig: PhaseConfig,
   weekNumber: number,
@@ -576,6 +659,9 @@ export function generateWeekRunPlan(
    *  run in weeks 1-2. null/undefined → no ramp. Derived from completed-session
    *  history by the regenerate path, never set by hand. */
   comebackWeek?: ComebackWeek | null,
+  /** Sprint 3.3: cap, threshold rung and test week from completed sessions
+   *  (run-progression.ts). null/undefined → the calendar decides, as before. */
+  progression?: RunProgression | null,
 ): WeekRunPlan {
   const paces = vdotToPaces(vdot);
   const blockNumber = phaseConfig.blockNumber;
@@ -601,15 +687,28 @@ export function generateWeekRunPlan(
   // penalty" rule the Sprint 2.3 governor follows.
   const ramp = comebackWeek != null ? rampFor(comebackWeek) : null;
   const volumeFactor = Math.min(gateFactor, ramp?.runVolumeFactor ?? 1);
-  const longRunMin = Math.max(20, Math.round(longBaseline * volumeProg.longRunMultiplier * volumeFactor));
+  // Sprint 3.3 (B1): no run is longer than the cap. It sits on top of every
+  // factor above, so the strictest brake wins. The 20-min floor stays — the cap
+  // itself never drops below 30.
+  const capMin = progression?.capMin ?? Infinity;
+  const capped = (min: number): number => Math.min(min, capMin);
+  const longRunMin = capped(Math.max(20, Math.round(longBaseline * volumeProg.longRunMultiplier * volumeFactor)));
   // Sprint 2.2: threshold is no longer sized by the volume multiplier — its
   // duration is derived from the interval structure (thresholdStructureFor).
   // qualityBaseline is kept only for non-threshold quality types if any.
   void qualityBaseline;
-  const easyRunMin = Math.max(20, Math.round(easyBaseline * volumeProg.easyRunMultiplier * volumeFactor));
+  const easyRunMin = capped(Math.max(20, Math.round(easyBaseline * volumeProg.easyRunMultiplier * volumeFactor)));
 
   const dateAt = (offsetDays: number): Date =>
     new Date(weekStartDate.getTime() + offsetDays * 86400000);
+
+  // A quality session that does not fit under the cap becomes an easy run of
+  // cap length — the same substitution the ramp makes in its first two weeks.
+  const easyInsteadOf = (what: string, needMin: number): SessionPlan => {
+    const s = easyRun(dateAt(1), capMin, paces, hr);
+    s.notes = `[${what} pausiert: braucht ${needMin} min, Lauf-Deckel steht bei ${capMin} min]`;
+    return s;
+  };
 
   const sessions: SessionPlan[] = [];
 
@@ -645,26 +744,51 @@ export function generateWeekRunPlan(
       shinVolumeGate === "regress"
         ? "[Shin-Schutz: Quali gestrichen, locker laufen]"
         : `[Wiedereinstieg W${comebackWeek}: Quali gestrichen, locker laufen]`;
+  } else if (
+    progression?.timeTrial &&
+    weekInBlock === 4 &&
+    greenForProgression &&
+    comebackWeek == null
+  ) {
+    // Sprint 3.3 (B5): the 3-km test replaces the deload-week quality session.
+    // Never during the ramp or on a held gate — an all-out effort is the last
+    // thing either of them allows.
+    qualityDay = timeTrialRun(dateAt(1), vdot);
   } else if (blockNumber <= 3) {
     // Sprint 2.2: threshold = structured interval session (capped threshold
     // time), progressing via the ladder, gated by shin/RHR. Blocks 1–3.
     // Sprint 2.4: during the ramp (week 3, the first one that keeps a quality
     // day) the threshold always drops to the conservative 2×10 floor — the
     // ladder position is meaningless when the last threshold was months ago.
-    const level = thresholdStructureFor(
-      blockNumber,
-      weekInBlock,
-      greenForProgression && comebackWeek == null,
-    );
-    qualityDay = thresholdRun(dateAt(1), level, paces, hr);
+    const green = greenForProgression && comebackWeek == null;
+    let level: ThresholdLevel;
+    if (!progression) {
+      level = thresholdStructureFor(blockNumber, weekInBlock, green);
+    } else if (weekInBlock === 4) {
+      level = thresholdDeloadLevel();
+    } else {
+      // Sprint 3.3 (B2): the rung comes from completed sessions, not the
+      // calendar. A rung that does not fit under the cap steps down.
+      let index = green ? progression.thresholdIndex : 0;
+      while (index > 0 && thresholdDurationMin(thresholdLevelAt(index)) > capMin) index--;
+      level = thresholdLevelAt(index);
+    }
+    const needMin = thresholdDurationMin(level);
+    qualityDay =
+      needMin > capMin
+        ? easyInsteadOf(`Threshold ${level.reps}×${level.workMin}`, needMin)
+        : thresholdRun(dateAt(1), level, paces, hr);
   } else {
     qualityDay = vo2maxIntervals(dateAt(1), paces, hr);
+    const needMin = qualityDay.durationMin ?? 0;
+    if (needMin > capMin) qualityDay = easyInsteadOf("VO2max-Intervalle", needMin);
   }
   // Sprint v0.13: attach pre-run activation to quality day (Leppänen 2024).
   // Tue is a run-only day — activation stays. S+E day stripping happens in
   // schedule-strategy if the schedule ever changes.
+  // Sprint 3.3 (B3): shown next to the run, no longer hidden in durationMin.
   qualityDay.preRunActivation = PRE_RUN_ACTIVATION;
-  qualityDay.durationMin = (qualityDay.durationMin ?? 0) + ACTIVATION_DURATION_MIN;
+  qualityDay.activationMin = ACTIVATION_DURATION_MIN;
   sessions.push(qualityDay);
 
   // Wed: Easy AM (slightly shorter than Mon/Fri)
@@ -685,7 +809,7 @@ export function generateWeekRunPlan(
     const longRunSession = longRun(dateAt(5), longRunMin, longSpec.intensityZone, paces, hr);
     // Sprint v0.13: attach pre-run activation to long run (Sat = run-only day).
     longRunSession.preRunActivation = PRE_RUN_ACTIVATION;
-    longRunSession.durationMin = (longRunSession.durationMin ?? 0) + ACTIVATION_DURATION_MIN;
+    longRunSession.activationMin = ACTIVATION_DURATION_MIN;
     sessions.push(longRunSession);
   } else {
     // Block 5 time-trial week → time trial on Wed (mid-week), Sat is easy/rest.
@@ -693,7 +817,7 @@ export function generateWeekRunPlan(
     sessions[2] = {
       date: dateAt(2),
       type: "time_trial_5k",
-      durationMin: 60,
+      durationMin: capped(60),
       paceTarget: { from: paces.T, to: paces.T },
       intensityZone: 3,
       zoneLabel: getZoneLabel("time_trial_5k"),

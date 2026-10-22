@@ -177,4 +177,24 @@ describe("resyncFutureWorkoutsToGarmin", () => {
     expect(r.errors[0]).toContain("Garmin auth broken");
     expect(pushFn).toHaveBeenCalledTimes(3);
   });
+
+  // Sprint 3.3: the run projection re-plans later weeks every evening, so the
+  // watch only carries the window the nightly refresh keeps current.
+  it("with untilDate: pushes inside the window, takes later ones off the watch", async () => {
+    const later = (id: string, hasGarmin: boolean): FakeWorkout => ({
+      ...fw(id, "easy_run", hasGarmin),
+      date: new Date(TODAY.getTime() + 20 * 86400000),
+    });
+    const futures: FakeWorkout[] = [fw("near", "easy_run", false), later("far-pushed", true), later("far-new", false)];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.workout.findMany as any).mockImplementation(async () => futures);
+    const { deps, pushFn, removeFn } = makeDeps();
+
+    const r = await resyncFutureWorkoutsToGarmin("u1", TODAY, deps, new Date(TODAY.getTime() + 14 * 86400000));
+    expect(pushFn).toHaveBeenCalledTimes(1);
+    expect(pushFn.mock.calls[0][0]).toBe("near");
+    expect(removeFn).toHaveBeenCalledTimes(1);
+    expect(removeFn.mock.calls[0][0]).toBe("far-pushed");
+    expect(r).toMatchObject({ repushed: 1, removed: 1 });
+  });
 });

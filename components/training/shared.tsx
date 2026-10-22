@@ -58,6 +58,8 @@ export type SessionShape = {
   controlMethod?: "hr_first" | "pace_first";
   zoneLabel?: string;
   preRunActivation?: ExerciseShape[];
+  /** Sprint 3.3 (B3): activation minutes, NOT part of durationMin. */
+  activationMin?: number;
   structure?: RunStructure;
 };
 
@@ -78,7 +80,7 @@ export const SESSION_LABEL: Record<string, string> = {
   vo2max_intervals: "VO2max Intervals",
   long_run: "Long Run",
   calibration_run: "Calibration Run",
-  time_trial_5k: "5k Time Trial",
+  time_trial_5k: "Time Trial",
   strength_a: "Strength A (Lower-Heavy)",
   strength_b: "Strength B (Upper + Hip)",
   strength_c: "Strength C (Mixed + Plyo)",
@@ -367,6 +369,7 @@ export function SessionBody({
           </p>
           <p className="text-xs text-muted-foreground mt-1">
             {final.durationMin ? `${final.durationMin}min` : "—"}
+            {final.activationMin ? ` + ${final.activationMin}min Aktivierung` : ""}
             {final.paceTarget &&
               ` · Pace ~${final.paceTarget.from}${final.paceTarget.from !== final.paceTarget.to ? `–${final.paceTarget.to}` : ""}/km (orientierend)`}
             {final.intensityZone && ` · Z${final.intensityZone}`}
@@ -376,6 +379,7 @@ export function SessionBody({
       ) : (
         <p className="text-sm text-muted-foreground mt-1">
           {final.durationMin ? `${final.durationMin}min` : "—"}
+          {final.activationMin ? ` + ${final.activationMin}min Aktivierung` : ""}
           {final.paceTarget &&
             ` · Pace ${final.paceTarget.from}${final.paceTarget.from !== final.paceTarget.to ? `–${final.paceTarget.to}` : ""}/km`}
           {final.intensityZone && ` · Z${final.intensityZone}`}

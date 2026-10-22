@@ -238,6 +238,7 @@ function mapPlannedSession(json: unknown): PlannedSessionData {
   const s = json as SessionPlan;
   return {
     durationMin: s.durationMin,
+    activationMin: s.activationMin,
     targetHR: s.hrTarget ? { from: s.hrTarget.from, to: s.hrTarget.to } : undefined,
     targetPace: s.paceTarget ? { from: s.paceTarget.from, to: s.paceTarget.to } : undefined,
     // Sprint 2.3 #4: surface the run interval structure to the coach.

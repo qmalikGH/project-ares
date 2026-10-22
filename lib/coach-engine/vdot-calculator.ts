@@ -184,12 +184,36 @@ function emptyResult(insufficient: boolean): VdotCalibrationResult {
  * VDOT = VO2 / %VO2max
  */
 export function vdotFrom5kSec(t5kSec: number): number {
-  const vMperMin = 5000 / (t5kSec / 60);
+  return Math.round(vdotFromRace(5000, t5kSec));
+}
+
+/**
+ * Sprint 3.3 (B5): the same Daniels formula for any race distance, unrounded.
+ * The 3-km test feeds this.
+ */
+export function vdotFromRace(distanceM: number, sec: number): number {
+  const tMin = sec / 60;
+  const vMperMin = distanceM / tMin;
   const vo2 = -4.6 + 0.182258 * vMperMin + 0.000104 * vMperMin * vMperMin;
-  const tMin = t5kSec / 60;
   const pctVo2max =
     0.8 +
     0.1894393 * Math.exp(-0.012778 * tMin) +
     0.2989558 * Math.exp(-0.1932605 * tMin);
-  return Math.round(vo2 / pctVo2max);
+  return vo2 / pctVo2max;
+}
+
+/**
+ * Inverse of vdotFromRace: the race time (seconds) a given VDOT predicts for a
+ * distance. VDOT falls monotonically as the time grows, so a bisection over a
+ * generous bracket is exact enough (< 0.1 s) and needs no closed form.
+ */
+export function raceSecForVdot(distanceM: number, vdot: number): number {
+  let lo = (distanceM / 1000) * 120; // 2:00/km — faster than any VDOT in the table
+  let hi = (distanceM / 1000) * 900; // 15:00/km
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (vdotFromRace(distanceM, mid) > vdot) lo = mid;
+    else hi = mid;
+  }
+  return Math.round((lo + hi) / 2);
 }
