@@ -49,7 +49,7 @@ export function findWeekPlanForDate<T extends { startDate: Date; endDate: Date }
 }
 
 /** Pick the FIRST planned session for today. Kept for back-compat — prefer
- * `findAllTodaySessionsInPlan` so two-a-days (e.g. AM Easy + PM Strength) are
+ * `findAllTodaySessionsInPlan` so two-a-days (e.g. Strength + Easy Run) are
  * surfaced. */
 export function findTodaySessionInPlan(
   plannedSessionsJson: unknown,
@@ -59,9 +59,9 @@ export function findTodaySessionInPlan(
 }
 
 /**
- * All sessions scheduled for `today`, sorted with cardio AM before strength PM
- * (concurrent training rule: lift AFTER endurance to minimize interference).
- * See spec §9 / science_doc Kap 5 (Concurrent Training).
+ * All sessions scheduled for `today`, sorted strength before the run.
+ * Sprint 3.3: strength first, the run ≥3h later (Gao 2023, Markov 2021) — the
+ * old "cardio AM, strength PM" order is gone with the office-gym days.
  */
 export function findAllTodaySessionsInPlan(
   plannedSessionsJson: unknown,
@@ -81,12 +81,14 @@ export function findAllTodaySessionsInPlan(
   return matches.sort((a, b) => sessionSlotOrder(a) - sessionSlotOrder(b));
 }
 
-/** Stable ordering: rest first, then runs (AM), then strength (PM), then cross. */
+/** Stable ordering: rest first, then strength, then runs, then recovery/
+ *  prevention, then cross. Sprint 3.3: strength comes first on a combined day
+ *  (office gym at midday, the run ≥3h later — Gao 2023, Markov 2021). */
 function sessionSlotOrder(s: SessionPlan): number {
   const t = s.type;
   if (t === "rest") return 0;
-  if (t.endsWith("_run") || t === "calibration_run" || t === "long_run" || t === "vo2max_intervals" || t === "time_trial_5k") return 1;
-  if (t === "active_recovery" || t === "mobility") return 2;
-  if (t.startsWith("strength")) return 3;
+  if (t.startsWith("strength")) return 1;
+  if (t.endsWith("_run") || t === "calibration_run" || t === "long_run" || t === "vo2max_intervals" || t === "time_trial_5k") return 2;
+  if (t === "active_recovery" || t === "mobility") return 3;
   return 4;
 }

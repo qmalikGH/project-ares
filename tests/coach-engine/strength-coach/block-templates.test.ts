@@ -31,8 +31,9 @@ describe("BLOCK_TEMPLATES", () => {
     const findByName = (list: Exercise[], name: string) =>
       list.find((e) => e.name === name);
 
-    const b1HexA = findByName(BLOCK_TEMPLATES[1]!.strength_a, "Hex Bar Deadlift");
-    const b2HexA = findByName(BLOCK_TEMPLATES[2]!.strength_a, "Hex Bar Deadlift");
+    // Sprint 3.3: the conventional Deadlift replaced the hex bar.
+    const b1HexA = findByName(BLOCK_TEMPLATES[1]!.strength_a, "Deadlift");
+    const b2HexA = findByName(BLOCK_TEMPLATES[2]!.strength_a, "Deadlift");
     expect(b1HexA?.sets).toBe(b2HexA?.sets);
     expect(b1HexA?.reps).toBe(b2HexA?.reps);
     expect(b1HexA?.loadPct).toBe(b2HexA?.loadPct);
@@ -80,7 +81,7 @@ describe("getStrengthTemplate fallback (Sprint v1.4: walk-down)", () => {
   it("Block 1 always returns Block 1 (ultimate fallback)", () => {
     const b1 = getStrengthTemplate(1, "strength_a");
     expect(b1).toBeDefined();
-    expect(b1[0].name).toBe("Hex Bar Deadlift");
+    expect(b1.some((e) => e.name === "Deadlift")).toBe(true);
   });
 });
 
@@ -147,19 +148,19 @@ describe("fillAbsoluteLoads", () => {
 describe("generateWeekStrengthPlan integrates fillAbsoluteLoads", () => {
   const monday = new Date("2026-04-27T00:00:00.000Z");
 
-  it("Block 2 + 1RM map populates loadAbs on Hex Bar Deadlift", () => {
+  it("Block 2 + 1RM map populates loadAbs on the Deadlift", () => {
     const plan = generateWeekStrengthPlan(baseConfig(2), 5, monday, null, null, {
-      "Hex Bar Deadlift": 120,
+      Deadlift: 120,
     });
     const strA = plan.sessions.find((s) => s.type === "strength_a");
-    const hex = strA!.exercises!.find((e) => e.name === "Hex Bar Deadlift" && !e.isWarmup);
+    const hex = strA!.exercises!.find((e) => e.name === "Deadlift" && !e.isWarmup && !e.isBackoff);
     expect(hex?.loadAbs).toBe(97.5); // 120 × 0.82 = 98.4 → 97.5
   });
 
   it("stamps progressionMode on exercises (Sprint 2.1)", () => {
     const plan = generateWeekStrengthPlan(baseConfig(1), 1, monday);
     const strA = plan.sessions.find((s) => s.type === "strength_a")!;
-    const hex = strA.exercises!.find((e) => e.name === "Hex Bar Deadlift" && !e.isWarmup);
+    const hex = strA.exercises!.find((e) => e.name === "Deadlift" && !e.isWarmup);
     const face = strA.exercises!.find((e) => e.name === "Face Pulls");
     expect(hex?.progressionMode).toBe("training_max");
     expect(face?.progressionMode).toBe("rep_rpe");
@@ -174,11 +175,11 @@ describe("inter-block load progression (Sprint 2.1)", () => {
   it("Hex W1 loadAbs climbs when the Training Max increments", () => {
     const hexW1 = (tm: number): number => {
       const plan = generateWeekStrengthPlan(baseConfig(1), 1, monday, null, null, {
-        "Hex Bar Deadlift": tm,
+        Deadlift: tm,
       });
       const strA = plan.sessions.find((s) => s.type === "strength_a")!;
       const hex = strA.exercises!.find(
-        (e) => e.name === "Hex Bar Deadlift" && !e.isWarmup,
+        (e) => e.name === "Deadlift" && !e.isWarmup && !e.isBackoff,
       );
       return hex!.loadAbs!;
     };

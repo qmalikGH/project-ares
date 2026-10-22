@@ -63,8 +63,13 @@ export function buildBlockReviewInput(rows: BlockTrainingRows): BlockReviewInput
     else if (lastAvg < firstAvg - 0.5) kneeTrend = "improving";
   }
 
-  // Missed sessions — planned but not completed within the block
-  const missed = rows.workouts.filter((w) => w.status === "skipped" || w.status === "skipped_illness" || w.status === "planned").length;
+  // Missed sessions — planned but not completed within the block.
+  // Sprint 3.3 (A4): the home prevention routine is not a training session.
+  const missed = rows.workouts.filter(
+    (w) =>
+      w.type !== "mobility" &&
+      (w.status === "skipped" || w.status === "skipped_illness" || w.status === "planned"),
+  ).length;
 
   // Performance marker — block 1-4: VDOT proxy. Block 5: time trial result.
   const targetVdot = rows.performance.targetVdot ?? 0;

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/training/shared";
+import { DEADLIFT_CALIBRATION_HINT } from "@/lib/coach-engine/strength-coach";
 
 type NotifPrefs = {
   garminFailure: boolean;
@@ -1561,6 +1562,13 @@ function ExerciseMaxSection() {
                   </span>
                 )}
               </p>
+              {/* Sprint 3.3: no hex bar in the office gym — until this is set the
+                  plan uses 85 % of the Hex Bar TM as a stand-in. */}
+              {ex.name === "Deadlift" && ex.currentRM == null && (
+                <p className="basis-full text-right text-[11px] text-amber-300">
+                  {DEADLIFT_CALIBRATION_HINT} Bis dahin: 85 % des Hex-Bar-TM.
+                </p>
+              )}
             </li>
           ))}
         </ul>

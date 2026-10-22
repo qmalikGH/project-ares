@@ -21,7 +21,8 @@ function find(arr: Exercise[], name: string): Exercise | undefined {
 }
 
 describe("isHsrLift", () => {
-  it("recognizes Hex Bar Deadlift and RDL variants", () => {
+  it("recognizes Deadlift, Hex Bar Deadlift and RDL variants", () => {
+    expect(isHsrLift("Deadlift")).toBe(true);
     expect(isHsrLift("Hex Bar Deadlift")).toBe(true);
     expect(isHsrLift("Romanian Deadlift")).toBe(true);
     expect(isHsrLift("RDL")).toBe(true);
@@ -94,70 +95,63 @@ describe("applySupersetPairing — order assignment", () => {
   });
 });
 
-describe("applySupersetPairing — Block 1 templates (Sprint v1.5: now uses pairings)", () => {
-  it("StrA: DB Shoulder Press + Face Pulls paired as A1 (Sprint v1.7)", () => {
+describe("applySupersetPairing — Block 1 templates (Sprint 3.3: Kraft C merged into A/B)", () => {
+  it("StrA: Bench Press + Lat Pulldown (A1), DB Shoulder Press + Face Pulls (A2)", () => {
     const result = applySupersetPairing(BLOCK_TEMPLATES[1]!.strength_a, 1, "strength_a");
-    expect(find(result, "DB Shoulder Press")?.supersetGroup).toBe("A1");
-    expect(find(result, "Face Pulls")?.supersetGroup).toBe("A1");
+    expect(find(result, "Bench Press")?.supersetGroup).toBe("A1");
+    expect(find(result, "Lat Pulldown")?.supersetGroup).toBe("A1");
+    expect(find(result, "DB Shoulder Press")?.supersetGroup).toBe("A2");
+    expect(find(result, "Face Pulls")?.supersetGroup).toBe("A2");
   });
 
-  it("StrA: BSS + DB Row paired as A3 (new Quad+Back superset)", () => {
+  it("StrA: BSS + DB Row paired as A3 (Quad+Back superset)", () => {
     const result = applySupersetPairing(BLOCK_TEMPLATES[1]!.strength_a, 1, "strength_a");
     expect(find(result, "Bulgarian Split Squat")?.supersetGroup).toBe("A3");
     expect(find(result, "DB Row")?.supersetGroup).toBe("A3");
   });
 
-  it("StrB: Goblet Squat + Seated Cable Row paired as B2", () => {
+  it("StrB: C's press + row (B1), Goblet Squat + Cable Row + Triceps (B3)", () => {
     const result = applySupersetPairing(BLOCK_TEMPLATES[1]!.strength_b, 1, "strength_b");
-    expect(find(result, "Goblet Squat")?.supersetGroup).toBe("B2");
-    expect(find(result, "Seated Cable Row")?.supersetGroup).toBe("B2");
+    expect(find(result, "DB Bench Press")?.supersetGroup).toBe("B1");
+    expect(find(result, "Goblet Squat")?.supersetGroup).toBe("B3");
+    expect(find(result, "Seated Cable Row")?.supersetGroup).toBe("B3");
+    expect(find(result, "Cable Triceps Pushdown")?.supersetGroup).toBe("B3");
   });
 
-  it("StrC: DB Row + Broad Jumps + Lat Pulldown paired as C1 (Sprint v1.7: Lat Pulldown re-homed, C3 removed)", () => {
-    const result = applySupersetPairing(BLOCK_TEMPLATES[1]!.strength_c, 1, "strength_c");
-    expect(find(result, "DB Row")?.supersetGroup).toBe("C1");
-    expect(find(result, "Broad Jumps")?.supersetGroup).toBe("C1");
-    expect(find(result, "Lat Pulldown")?.supersetGroup).toBe("C1");
-    // Walking Lunge removed in the quad cut.
-    expect(find(result, "Walking Lunge")).toBeUndefined();
-  });
-
-  it("Hex Bar Deadlift NOT paired in any Block 1 session", () => {
-    for (const slot of ["strength_a", "strength_c"] as const) {
-      const result = applySupersetPairing(
-        BLOCK_TEMPLATES[1]![slot],
-        1,
-        slot,
-      );
-      const hex = find(result, "Hex Bar Deadlift");
-      expect(hex?.supersetGroup ?? null).toBe(null);
-      expect(hex?.restSec).toBe(180);
+  it("Deadlift (top + back-off) and RDL NOT paired in any Block 1 session", () => {
+    for (const slot of ["strength_a", "strength_b"] as const) {
+      const result = applySupersetPairing(BLOCK_TEMPLATES[1]![slot], 1, slot);
+      for (const ex of result.filter((e) => e.name === "Deadlift" || e.name === "Romanian Deadlift")) {
+        expect(ex.supersetGroup ?? null).toBe(null);
+        expect(ex.restSec).toBe(180);
+      }
     }
   });
 });
 
-describe("applySupersetPairing — Block 3 templates (maintenance)", () => {
-  it("StrA: Step-ups + Face Pulls (A1), Goblet Squat + Cable Row (A3)", () => {
+describe("applySupersetPairing — Block 3 templates (coach example #21)", () => {
+  it("StrA: Bench + Chin-ups (A1), Step-ups + Face Pulls + Lateral Raises (A2), Goblet + Cable Row (A3)", () => {
     const result = applySupersetPairing(BLOCK_TEMPLATES[3]!.strength_a, 3, "strength_a");
-    expect(find(result, "Step-ups")?.supersetGroup).toBe("A1");
-    expect(find(result, "Face Pulls")?.supersetGroup).toBe("A1");
+    expect(find(result, "Bench Press")?.supersetGroup).toBe("A1");
+    expect(find(result, "Chin-ups")?.supersetGroup).toBe("A1");
+    expect(find(result, "Step-ups")?.supersetGroup).toBe("A2");
+    expect(find(result, "Face Pulls")?.supersetGroup).toBe("A2");
+    expect(find(result, "Lateral Raises")?.supersetGroup).toBe("A2");
     expect(find(result, "Goblet Squat")?.supersetGroup).toBe("A3");
     expect(find(result, "Seated Cable Row")?.supersetGroup).toBe("A3");
   });
 
-  it("StrB: Nordic Curls + Face Pulls (B1), BSS + Lat Pulldown (B2)", () => {
+  it("StrB: DB Bench + DB Row (B1), BSS + Pull-ups (B2), Lunge + Pulldown + Triceps (B3), Nordic + Face Pulls + Press (B4)", () => {
     const result = applySupersetPairing(BLOCK_TEMPLATES[3]!.strength_b, 3, "strength_b");
-    expect(find(result, "Nordic Curls")?.supersetGroup).toBe("B1");
+    expect(find(result, "DB Bench Press")?.supersetGroup).toBe("B1");
+    expect(find(result, "DB Row")?.supersetGroup).toBe("B1");
     expect(find(result, "Bulgarian Split Squat")?.supersetGroup).toBe("B2");
-    expect(find(result, "Lat Pulldown")?.supersetGroup).toBe("B2");
-  });
-
-  it("StrC: DB Row + Box Jumps (C1), Walking Lunge + Chin-ups (C3)", () => {
-    const result = applySupersetPairing(BLOCK_TEMPLATES[3]!.strength_c, 3, "strength_c");
-    expect(find(result, "DB Row")?.supersetGroup).toBe("C1");
-    expect(find(result, "Box Jumps")?.supersetGroup).toBe("C1");
-    expect(find(result, "Walking Lunge")?.supersetGroup).toBe("C3");
-    expect(find(result, "Chin-ups")?.supersetGroup).toBe("C3");
+    expect(find(result, "Pull-ups")?.supersetGroup).toBe("B2");
+    expect(find(result, "Walking Lunge")?.supersetGroup).toBe("B3");
+    expect(find(result, "Lat Pulldown")?.supersetGroup).toBe("B3");
+    expect(find(result, "Cable Triceps Pushdown")?.supersetGroup).toBe("B3");
+    expect(find(result, "Nordic Curls")?.supersetGroup).toBe("B4");
+    expect(find(result, "DB Shoulder Press")?.supersetGroup).toBe("B4");
   });
 });
 
@@ -166,14 +160,14 @@ describe("applySupersetPairing — Block 5 falls back to Block 4 templates", () 
     // Block 5 has no template — getStrengthTemplate walks down to Block 4.
     // applySupersetPairing applied to Block 4 template still pairs.
     const result = applySupersetPairing(BLOCK_TEMPLATES[4]!.strength_a, 5, "strength_a");
-    expect(find(result, "Bulgarian Split Squat")?.supersetGroup).toBe("A1");
-    expect(find(result, "Band Pull-Aparts")?.supersetGroup).toBe("A1");
+    expect(find(result, "Bulgarian Split Squat")?.supersetGroup).toBe("A2");
+    expect(find(result, "Band Pull-Aparts")?.supersetGroup).toBe("A2");
   });
 
   it("HSR still guarded in Block 5", () => {
     const result = applySupersetPairing(BLOCK_TEMPLATES[4]!.strength_a, 5, "strength_a");
-    const hex = find(result, "Hex Bar Deadlift");
-    expect(hex?.supersetGroup ?? null).toBe(null);
+    const dl = find(result, "Deadlift");
+    expect(dl?.supersetGroup ?? null).toBe(null);
   });
 });
 

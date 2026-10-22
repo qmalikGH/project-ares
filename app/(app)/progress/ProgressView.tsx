@@ -547,6 +547,7 @@ function WeightChart() {
 
 // Main compound lifts to show ×BW for
 const XBWLIFTS: { key: string; label: string }[] = [
+  { key: "Deadlift", label: "Deadlift" },
   { key: "Hex Bar Deadlift", label: "Hex Bar DL" },
   { key: "Bench Press", label: "Bench" },
   { key: "Conventional Deadlift", label: "Conv. DL" },

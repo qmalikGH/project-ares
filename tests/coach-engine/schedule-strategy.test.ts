@@ -23,6 +23,9 @@ function dayIndex(date: Date): number {
   return Math.round((date.getTime() - MONDAY.getTime()) / 86400000);
 }
 
+// Sprint 3.3 (A1): four training days — Mon A + easy, Tue quality, Thu B +
+// easy, Sat long; Wed, Fri, Sun forced rest. The run coach still makes three
+// easy runs; the third one has no day and is merged into the other two.
 describe("planWeekSchedule — Q's default pattern", () => {
   const runs = [
     s("easy_run"),
@@ -31,7 +34,7 @@ describe("planWeekSchedule — Q's default pattern", () => {
     s("easy_run"),
     s("long_run", { durationMin: 60 }),
   ];
-  const strengths = [s("strength_a"), s("strength_b"), s("strength_c")];
+  const strengths = [s("strength_a"), s("strength_b")];
 
   const result = planWeekSchedule(runs, strengths, MONDAY, Q_DEFAULT_CONSTRAINTS);
   const byDay: Record<number, SessionPlan[]> = {};
@@ -41,10 +44,9 @@ describe("planWeekSchedule — Q's default pattern", () => {
     byDay[d].push(sess);
   }
 
-  it("Mon = Easy + Strength A (cardio AM, strength PM)", () => {
+  it("Mon = Strength A, then Easy (strength first, ≥3h gap)", () => {
     const types = byDay[0]?.map((s) => s.type) ?? [];
-    expect(types).toContain("easy_run");
-    expect(types).toContain("strength_a");
+    expect(types).toEqual(["strength_a", "easy_run"]);
   });
 
   it("Tue = Quality run alone (no strength)", () => {
@@ -58,16 +60,20 @@ describe("planWeekSchedule — Q's default pattern", () => {
     expect(types).toEqual(["rest"]);
   });
 
-  it("Thu = Easy + Strength B", () => {
+  it("Thu = Strength B, then Easy", () => {
     const types = byDay[3]?.map((s) => s.type) ?? [];
-    expect(types).toContain("easy_run");
-    expect(types).toContain("strength_b");
+    expect(types).toEqual(["strength_b", "easy_run"]);
   });
 
-  it("Fri = Easy + Strength C", () => {
+  it("Fri = REST (forced)", () => {
     const types = byDay[4]?.map((s) => s.type) ?? [];
-    expect(types).toContain("easy_run");
-    expect(types).toContain("strength_c");
+    expect(types).toEqual(["rest"]);
+  });
+
+  it("the third easy run is merged, not dropped: the week keeps its easy minutes", () => {
+    const easy = result.filter((x) => x.type === "easy_run");
+    expect(easy).toHaveLength(2);
+    expect(easy.reduce((n, x) => n + (x.durationMin ?? 0), 0)).toBe(90);
   });
 
   it("Sat = Long run alone", () => {
@@ -100,7 +106,7 @@ describe("planWeekSchedule — date stamps + ordering", () => {
   it("flattened result is sorted Mon → Sun", () => {
     const result = planWeekSchedule(
       [s("easy_run"), s("easy_run"), s("threshold_run"), s("long_run")],
-      [s("strength_a"), s("strength_b"), s("strength_c")],
+      [s("strength_a"), s("strength_b")],
       MONDAY,
       Q_DEFAULT_CONSTRAINTS,
     );
@@ -149,14 +155,13 @@ describe("planWeekSchedule — forced-rest edge cases", () => {
     };
     const result = planWeekSchedule(
       [s("easy_run"), s("easy_run")],
-      [s("strength_a"), s("strength_b"), s("strength_c")],
+      [s("strength_a"), s("strength_b")],
       MONDAY,
       constraints,
     );
     expect(result.some((r) => r.type === "strength_b")).toBe(false);
-    // strength_a still on Mon, strength_c still on Fri
+    // strength_a still on Mon
     expect(result.some((r) => r.type === "strength_a")).toBe(true);
-    expect(result.some((r) => r.type === "strength_c")).toBe(true);
   });
 });
 
@@ -176,18 +181,66 @@ describe("planWeekSchedule — minimal mode (1 strength)", () => {
 });
 
 describe("planWeekSchedule — extra easy runs", () => {
-  it("places excess easy runs on free non-strength days", () => {
-    // 6 easy runs but only 3 strength-paired slots → 3 extras need placement.
+  it("places excess easy runs on free non-strength days first", () => {
+    // Only Sun forced rest: Tue, Wed, Fri, Sat are free for the extras.
     const easies = Array.from({ length: 6 }, () => s("easy_run"));
     const result = planWeekSchedule(
       easies,
-      [s("strength_a"), s("strength_b"), s("strength_c")],
+      [s("strength_a"), s("strength_b")],
       MONDAY,
-      Q_DEFAULT_CONSTRAINTS,
+      { ...Q_DEFAULT_CONSTRAINTS, forcedRestDays: new Set([6]) },
     );
-    // At minimum, we should see more easy runs on the schedule than strength days.
-    const easyCount = result.filter((r) => r.type === "easy_run").length;
-    expect(easyCount).toBeGreaterThanOrEqual(3); // paired with each strength day
+    expect(result.filter((r) => r.type === "easy_run")).toHaveLength(6);
+  });
+
+  // Sprint 3.3: they used to be dropped in silence.
+  it("merges what finds no day into the placed easy runs", () => {
+    const easies = [
+      s("easy_run", { durationMin: 35 }), s("easy_run", { durationMin: 30 }), s("easy_run", { durationMin: 35 }),
+      s("threshold_run"), s("long_run"),
+    ];
+    const result = planWeekSchedule(easies, [s("strength_a"), s("strength_b")], MONDAY, Q_DEFAULT_CONSTRAINTS);
+    expect(result.filter((r) => r.type === "easy_run").map((r) => r.durationMin)).toEqual([50, 50]);
+  });
+
+  it("the B1 cap wins over the merged minutes", () => {
+    const easies = [
+      s("easy_run", { durationMin: 35 }), s("easy_run", { durationMin: 30 }), s("easy_run", { durationMin: 35 }),
+      s("threshold_run"), s("long_run"),
+    ];
+    const result = planWeekSchedule(easies, [s("strength_a"), s("strength_b")], MONDAY, Q_DEFAULT_CONSTRAINTS, {
+      maxRunMin: 33,
+    });
+    expect(result.filter((r) => r.type === "easy_run").map((r) => r.durationMin)).toEqual([33, 33]);
+  });
+});
+
+describe("planWeekSchedule — home prevention (A4)", () => {
+  const names = ["Tibialis Anterior Raises", "Short Foot Exercise", "Single-Leg Calf Raises"];
+  const result = planWeekSchedule([s("easy_run")], [s("strength_a")], MONDAY, Q_DEFAULT_CONSTRAINTS, {
+    preventionExercises: names,
+  });
+
+  it("goes on every forced rest day (Wed, Fri, Sun), next to the rest marker", () => {
+    for (const d of [2, 4, 6]) {
+      expect(result.filter((x) => dayIndex(x.date) === d).map((x) => x.type)).toEqual(["rest", "mobility"]);
+    }
+    expect(result.filter((x) => x.type === "mobility")).toHaveLength(3);
+  });
+
+  it("carries the prescribed exercises, ~10 min", () => {
+    const m = result.find((x) => x.type === "mobility")!;
+    expect(m.durationMin).toBe(10);
+    expect(m.exercises?.map((e) => `${e.name} ${e.sets}×${e.reps}`)).toEqual([
+      "Tibialis Anterior Raises 3×15",
+      "Short Foot Exercise 3×30sec hold",
+      "Single-Leg Calf Raises 3×12/leg",
+    ]);
+  });
+
+  it("no prevention list → no session", () => {
+    const plain = planWeekSchedule([s("easy_run")], [], MONDAY, Q_DEFAULT_CONSTRAINTS);
+    expect(plain.some((x) => x.type === "mobility")).toBe(false);
   });
 });
 
@@ -227,22 +280,23 @@ describe("canMoveSession", () => {
     new Date(MONDAY.getTime() + n * 86400000);
 
   // Q's default week assembled by hand for predictable test fixtures.
-  // Mon: easy + strength_a, Tue: threshold, Wed: rest, Thu: easy + strength_b,
-  // Fri: easy + strength_c, Sat: long, Sun: rest.
+  // Sprint 3.3: Mon: strength_a + easy, Tue: threshold, Wed: rest, Thu:
+  // strength_b + easy, Fri: rest, Sat: long, Sun: rest.
   const defaultWeek: SessionPlan[] = [
-    s("easy_run", { date: offset(0) }),
     s("strength_a", { date: offset(0) }),
+    s("easy_run", { date: offset(0) }),
     s("threshold_run", { date: offset(1) }),
     s("rest", { date: offset(2), durationMin: 0 }),
-    s("easy_run", { date: offset(3) }),
     s("strength_b", { date: offset(3) }),
-    s("easy_run", { date: offset(4) }),
-    s("strength_c", { date: offset(4) }),
+    s("easy_run", { date: offset(3) }),
+    s("rest", { date: offset(4), durationMin: 0 }),
     s("long_run", { date: offset(5) }),
     s("rest", { date: offset(6), durationMin: 0 }),
   ];
 
-  it("allows moving Tue threshold to Thu (different group, slot free)", () => {
+  // Sprint 3.3: B carries RDL, split squats and Nordics — Thu is a lower-body
+  // strength day like Mon, so the 24h rule fires there too.
+  it("rejects moving Tue threshold to Thu (Strength B day, 24h rule)", () => {
     const r = canMoveSession({
       fromDate: offset(1),
       toDate: offset(3),
@@ -251,11 +305,21 @@ describe("canMoveSession", () => {
       weekSessions: defaultWeek,
       constraints: Q_DEFAULT_CONSTRAINTS,
     });
-    // Thu has 2 sessions already (easy + strength_b) → density cap blocks it.
-    // This documents that "slot free" actually means free; if the user wants
-    // density 3 they must skip first.
     expect(r.ok).toBe(false);
-    expect(r.reason).toMatch(/zwei Sessions/);
+    expect(r.reason).toMatch(/24h-Regel/);
+  });
+
+  it("rejects a move to Fri — a forced rest day since Sprint 3.3", () => {
+    const r = canMoveSession({
+      fromDate: offset(3),
+      toDate: offset(4),
+      sessionType: "easy_run",
+      weekStartMonday: MONDAY,
+      weekSessions: defaultWeek,
+      constraints: Q_DEFAULT_CONSTRAINTS,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/Pflicht-Ruhetag/);
   });
 
   it("rejects move when fromDate is outside the week", () => {
@@ -346,9 +410,9 @@ describe("canMoveSession", () => {
 
   it("rejects density >= 2 on the target day", () => {
     const r = canMoveSession({
-      fromDate: offset(1),
-      toDate: offset(3), // Thu has easy+strength_b (2 sessions)
-      sessionType: "threshold_run",
+      fromDate: offset(3),
+      toDate: offset(0), // Mon has strength_a + easy (2 sessions)
+      sessionType: "easy_run",
       weekStartMonday: MONDAY,
       weekSessions: defaultWeek,
       constraints: Q_DEFAULT_CONSTRAINTS,

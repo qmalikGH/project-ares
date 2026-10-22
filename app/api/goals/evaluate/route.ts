@@ -133,8 +133,10 @@ async function deriveEndValues(userId: string): Promise<GoalDimensions> {
 
   // Strength: latest estimated 1RM per key exercise
   const exerciseMap: Record<string, keyof GoalDimensions> = {
+    // Sprint 3.3: hexBarDl is frozen at its last Hex Bar value; the
+    // conventional Deadlift feeds convDl (which RDL used to stand in for).
     "Hex Bar Deadlift": "hexBarDl",
-    "Romanian Deadlift": "convDl",
+    "Deadlift": "convDl",
     "Bench Press": "bench",
     "Incline DB Press": "bench", // fallback
     "Squat": "squat",

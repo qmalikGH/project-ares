@@ -38,6 +38,8 @@ interface PrescribedExercise {
   loadAbs: number | null;
   willLog: boolean;
   isTm: boolean;
+  /** Sprint 3.3: back-off sets after the top sets — same name as their lift. */
+  isBackoff?: boolean;
 }
 
 interface OpenSession {
@@ -77,6 +79,8 @@ interface Draft {
   shin: number | null;
   asPrescribed: boolean;
   skip: boolean;
+  /** Sprint 3.3: the home prevention routine is only ticked off. */
+  done: boolean;
   garminActivityId: number | null;
   minutes: string;
   testTime: string;
@@ -86,6 +90,7 @@ interface Draft {
 interface ConfirmResponse {
   attested: number;
   skipped: number;
+  done?: number;
   failed: number;
   results: Array<{ outcome: string; loadEstimated?: boolean }>;
   timeTrials?: Array<{ measured: number; status: string; newVdot: number | null; reason: string }>;
@@ -99,6 +104,7 @@ const EMPTY_DRAFT: Draft = {
   shin: null,
   asPrescribed: false,
   skip: false,
+  done: false,
   garminActivityId: null,
   minutes: "",
   testTime: "",
@@ -218,10 +224,14 @@ export default function ConfirmView() {
   const needsMinutes = (s: OpenSession) =>
     s.discipline === "run" && s.cohort === "planned" && drafts[s.id]?.garminActivityId == null;
 
+  /** Sprint 3.3 (A4): no RPE, no shin score — ticked off or missed. */
+  const isPrevention = (s: OpenSession) => s.type === "mobility";
+
   const ready = (s: OpenSession) => {
     const d = drafts[s.id];
     if (!d) return false;
     if (d.skip) return true;
+    if (isPrevention(s)) return d.done;
     if (d.rpe === null || d.shin === null) return false;
     if (needsMinutes(s) && parseIntField(d.minutes) == null) return false;
     if (s.testDistanceM != null && parseMmSsField(d.testTime) == null) return false;
@@ -230,7 +240,7 @@ export default function ConfirmView() {
 
   const pending = (sessions ?? []).filter((s) => {
     const d = drafts[s.id];
-    return d && (d.skip || d.rpe !== null || d.shin !== null);
+    return d && (d.skip || d.done || d.rpe !== null || d.shin !== null);
   });
   const canSubmit = pending.length > 0 && pending.every(ready);
 
@@ -241,6 +251,7 @@ export default function ConfirmView() {
       const items = pending.map((s) => {
         const d = drafts[s.id];
         if (d.skip) return { workoutId: s.id, action: "skip" as const };
+        if (isPrevention(s)) return { workoutId: s.id, action: "done" as const };
 
         const topSets = Object.entries(d.topSets)
           .map(([exercise, t]) => ({ exercise, weightKg: parseKgField(t.kg), reps: parseIntField(t.reps) }))
@@ -306,6 +317,7 @@ export default function ConfirmView() {
           <p className="font-medium text-emerald-300">
             {result.attested} bestätigt
             {result.skipped > 0 ? `, ${result.skipped} als ausgefallen markiert` : ""}
+            {result.done ? `, ${result.done}× Prävention abgehakt` : ""}
             {result.failed > 0 ? `, ${result.failed} nicht möglich` : ""}
           </p>
           {estimatedCount > 0 && (
@@ -476,22 +488,52 @@ export default function ConfirmView() {
                     </label>
                   )}
 
-                  <NumberSelector
-                    label="Anstrengung (RPE)"
-                    hint="1 = locker · 10 = maximal"
-                    value={d?.rpe ?? null}
-                    onChange={(v) => patch(s.id, { rpe: v })}
-                    highIsGood={false}
-                  />
-                  <NumberSelector
-                    label="Schienbein danach (NRS)"
-                    hint="0 = keine · ≤3 grün · 4–5 halten · >5 zurücknehmen"
-                    value={d?.shin ?? null}
-                    onChange={(v) => patch(s.id, { shin: v })}
-                    highIsGood={false}
-                    min={0}
-                    thresholds={SHIN_THRESHOLDS}
-                  />
+                  {isPrevention(s) ? (
+                    // Sprint 3.3 (A4): ticked off, never rated — a shin score from
+                    // ten minutes at home is not evidence about the shin under load.
+                    <div className="flex flex-col gap-2">
+                      <ul className="flex flex-col gap-1">
+                        {(s.prescribed?.exercises ?? []).map((ex, i) => (
+                          <li key={`${ex.name}-${i}`} className="flex items-baseline justify-between text-xs text-[var(--text-secondary)]">
+                            <span>{ex.name}</span>
+                            <span className="num">{ex.sets}×{ex.reps}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <button
+                        type="button"
+                        aria-pressed={d?.done ?? false}
+                        onClick={() => patch(s.id, { done: !d?.done })}
+                        className={cn(
+                          "w-full rounded-md border px-3 py-2 text-sm font-medium transition-colors",
+                          d?.done
+                            ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
+                            : "border-[var(--border-subtle)] bg-white/[0.04] text-[var(--text-tertiary)]",
+                        )}
+                      >
+                        {d?.done ? "✓ Gemacht" : "Gemacht?"}
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <NumberSelector
+                        label="Anstrengung (RPE)"
+                        hint="1 = locker · 10 = maximal"
+                        value={d?.rpe ?? null}
+                        onChange={(v) => patch(s.id, { rpe: v })}
+                        highIsGood={false}
+                      />
+                      <NumberSelector
+                        label="Schienbein danach (NRS)"
+                        hint="0 = keine · ≤3 grün · 4–5 halten · >5 zurücknehmen"
+                        value={d?.shin ?? null}
+                        onChange={(v) => patch(s.id, { shin: v })}
+                        highIsGood={false}
+                        min={0}
+                        thresholds={SHIN_THRESHOLDS}
+                      />
+                    </>
+                  )}
 
                   {s.discipline === "strength" && s.prescribed && (
                     <div className="flex flex-col gap-3">
@@ -550,15 +592,18 @@ export default function ConfirmView() {
                           {d?.asPrescribed ? "✓ Rest wie vorgegeben gemacht" : "Rest wie vorgegeben gemacht?"}
                         </button>
                         <ul className="flex flex-col gap-1">
-                          {restLoggable.map((ex) => (
+                          {restLoggable.map((ex, i) => (
                             <li
-                              key={ex.name}
+                              key={`${ex.name}-${i}`}
                               className={cn(
                                 "flex items-baseline justify-between text-xs",
                                 ex.willLog ? "text-[var(--text-secondary)]" : "text-[var(--text-tertiary)]",
                               )}
                             >
-                              <span className={cn(!ex.willLog && "opacity-60")}>{ex.name}</span>
+                              <span className={cn(!ex.willLog && "opacity-60")}>
+                                {ex.name}
+                                {ex.isBackoff ? " (Back-off)" : ""}
+                              </span>
                               <span className="num">
                                 {ex.sets}×{ex.reps}
                                 {ex.loadAbs ? ` @ ${ex.loadAbs} kg` : ""}

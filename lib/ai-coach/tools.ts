@@ -20,7 +20,7 @@ export const COACH_TOOLS: Anthropic.Tool[] = [
   {
     name: "substitute_exercise",
     description:
-      "Ersetze eine Übung im zukünftigen Trainingsplan durch eine biomechanisch äquivalente Alternative. Nutze dies wenn der User Schmerzen bei einer Übung hat oder Equipment nicht verfügbar ist. WICHTIG: HSR-Lifts (Hex Bar Deadlift, Romanian Deadlift) sind tendon-protokoll-geschützt (Kongsgaard 2009) und können NICHT ersetzt werden — bei Knie-Beschwerden mit diesen Lifts stattdessen set_therapy_phase nutzen.",
+      "Ersetze eine Übung im zukünftigen Trainingsplan durch eine biomechanisch äquivalente Alternative. Nutze dies wenn der User Schmerzen bei einer Übung hat oder Equipment nicht verfügbar ist. WICHTIG: HSR-Lifts (Deadlift, Romanian Deadlift) sind tendon-protokoll-geschützt (Kongsgaard 2009) und können NICHT ersetzt werden — bei Knie-Beschwerden mit diesen Lifts stattdessen set_therapy_phase nutzen.",
     input_schema: {
       type: "object",
       properties: {

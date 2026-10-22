@@ -33,6 +33,7 @@ type MovementGroup = "lower_body" | "upper_push" | "upper_pull" | "full_body" | 
 
 const EXERCISE_MOVEMENT_GROUP: Record<string, MovementGroup> = {
   // Lower Body — hip hinge, knee dominant, glutes, calves, carries
+  "Deadlift": "lower_body",         // Sprint 3.3 — the back-off entry rides on this group
   "Hex Bar Deadlift": "lower_body",
   "Romanian Deadlift": "lower_body",
   "Conventional Deadlift": "lower_body",

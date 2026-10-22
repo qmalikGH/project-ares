@@ -21,16 +21,19 @@
 //   - Lundberg 2022 (15 SR+MA): type-I-fiber hypertrophy negative when
 //     aerobic = running (relevant for Q).
 //
-// Default Q pattern derived from these:
-//   Mon: Easy Run + Strength A (HSR Hex Bar Deadlift)
-//   Tue: Quality Run alone (24h before lower-body strength)
-//   Wed: REST (forced — office day)
-//   Thu: Easy Run + Strength B (Upper + Hip)
-//   Fri: Easy Run + Strength C (Mixed + Plyo)
+// Default Q pattern derived from these (Sprint 3.3: four training days):
+//   Mon: Strength A (HSR Deadlift) + Easy Run — strength first, ≥3h gap
+//   Tue: Quality Run alone (24h after lower-body strength)
+//   Wed: REST (forced) + home prevention
+//   Thu: Strength B + Easy Run — strength first, ≥3h gap
+//   Fri: REST (forced) + home prevention
 //   Sat: Long Run alone (fresh legs)
-//   Sun: REST (forced)
+//   Sun: REST (forced) + home prevention
+// Strength runs in the office gym at midday on the office days (Mon/Thu), the
+// run is the way home in the evening — Gao 2023 / Markov 2021 order.
 
 import type { SessionPlan, SessionType } from "./types";
+import { buildPreventionSession } from "./prevention";
 
 export interface WeekScheduleConstraints {
   /** 0 = Mon, 1 = Tue, ..., 6 = Sun. Sessions placed on these days are dropped/replaced with rest. */
@@ -41,30 +44,43 @@ export interface WeekScheduleConstraints {
   morningOnly: boolean;
 }
 
-/** Q's default constraints — Wed (office) + Sun (recovery) forced rest, Sat long run. */
+/** Q's default constraints — Wed, Fri, Sun forced rest (Sprint 3.3), Sat long run. */
 export const Q_DEFAULT_CONSTRAINTS: WeekScheduleConstraints = {
-  forcedRestDays: new Set([2, 6]),
+  forcedRestDays: new Set([2, 4, 6]),
   preferredLongRunDay: 5,
   morningOnly: false,
 };
 
+/** Sprint 3.3: per-week inputs the placement needs besides the constraints. */
+export interface WeekScheduleOptions {
+  /**
+   * B1 single-session cap for this week. Easy minutes that are merged into
+   * the remaining easy runs never push one past it — the cap wins.
+   */
+  maxRunMin?: number;
+  /** A4: UserSettings.preventionExercises; a home routine on every forced rest day. */
+  preventionExercises?: readonly string[];
+}
+
 /**
  * Re-place sessions into the week per constraints + concurrent-training rules.
  *
- * Strength → fixed slots (A=Mon, B=Thu, C=Fri) when those days are training days.
+ * Strength → fixed slots (A=Mon, B=Thu) when those days are training days.
  * If a target day is in `forcedRestDays`, that strength session is DROPPED for
  * the week (we don't quietly shift it into another day — that would silently
  * over-load whatever day picks it up, and Q sees the gap explicitly).
  *
- * Quality run → Tue alone (24h gap to next lower-body strength).
+ * Quality run → Tue alone (24h after lower-body strength).
  * Long run → preferredLongRunDay alone.
- * Easy runs → paired with strength days (cardio AM + strength PM, ≥3h gap).
- * Excess easy runs that don't fit a strength-day slot are dropped — the run-
- * coach already generates the right COUNT, so this only happens for unusual
- * constraint configurations.
+ * Easy runs → paired with strength days, strength FIRST (≥3h gap).
+ * Sprint 3.3: easy runs that find no day used to be dropped in silence. With
+ * four training days that is the normal case (three easy runs, two strength
+ * days), so their minutes are now spread over the placed easy runs — the week
+ * keeps its easy minutes, up to the B1 cap (`opts.maxRunMin`), which wins.
  *
  * Forced-rest days get an explicit `rest` SessionPlan entry so the day is
- * visible in the week view.
+ * visible in the week view, and — Sprint 3.3 (A4) — the home prevention
+ * routine next to it. The marker never displaces it.
  *
  * Pure — does not mutate inputs; returns a new array sorted Mon→Sun.
  */
@@ -73,17 +89,17 @@ export function planWeekSchedule(
   strengthSessions: SessionPlan[],
   weekStartMonday: Date,
   constraints: WeekScheduleConstraints,
+  opts: WeekScheduleOptions = {},
 ): SessionPlan[] {
   const days: SessionPlan[][] = Array.from({ length: 7 }, () => []);
 
-  // 1. Place forced rest days (visible markers).
+  // 1. Place forced rest days (visible markers) + the home prevention routine.
   for (const restDay of constraints.forcedRestDays) {
     if (restDay < 0 || restDay > 6) continue;
-    days[restDay].push({
-      date: dateAtOffset(weekStartMonday, restDay),
-      type: "rest",
-      durationMin: 0,
-    });
+    const date = dateAtOffset(weekStartMonday, restDay);
+    days[restDay].push({ date, type: "rest", durationMin: 0 });
+    const prevention = buildPreventionSession(date, opts.preventionExercises ?? []);
+    if (prevention) days[restDay].push(prevention);
   }
 
   // 2. Sort runs by priority (long → quality → easy).
@@ -122,16 +138,17 @@ export function planWeekSchedule(
     });
   }
 
-  // 5. Strength placement: A=Mon(0), B=Thu(3), C=Fri(4). Each strength day
-  // also gets a paired easy run (cardio AM, strength PM, ≥3h gap).
+  // 5. Strength placement: A=Mon(0), B=Thu(3). Each strength day also gets a
+  // paired easy run — strength first, the run ≥3h later (Gao 2023, Markov
+  // 2021). strength_c is no longer generated; it keeps no slot.
   const strengthDayMap: Record<string, number> = {
     strength_a: 0,
     strength_b: 3,
-    strength_c: 4,
   };
 
   const strengthSorted = sortStrengthByOrder(strengthSessions);
   const easyQueue = [...easyRuns];
+  const placedEasy: SessionPlan[] = [];
 
   for (const str of strengthSorted) {
     const targetDay = strengthDayMap[str.type];
@@ -144,13 +161,12 @@ export function planWeekSchedule(
       date: dateAtOffset(weekStartMonday, targetDay),
     });
 
-    // Pair an easy run on the same day, ahead of the strength block.
+    // Pair an easy run on the same day, after the strength block.
     const pairedEasy = easyQueue.shift();
     if (pairedEasy) {
-      days[targetDay].unshift({
-        ...pairedEasy,
-        date: dateAtOffset(weekStartMonday, targetDay),
-      });
+      const placed = { ...pairedEasy, date: dateAtOffset(weekStartMonday, targetDay) };
+      days[targetDay].push(placed);
+      placedEasy.push(placed);
     }
   }
 
@@ -166,8 +182,23 @@ export function planWeekSchedule(
       if (hasNonRest) continue;
       const next = easyQueue.shift();
       if (!next) break;
-      days[d].push({ ...next, date: dateAtOffset(weekStartMonday, d) });
+      const placed = { ...next, date: dateAtOffset(weekStartMonday, d) };
+      days[d].push(placed);
+      placedEasy.push(placed);
     }
+  }
+
+  // 6a. Sprint 3.3: whatever still has no day is merged, not dropped. The
+  // week's easy minutes are spread evenly over the placed easy runs, each one
+  // capped at opts.maxRunMin.
+  if (easyQueue.length > 0 && placedEasy.length > 0) {
+    const total = [...placedEasy, ...easyQueue].reduce((n, s) => n + (s.durationMin ?? 0), 0);
+    const cap = opts.maxRunMin ?? Infinity;
+    placedEasy.forEach((s, i) => {
+      const share = Math.floor(total / placedEasy.length) + (i < total % placedEasy.length ? 1 : 0);
+      s.durationMin = Math.min(cap, share);
+    });
+    easyQueue.length = 0;
   }
 
   // 6b. Sprint v0.13: Strip pre-run activation from S+E days. The strength
@@ -269,6 +300,9 @@ const QUALITY_RUN_TYPES: ReadonlySet<SessionType> = new Set([
   "time_trial_5k",
 ]);
 
+/** Sprint 3.3: Mon = Strength A, Thu = Strength B. */
+const STRENGTH_DAYS: ReadonlySet<number> = new Set([0, 3]);
+
 const STRENGTH_TYPES: ReadonlySet<SessionType> = new Set([
   "strength_a",
   "strength_b",
@@ -311,8 +345,10 @@ function dayOffsetWithinWeek(date: Date, weekStartMonday: Date): number {
  *   1. Trivial: from === to → no-op.
  *   2. Both dates must lie within [weekStartMonday, +7d).
  *   3. toDate cannot be in `constraints.forcedRestDays`.
- *   4. Quality runs cannot land on Mon (Strength A slot) — violates the
- *      24h-gap-to-lower-body-strength rule (Casado 2022, Schumann 2021).
+ *   4. Quality runs cannot land on a strength day (Mon A, Thu B) — violates
+ *      the 24h-gap-to-lower-body-strength rule (Casado 2022, Schumann 2021).
+ *      Sprint 3.3: B carries RDL, split squats and Nordics since Kraft C was
+ *      merged into it, so Thu joined Mon.
  *   5. Strength sessions cannot land on a day that already has a different
  *      strength session (slot collision).
  *   6. Long-run slot is reserved on `preferredLongRunDay` if a long_run is
@@ -360,12 +396,12 @@ export function canMoveSession(input: CanMoveSessionInput): MoveValidationResult
     return offset === toOffset;
   });
 
-  // Quality-run gap rule: Mon is locked to Strength A → quality there
-  // breaks the 24h-gap-to-lower-body rule.
-  if (QUALITY_RUN_TYPES.has(sessionType) && toOffset === 0) {
+  // Quality-run gap rule: Mon (A) and Thu (B) carry lower-body strength →
+  // quality there breaks the 24h-gap-to-lower-body rule.
+  if (QUALITY_RUN_TYPES.has(sessionType) && STRENGTH_DAYS.has(toOffset)) {
     return {
       ok: false,
-      reason: "Quality-Run am Strength-A-Tag verletzt die 24h-Regel zu Lower-Body-Strength (Casado 2022, Schumann 2021).",
+      reason: "Quality-Run am Krafttag verletzt die 24h-Regel zu Lower-Body-Strength (Casado 2022, Schumann 2021).",
     };
   }
 
