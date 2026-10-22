@@ -96,7 +96,15 @@ export interface PeriodizationSection {
     startDate: string;
     endDate: string;
     totalWeeks: number;
+    /** Same as trainingWeek; kept for consumers that predate Sprint 3.3. */
     currentWeek: number;
+    /**
+     * Sprint 3.3 (C3): WeeklyPlan.weekNumber — the training week, renumbered
+     * by block resets and restarts. NOT the weeks since startDate.
+     */
+    trainingWeek: number;
+    /** Sprint 3.3 (C3): calendar weeks since the macrocycle's startDate (1-based). */
+    calendarWeek: number;
     goalRace: string;
     goalTime: string | null;
     status: string;
@@ -126,6 +134,21 @@ export interface PerformanceMarkersSection {
   currentVDOT: number;
   hrMax: number | null;
   hrRest: number | null;
+  /**
+   * Sprint 3.3 (C4): where hrRest comes from — the RHR gate in the plan
+   * (resting HR > hrRest + 5 → threshold floor) is not traceable without it.
+   * "method" is UserSettings.hrZonesSource ("default" when never set).
+   * "samples"/"windowStart" are the live 28-day RHR window; when it has fewer
+   * than 7 usable values the recalibration keeps the old hrRest
+   * ("windowSufficient" false). "computedAt" is the last CHANGE of hrRest.
+   */
+  hrRestSource: {
+    method: string;
+    samples: number;
+    windowStart: string;
+    windowSufficient: boolean;
+    computedAt: string | null;
+  } | null;
   zones: HRZones | null;
   oneRMEstimates: Record<string, number>;
   /**
@@ -236,6 +259,10 @@ export interface ComplianceSummary {
   completed: number;
   skipped: number;
   complianceRate: number;
+  /** Sprint 3.3 (C2): sessions left out because they fell inside a layoff gap. */
+  excludedInLayoff?: number;
+  /** Sprint 3.3 (C2): from the week training resumed after the latest layoff. */
+  sinceRestart?: { restartWeekStart: string; completed: number; skipped: number; rate: number } | null;
 }
 
 export interface WeeklyRunVolume {

@@ -5,6 +5,9 @@ import { getEffectiveVdot } from "@/lib/db/queries/settings";
 import { ExecutedSessionSchema } from "@/lib/coach-engine/types";
 import type { PhaseConfig, SessionPlan } from "@/lib/coach-engine/types";
 import { DAY_TYPE_BY_WEEKDAY } from "@/lib/nutrition/day-type";
+import { detectLayoff, layoffGaps } from "@/lib/coach-engine/comeback";
+import { HR_CALIBRATION_WINDOW_DAYS, rollingRestingHr } from "@/lib/coach-engine/hr-calibration";
+import { NON_TRAINING_TYPES } from "@/lib/coach-engine/prevention";
 import { RECIPE_TEMPLATES } from "@/lib/nutrition/recipe-templates";
 import type {
   CoachingExport,
@@ -156,6 +159,8 @@ async function buildPeriodization(userId: string, today: Date): Promise<Periodiz
       endDate: formatDateStr(macro.endDate),
       totalWeeks: macro.totalWeeks,
       currentWeek: currentWeekPlan.weekNumber,
+      trainingWeek: currentWeekPlan.weekNumber,
+      calendarWeek: Math.floor((todayMs - dayKey(macro.startDate).getTime()) / (7 * 86400000)) + 1,
       goalRace: macro.goal.primaryType.replace("_time", ""),
       goalTime: goalTarget.time ?? null,
       status: macro.status,
@@ -195,6 +200,8 @@ async function buildPerformanceMarkers(userId: string): Promise<PerformanceMarke
       select: {
         hrMax: true,
         hrRest: true,
+        hrZonesSource: true,
+        hrZonesUpdatedAt: true,
         exerciseMaxEstimates: true,
         vdotOverrideAt: true,
         exerciseMaxUpdatedAt: true,
@@ -214,6 +221,7 @@ async function buildPerformanceMarkers(userId: string): Promise<PerformanceMarke
   }
 
   const now = new Date();
+  const hrRestSource = settings ? await buildHrRestSource(userId, settings, now) : null;
   const vdotAgeDays = ageInDays(settings?.vdotOverrideAt, now);
   const oneRMAgeDays = ageInDays(settings?.exerciseMaxUpdatedAt, now);
 
@@ -221,6 +229,7 @@ async function buildPerformanceMarkers(userId: string): Promise<PerformanceMarke
     currentVDOT: vdot,
     hrMax,
     hrRest,
+    hrRestSource,
     zones,
     oneRMEstimates: (settings?.exerciseMaxEstimates as Record<string, number> | null) ?? {},
     staleness: {
@@ -315,13 +324,56 @@ function getRunDistanceKm(actual: ActualSessionData | undefined): number | null 
   return null;
 }
 
+/** Sprint 3.3 (C4): provenance of hrRest, the live RHR window included. */
+async function buildHrRestSource(
+  userId: string,
+  settings: { hrZonesSource: string | null; hrZonesUpdatedAt: Date | null },
+  now: Date,
+): Promise<PerformanceMarkersSection["hrRestSource"]> {
+  const windowStart = new Date(now);
+  windowStart.setUTCDate(windowStart.getUTCDate() - HR_CALIBRATION_WINDOW_DAYS);
+  const rows = await db.dailySensorData.findMany({
+    where: { userId, date: { gte: windowStart } },
+    select: { garmin: true },
+  });
+  const rhr = rows.map((r) => (r.garmin as { rhr?: number } | null)?.rhr);
+  return {
+    method: settings.hrZonesSource ?? "default",
+    samples: rhr.filter((v) => typeof v === "number" && Number.isFinite(v)).length,
+    windowStart: formatDateStr(windowStart),
+    windowSufficient: rollingRestingHr(rhr) !== null,
+    computedAt: settings.hrZonesUpdatedAt?.toISOString() ?? null,
+  };
+}
+
 async function buildTrainingHistory(userId: string, today: Date): Promise<TrainingHistorySection> {
   const cutoff = new Date(today.getTime() - 28 * 86400000);
+  // Sprint 3.3 (C2): history ends today. Without the upper bound every future
+  // session of the plan was counted as "planned".
+  const todayKey = dayKey(today);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const workouts: any[] = await db.workout.findMany({
-    where: { userId, date: { gte: cutoff } },
+    where: { userId, date: { gte: cutoff, lte: todayKey } },
     orderBy: { date: "asc" },
   });
+
+  // Sprint 3.3 (C2): sessions planned inside a layoff gap are not "missed" —
+  // the same gaps the comeback ramp is built on.
+  const completedDates = await db.workout.findMany({
+    where: {
+      userId,
+      status: "completed",
+      date: { gte: new Date(todayKey.getTime() - 180 * 86400000), lte: todayKey },
+      NOT: { type: { in: [...NON_TRAINING_TYPES] } },
+    },
+    select: { date: true },
+  });
+  const dates = completedDates.map((w: { date: Date }) => w.date);
+  const gaps = layoffGaps(dates, todayKey);
+  const inGap = (d: Date) => gaps.some((g) => d >= g.from && d < g.to);
+  const layoff = detectLayoff(dates, todayKey, null);
+  let excludedInLayoff = 0;
+  const sinceRestart = { completed: 0, skipped: 0 };
 
   let plannedCount = 0;
   let completedCount = 0;
@@ -342,9 +394,15 @@ async function buildTrainingHistory(userId: string, today: Date): Promise<Traini
       if (w.status === "completed") entry.done++;
       preventionByWeek.set(key, entry);
     } else if (w.type !== "rest") {
-      if (w.status === "completed") completedCount++;
+      const missed = w.status !== "completed";
+      if (missed && inGap(w.date)) excludedInLayoff++;
+      else if (w.status === "completed") completedCount++;
       else if (w.status === "skipped" || w.status === "skipped_illness") skippedCount++;
       else plannedCount++;
+      if (layoff.restartWeekStart && w.date >= layoff.restartWeekStart) {
+        if (w.status === "completed") sinceRestart.completed++;
+        else if (w.status === "skipped" || w.status === "skipped_illness") sinceRestart.skipped++;
+      }
     }
 
     const weekKey = isoWeekKey(w.date);
@@ -409,6 +467,15 @@ async function buildTrainingHistory(userId: string, today: Date): Promise<Traini
       completed: completedCount,
       skipped: skippedCount,
       complianceRate: computeComplianceRate(completedCount, total),
+      excludedInLayoff,
+      sinceRestart: layoff.restartWeekStart
+        ? {
+            restartWeekStart: formatDateStr(layoff.restartWeekStart),
+            completed: sinceRestart.completed,
+            skipped: sinceRestart.skipped,
+            rate: computeComplianceRate(sinceRestart.completed, sinceRestart.completed + sinceRestart.skipped),
+          }
+        : null,
     },
     sessions,
     volumeTrends: {

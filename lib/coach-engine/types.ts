@@ -299,11 +299,13 @@ export type Trend7d = "stable" | "improving" | "declining";
 export interface ReadinessOutput {
   score: number; // 0-100
   band: ReadinessBand;
+  /** Sprint 3.3 (C1): a Garmin component the watch did not deliver is null —
+   *  it is left out of the score, not counted as 0. */
   components: {
-    hrv: number;
-    sleep: number;
-    battery: number;
-    rhrDev: number;
+    hrv: number | null;
+    sleep: number | null;
+    battery: number | null;
+    rhrDev: number | null;
     subjective: number;
     knee: number;
   };
