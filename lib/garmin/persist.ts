@@ -23,6 +23,7 @@ import { db } from "@/lib/db/client";
 import { userTodayForUser } from "@/lib/date";
 import { createNotificationIfNew } from "@/lib/notifications/create";
 import { classifyError, type SyncResult } from "./sync";
+import { refreshStoredReadiness } from "@/lib/db/queries/readiness-refresh";
 
 /** Cumulative, end-of-day columns. Meaningless before the day is over. */
 const DAY_TOTAL_COLUMNS = [
@@ -203,6 +204,14 @@ export async function persistGarminSync(input: {
         garminLastSyncAt: new Date(),
       },
     });
+  }
+
+  // Sprint 3.3 (C1): late Garmin data must reach the cached readiness too.
+  // Best-effort — a failure here must never cost the sync its write.
+  try {
+    await refreshStoredReadiness(userId, date);
+  } catch (e) {
+    console.warn("[garmin-persist] readiness refresh failed:", e);
   }
 
   return {

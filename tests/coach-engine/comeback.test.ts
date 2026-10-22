@@ -12,6 +12,7 @@ import {
   startOfIsoWeek,
   LAYOFF_MIN_GAP_DAYS,
   COMEBACK_RAMP_WEEKS,
+  layoffGaps,
 } from "@/lib/coach-engine/comeback";
 
 const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
@@ -136,5 +137,26 @@ describe("ramp shape", () => {
       expect(r.strengthLoadFactor).toBeLessThanOrEqual(1);
       expect(r.strengthSetFactor).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+// Sprint 3.3 (C2): the gaps the export leaves out of the compliance rate.
+describe("layoffGaps", () => {
+  const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+
+  it("a closed gap runs from the day after the last session to the first one back", () => {
+    expect(layoffGaps([d("2026-09-01"), d("2026-10-05"), d("2026-10-06")], d("2026-10-20"))).toEqual([
+      { from: d("2026-09-02"), to: d("2026-10-05") },
+    ]);
+  });
+
+  it("an open gap runs through today", () => {
+    expect(layoffGaps([d("2026-10-06")], d("2026-10-28"))).toEqual([
+      { from: d("2026-10-07"), to: d("2026-10-29") },
+    ]);
+  });
+
+  it("shorter breaks are no gap", () => {
+    expect(layoffGaps([d("2026-10-01"), d("2026-10-15")], d("2026-10-20"))).toEqual([]);
   });
 });

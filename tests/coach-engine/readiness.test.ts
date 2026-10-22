@@ -175,3 +175,66 @@ describe("computeBaselines", () => {
     expect(b.hrv28dSd).toBeGreaterThan(0);
   });
 });
+
+// Sprint 3.3 (C1): a morning with RHR and Body Battery only, HRV and sleep not
+// synced yet. Missing keys arrive as undefined, cleared fields as null — both
+// used to be scored (NaN → band RED, score serialized as null; null → 0).
+describe("computeReadiness — partial Garmin data (Sprint 3.3)", () => {
+  const partialUndefined = {
+    ...baseInputs,
+    garmin: { rhr: 52, bodyBatteryMorning: 80 } as unknown as DailySensorInputs["garmin"],
+  };
+  const partialNull = {
+    ...baseInputs,
+    garmin: { ...baseInputs.garmin!, hrvRmssd: null, sleepScore: null } as unknown as DailySensorInputs["garmin"],
+  };
+
+  it.each([
+    ["missing keys", partialUndefined],
+    ["null values", partialNull],
+  ])("%s: finite score, missing components null, not RED", (_label, inputs) => {
+    const r = computeReadiness(inputs, baselines);
+    expect(Number.isFinite(r.score)).toBe(true);
+    expect(r.components.hrv).toBeNull();
+    expect(r.components.sleep).toBeNull();
+    expect(r.components.battery).toBe(80);
+    expect(r.band).not.toBe("RED");
+  });
+
+  it("renormalizes over the present components", () => {
+    // RHR at baseline (80), BB 80, subjective 80, knee from the fixture.
+    const full = computeReadiness(baseInputs, baselines);
+    const partial = computeReadiness(partialUndefined, baselines);
+    expect(Math.abs(partial.score - full.score)).toBeLessThanOrEqual(5);
+  });
+
+  it("no Garmin component at all → the neutral fallback, as before", () => {
+    const none = computeReadiness({ ...baseInputs, garmin: {} as unknown as DailySensorInputs["garmin"] }, baselines);
+    const absent = computeReadiness({ ...baseInputs, garmin: undefined }, baselines);
+    expect(none).toEqual(absent);
+    expect(absent.components.hrv).toBe(80);
+  });
+});
+
+describe("computeBaselines — only values that arrived (Sprint 3.3)", () => {
+  const day = (i: number, garmin: Record<string, unknown>): DailySensorInputs => ({
+    date: new Date(Date.now() - i * 86400000),
+    garmin: garmin as unknown as DailySensorInputs["garmin"],
+    userMorning: { subjectiveRecovery: 7, morningStiffness: 3, stairsScore: 3 },
+  });
+
+  it("fewer than 7 real values → default, never NaN", () => {
+    const history = Array.from({ length: 10 }, (_, i) => day(i, i < 4 ? { hrvRmssd: 60, rhr: 50 } : { rhr: 50 }));
+    const b = computeBaselines(history);
+    expect(b.hrv28dAvg).toBe(50); // default — only 4 HRV values
+    expect(b.rhr28dAvg).toBe(50); // 10 real values
+    expect(Object.values(b).every(Number.isFinite)).toBe(true);
+  });
+
+  it("null and missing fields do not pull the average down", () => {
+    const history = Array.from({ length: 10 }, (_, i) => day(i, i % 2 ? { hrvRmssd: 60 } : { hrvRmssd: null }));
+    expect(computeBaselines(history).hrv28dAvg).toBe(50); // 5 values only → default
+    const enough = Array.from({ length: 16 }, (_, i) => day(i, i % 2 ? { hrvRmssd: 60 } : { hrvRmssd: null }));
+    expect(computeBaselines(enough).hrv28dAvg).toBe(60);
+  });
+});

@@ -60,33 +60,47 @@ export function scoreFromAbsolute(value: number, baseline: number): number {
   return clamp(Math.round(80 - (1 - ratio) * 120), 0, 100);
 }
 
+const DEFAULT_BASELINES: SensorBaselines = {
+  hrv28dAvg: 50,
+  hrv28dSd: 10,
+  sleep28dAvg: 75,
+  sleep28dSd: 10,
+  rhr28dAvg: 55,
+  rhr28dSd: 5,
+};
+
+/** Sprint 3.3 (C1): a baseline needs this many real values; fewer → default. */
+export const MIN_BASELINE_SAMPLES = 7;
+
+/** A Garmin field that arrived. Missing keys are undefined, cleared ones null. */
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
 /**
  * Build 28-day rolling baselines + SDs.
+ *
+ * Sprint 3.3 (C1): per metric, only values that actually arrived count. A day
+ * with RHR but no HRV used to put null (→ 0) or undefined (→ NaN) into the HRV
+ * average; NaN then reached the band classification as "RED".
  */
 export function computeBaselines(recentSensorData: DailySensorInputs[]): SensorBaselines {
   const garminEntries = recentSensorData.slice(-28).filter((d) => d.garmin);
-  if (garminEntries.length === 0) {
-    return {
-      hrv28dAvg: 50,
-      hrv28dSd: 10,
-      sleep28dAvg: 75,
-      sleep28dSd: 10,
-      rhr28dAvg: 55,
-      rhr28dSd: 5,
-    };
-  }
+  const values = (pick: (g: NonNullable<DailySensorInputs["garmin"]>) => unknown) =>
+    garminEntries.map((d) => pick(d.garmin!)).filter(isFiniteNumber);
 
-  const hrv = garminEntries.map((d) => d.garmin!.hrvRmssd);
-  const sleep = garminEntries.map((d) => d.garmin!.sleepScore);
-  const rhr = garminEntries.map((d) => d.garmin!.rhr);
+  const hrv = values((g) => g.hrvRmssd);
+  const sleep = values((g) => g.sleepScore);
+  const rhr = values((g) => g.rhr);
+  const enough = (arr: number[]) => arr.length >= MIN_BASELINE_SAMPLES;
 
   return {
-    hrv28dAvg: avg(hrv),
-    hrv28dSd: sd(hrv),
-    sleep28dAvg: avg(sleep),
-    sleep28dSd: sd(sleep),
-    rhr28dAvg: avg(rhr),
-    rhr28dSd: sd(rhr),
+    hrv28dAvg: enough(hrv) ? avg(hrv) : DEFAULT_BASELINES.hrv28dAvg,
+    hrv28dSd: enough(hrv) ? sd(hrv) : DEFAULT_BASELINES.hrv28dSd,
+    sleep28dAvg: enough(sleep) ? avg(sleep) : DEFAULT_BASELINES.sleep28dAvg,
+    sleep28dSd: enough(sleep) ? sd(sleep) : DEFAULT_BASELINES.sleep28dSd,
+    rhr28dAvg: enough(rhr) ? avg(rhr) : DEFAULT_BASELINES.rhr28dAvg,
+    rhr28dSd: enough(rhr) ? sd(rhr) : DEFAULT_BASELINES.rhr28dSd,
   };
 }
 
@@ -111,19 +125,39 @@ function classifyBand(score: number): ReadinessBand {
 /**
  * Compute today's readiness output.
  * `historicalScores` is used for trend7d computation; can be empty.
+ *
+ * Sprint 3.3 (C1): a Garmin component that did not arrive is left out and the
+ * weights are renormalized over the ones that did. It used to be scored as a
+ * number anyway — null as 0, undefined as NaN — and NaN made the score null and
+ * the band RED (a morning with RHR and Body Battery, HRV and sleep still out).
+ * Without any Garmin component the neutral fallback stays as it was.
  */
 export function computeReadiness(
   inputs: DailySensorInputs,
   baselines: SensorBaselines,
   historicalScores: { date: Date; score: number }[] = [],
 ): ReadinessOutput {
-  // Subjective component (always available)
-  const subjective = clamp(inputs.userMorning.subjectiveRecovery * 10, 0, 100);
+  // Subjective component (always available). Sprint 3.3: a malformed morning
+  // input reads as neutral rather than as NaN.
+  const subjectiveRaw = clamp(inputs.userMorning.subjectiveRecovery * 10, 0, 100);
+  const subjective = isFiniteNumber(subjectiveRaw) ? subjectiveRaw : 80;
   const kneeRaw = kneeScoreFromInputs(inputs.userMorning);
   // kneeRaw=1 → 100 (perfect), kneeRaw=10 → 10 (worst). Linear inversion.
-  const knee = clamp(110 - kneeRaw * 10, 0, 100);
+  const kneeScore = clamp(110 - kneeRaw * 10, 0, 100);
+  const knee = isFiniteNumber(kneeScore) ? kneeScore : 80;
 
-  if (!inputs.garmin) {
+  const g = inputs.garmin;
+  const hrv = g && isFiniteNumber(g.hrvRmssd)
+    ? scoreFromDeviation(g.hrvRmssd, baselines.hrv28dAvg, baselines.hrv28dSd)
+    : null;
+  const sleep = g && isFiniteNumber(g.sleepScore) ? scoreFromAbsolute(g.sleepScore, baselines.sleep28dAvg) : null;
+  const battery = g && isFiniteNumber(g.bodyBatteryMorning) ? clamp(g.bodyBatteryMorning, 0, 100) : null;
+  const rhrDev = g && isFiniteNumber(g.rhr)
+    ? scoreFromDeviation(g.rhr, baselines.rhr28dAvg, baselines.rhr28dSd, true)
+    : null;
+  const hasGarmin = [hrv, sleep, battery, rhrDev].some((c) => c !== null);
+
+  if (!hasGarmin) {
     // Garmin missing → neutral 80 for unobserved components.
     const score =
       WEIGHTS.hrv * 80 +
@@ -140,18 +174,22 @@ export function computeReadiness(
     };
   }
 
-  const hrv = scoreFromDeviation(inputs.garmin.hrvRmssd, baselines.hrv28dAvg, baselines.hrv28dSd);
-  const sleep = scoreFromAbsolute(inputs.garmin.sleepScore, baselines.sleep28dAvg);
-  const battery = clamp(inputs.garmin.bodyBatteryMorning, 0, 100);
-  const rhrDev = scoreFromDeviation(inputs.garmin.rhr, baselines.rhr28dAvg, baselines.rhr28dSd, true);
-
-  const score =
-    WEIGHTS.hrv * hrv +
-    WEIGHTS.sleep * sleep +
-    WEIGHTS.battery * battery +
-    WEIGHTS.rhrDev * rhrDev +
-    WEIGHTS.subjective * subjective +
-    WEIGHTS.knee * knee;
+  const weighted: Array<[number, number | null]> = [
+    [WEIGHTS.hrv, hrv],
+    [WEIGHTS.sleep, sleep],
+    [WEIGHTS.battery, battery],
+    [WEIGHTS.rhrDev, rhrDev],
+    [WEIGHTS.subjective, subjective],
+    [WEIGHTS.knee, knee],
+  ];
+  let sum = 0;
+  let weight = 0;
+  for (const [w, c] of weighted) {
+    if (c === null || !Number.isFinite(c)) continue;
+    sum += w * c;
+    weight += w;
+  }
+  const score = sum / weight;
 
   return {
     score: Math.round(score),
