@@ -174,7 +174,10 @@ export interface PlannedSessionStructure {
 }
 
 export interface PlannedSessionData {
+  /** Running time only — for threshold exactly Σ structure (Sprint 3.3, B3). */
   durationMin?: number;
+  /** Sprint 3.3 (B3): the pre-run activation, separate from the running time. */
+  activationMin?: number;
   targetHR?: { from: number; to: number };
   targetPace?: { from: string; to: string };
   structure?: PlannedSessionStructure;

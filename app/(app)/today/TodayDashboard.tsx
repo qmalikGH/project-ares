@@ -310,7 +310,14 @@ function RunStructureRows({ structure, color }: { structure: RunStructure; color
       {structure.workIntervals?.map((iv, i) => (
         <div key={i} className="flex items-baseline justify-between py-2" style={{ borderLeft: `2px solid ${color}`, paddingLeft: 12 }}>
           <span className="text-sm">
-            {iv.repeats} × {iv.durationMin ? `${iv.durationMin} min` : iv.distanceM ? `${iv.distanceM}m` : ""}
+            {iv.repeats} ×{" "}
+            {iv.durationMin
+              ? iv.durationMin < 1
+                ? `${Math.round(iv.durationMin * 60)} s`
+                : `${iv.durationMin} min`
+              : iv.distanceM
+                ? `${iv.distanceM}m`
+                : ""}
             {iv.paceTarget && <span className="text-[var(--color-foreground-muted)]"> @ {iv.paceTarget.from === iv.paceTarget.to ? iv.paceTarget.from : `${iv.paceTarget.from}–${iv.paceTarget.to}`}</span>}
           </span>
           {iv.restMin != null && (
@@ -321,7 +328,10 @@ function RunStructureRows({ structure, color }: { structure: RunStructure; color
       {structure.cooldownMin != null && (
         <div className="flex items-baseline justify-between py-2" style={{ borderLeft: `2px solid ${color}`, paddingLeft: 12, opacity: 0.8 }}>
           <span className="text-sm">Auslaufen</span>
-          <span className="num text-sm text-[var(--color-foreground-muted)]">{structure.cooldownMin} min</span>
+          {/* Sprint 3.3 (B3): 0 = no prescribed cool-down, the last recovery jog is the run-out. */}
+          <span className="num text-sm text-[var(--color-foreground-muted)]">
+            {structure.cooldownMin > 0 ? `${structure.cooldownMin} min` : "optional"}
+          </span>
         </div>
       )}
     </div>
@@ -527,6 +537,7 @@ function SessionHeroCard({
           {/* Sub-line: duration · pace · RPE */}
           <p className="num text-sm text-[var(--color-foreground-secondary)]">
             {final.durationMin && <>{final.durationMin} min</>}
+            {final.activationMin ? <> + {final.activationMin} min Aktivierung</> : null}
             {!isPaceFirst && final.hrTarget && paceDisplay && <> · {paceDisplay} /km</>}
             {final.rpeTarget != null && <> · RPE {final.rpeTarget}</>}
           </p>
@@ -538,10 +549,11 @@ function SessionHeroCard({
         <RunStructureRows structure={final.structure} color={stripeColor} />
       )}
 
-      {/* Pre-Run Activation (only when no structure is available) */}
-      {!isStrength && !isRest && !final.structure && final.preRunActivation && final.preRunActivation.length > 0 && (
+      {/* Pre-Run Activation. Sprint 3.3 (B3): also next to a structured run —
+          it is no longer hidden inside the duration. */}
+      {!isStrength && !isRest && final.preRunActivation && final.preRunActivation.length > 0 && (
         <div className="flex flex-col gap-2 mt-2">
-          <span className="label">Pre-Run Activation (5 min)</span>
+          <span className="label">Pre-Run Activation ({final.activationMin ?? 5} min, vor dem Lauf)</span>
           <ul className="flex flex-col gap-1.5">
             {final.preRunActivation.map((ex, i) => (
               <li key={i} className="flex items-baseline justify-between text-[var(--color-foreground-muted)]">

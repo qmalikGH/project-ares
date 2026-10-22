@@ -69,9 +69,13 @@ describe("isPushableSessionType", () => {
   it("rejects non-trainable sessions", () => {
     expect(isPushableSessionType("rest")).toBe(false);
     expect(isPushableSessionType("active_recovery")).toBe(false);
-    expect(isPushableSessionType("time_trial_5k")).toBe(false);
     expect(isPushableSessionType("cross_training")).toBe(false);
     expect(isPushableSessionType("mobility")).toBe(false);
+  });
+
+  // Sprint 3.3 (B5): the 3-km test goes to the watch with a distance step.
+  it("accepts the time trial", () => {
+    expect(isPushableSessionType("time_trial_5k")).toBe(true);
   });
 });
 

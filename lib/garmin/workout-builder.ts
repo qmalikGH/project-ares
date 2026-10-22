@@ -4,9 +4,10 @@
 // node_modules/garmin-connect's RunningTemplate + community docs).
 //
 // Architectural rules:
-//   - Strength sessions, rest days, time trials are NEVER pushed (return null)
-//   - HR target is required for any pushable session — the runner steers by HR
-//     on the watch and pace stays orientierend
+//   - Rest days and mobility are NEVER pushed (return null). Strength goes as a
+//     plain timed block (Sprint 3.1), the 3-km test with a distance step (3.3).
+//   - HR target is required for any other pushable session — the runner steers
+//     by HR on the watch and pace stays orientierend
 //   - Builder is fully testable; the I/O wrapper lives in workout-sync.ts
 
 import type { SessionPlan } from "@/lib/coach-engine/types";
@@ -110,10 +111,11 @@ export interface RepeatGroupStep {
 
 // Sprint 3.1: strength_a/b/c left this set. They are pushed as a plain
 // timed workout so the resulting activity carries our workoutId.
+// Sprint 3.3 (B5): time_trial_5k left too — the 3-km test goes to the watch as
+// warm-up, strides and a distance step.
 const NON_PUSHABLE_TYPES = new Set([
   "rest",
   "active_recovery",
-  "time_trial_5k",
   "cross_training",
   "mobility",
 ]);
@@ -171,6 +173,10 @@ export function buildGarminWorkout(
   if (session.type.startsWith("strength")) {
     return buildStrengthSession(session);
   }
+  // Sprint 3.3 (B5): all-out by design — no HR target to steer by.
+  if (session.type === "time_trial_5k") {
+    return buildTimeTrial(session);
+  }
 
   if (!session.hrTarget) return null;
 
@@ -220,6 +226,39 @@ function timeStep(args: {
     targetValueTwo: hasHr ? args.hrHigh! : null,
     zoneNumber: null,
   };
+}
+
+/** Sprint 3.3 (B5): a step that ends after a distance (metres), no target. */
+function distanceStep(args: {
+  stepOrder: number;
+  type: keyof typeof STEP_TYPE;
+  distanceM: number;
+  description?: string;
+}): ExecutableStep {
+  return {
+    type: "ExecutableStepDTO",
+    stepId: null,
+    stepOrder: args.stepOrder,
+    childStepId: null,
+    description: args.description ?? null,
+    stepType: STEP_TYPE[args.type],
+    endCondition: COND_TYPE.distance,
+    endConditionValue: args.distanceM,
+    preferredEndConditionUnit: { unitKey: "kilometer" },
+    targetType: TARGET_TYPE.noTarget,
+    targetValueOne: null,
+    targetValueTwo: null,
+    zoneNumber: null,
+  };
+}
+
+/**
+ * Sprint 3.3 (B3): the activation block is not part of the run any more. Name
+ * it on the watch so it is not forgotten — "vorher", because it happens before
+ * the watch starts.
+ */
+function withActivation(description: string, session: SessionPlan): string {
+  return session.activationMin ? `${description} · vorher ${session.activationMin} min Aktivierung` : description;
 }
 
 function repeatGroup(args: {
@@ -419,7 +458,12 @@ function buildStructuredRun(
     totalSec += cdSec;
   }
 
-  return wrap(name, `Threshold intervals · HR ${hr.from}-${hr.to} bpm · ~${paceLabel}/km`, totalSec, steps);
+  return wrap(
+    name,
+    withActivation(`Threshold intervals · HR ${hr.from}-${hr.to} bpm · ~${paceLabel}/km`, session),
+    totalSec,
+    steps,
+  );
 }
 
 function buildThresholdRun(
@@ -472,13 +516,64 @@ function buildTempoRun(
   );
 }
 
+/**
+ * Sprint 3.3 (B5) — the 3-km test: timed warm-up, the strides as a repeat
+ * block, then a distance step for the test itself. The legacy Block-5 5k trial
+ * carries no distance step and stays off the watch.
+ */
+function buildTimeTrial(session: SessionPlan): GarminStructuredWorkout | null {
+  const s = session.structure;
+  const test = s?.workIntervals?.find((iv) => typeof iv.distanceM === "number" && iv.distanceM > 0);
+  if (!s || !test) return null;
+
+  const steps: GarminWorkoutStep[] = [];
+  let order = 1;
+  let totalSec = 0;
+  if (s.warmupMin && s.warmupMin > 0) {
+    const wuSec = s.warmupMin * 60;
+    steps.push(timeStep({ stepOrder: order++, type: "warmup", durationSec: wuSec, description: `${s.warmupMin}min easy warmup` }));
+    totalSec += wuSec;
+  }
+  for (const iv of s.workIntervals ?? []) {
+    if (iv === test) continue;
+    const workSec = Math.round((iv.durationMin ?? 0) * 60);
+    const restSec = Math.round((iv.restMin ?? 0) * 60);
+    const childSteps: ExecutableStep[] = [
+      timeStep({ stepOrder: 1, type: "interval", durationSec: workSec, description: `${workSec}s Steigerung` }),
+    ];
+    if (restSec > 0) {
+      childSteps.push(timeStep({ stepOrder: 2, type: "recovery", durationSec: restSec, description: "locker traben" }));
+    }
+    steps.push(repeatGroup({ stepOrder: order++, iterations: iv.repeats, description: `${iv.repeats}× ${workSec}s Steigerung`, steps: childSteps }));
+    totalSec += iv.repeats * (workSec + restSec);
+  }
+  const km = test.distanceM! / 1000;
+  const pace = session.paceTarget?.from;
+  steps.push(
+    distanceStep({
+      stepOrder: order++,
+      type: "interval",
+      distanceM: test.distanceM!,
+      description: `${km} km all-out${pace ? ` (Richtwert ~${pace}/km)` : ""}`,
+    }),
+  );
+  totalSec = (session.durationMin ?? Math.round(totalSec / 60)) * 60;
+
+  return wrap(
+    `${km}-km-Test`,
+    withActivation(`${km} km all-out · danach austraben · Zeit in /confirm eintragen`, session),
+    totalSec,
+    steps,
+  );
+}
+
 function buildLongRun(session: SessionPlan): GarminStructuredWorkout {
   const totalSec = (session.durationMin ?? 90) * 60;
   const hr = session.hrTarget!;
 
   return wrap(
     `Long Run ${session.durationMin}min`,
-    `Steady aerobic · HR ${hr.from}-${hr.to} bpm`,
+    withActivation(`Steady aerobic · HR ${hr.from}-${hr.to} bpm`, session),
     totalSec,
     [
       timeStep({

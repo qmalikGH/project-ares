@@ -15,7 +15,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { userTodayDynamic } from "@/lib/date";
-import { willLogExercise } from "@/lib/coach-engine/attest";
+import { timeTrialDistanceM, willLogExercise } from "@/lib/coach-engine/attest";
 import { TM_COMPOUNDS } from "@/lib/coach-engine/strength-coach/progression-mode";
 import { disciplineOf } from "@/lib/garmin/confirm-candidates";
 import type { Exercise, SessionPlan, SessionType } from "@/lib/coach-engine/types";
@@ -94,6 +94,8 @@ export async function GET(req: NextRequest) {
       discipline,
       plannedDurationMin: planned?.durationMin ?? null,
       plannedNotes: planned?.notes ?? null,
+      // Sprint 3.3 (B5): a 3-km test asks for its time.
+      testDistanceM: timeTrialDistanceM(planned),
       garmin:
         cohort === "garmin_auto" && exec
           ? {

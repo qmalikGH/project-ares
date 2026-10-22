@@ -24,7 +24,7 @@
 import { db } from "@/lib/db/client";
 import { userToday } from "@/lib/date";
 import { getRecentRunSummaries } from "@/lib/garmin/profile";
-import { calibrateVdotFromRuns } from "@/lib/coach-engine/vdot-calculator";
+import { calibrateVdotFromRuns, vdotFromRace } from "@/lib/coach-engine/vdot-calculator";
 import { detectLayoff, comebackWeekFor } from "@/lib/coach-engine/comeback";
 import { deriveVolumeGate } from "@/lib/db/queries/regenerate-plans-helpers";
 import { getEffectiveVdot } from "@/lib/db/queries/settings";
@@ -148,6 +148,92 @@ export async function recalibrateVdot(userId: string): Promise<VdotRecalibration
     runsConsidered: window.length,
     regenerated: regen.regenerated,
   };
+}
+
+/** Sprint 3.3 (B5): source tag for a VDOT set from a field test. */
+export const VDOT_SOURCE_TEST = "block_test";
+/** Sprint 3.3 (B5): a test at or above this VDOT puts the 22:00 5k in reach. */
+export const RACE_READY_VDOT = 43;
+
+export interface TimeTrialVdotResult {
+  /** Daniels VDOT of the test, rounded. */
+  measured: number;
+  decision: VdotAutoDecision;
+}
+
+/**
+ * Sprint 3.3 (B5) — a 3-km test result moves the VDOT through the same pure
+ * decider as the rolling calibration: down at most 3, up at most 2, and up not
+ * at all while the comeback ramp or the shin/RHR gate brakes the plan. A test
+ * is a direct measurement, so it enters with high confidence.
+ *
+ * Does not regenerate: the caller (/confirm) regenerates once per batch.
+ */
+export async function applyTimeTrialResult(
+  userId: string,
+  input: { distanceM: number; resultSec: number },
+): Promise<TimeTrialVdotResult> {
+  const measured = Math.round(vdotFromRace(input.distanceM, input.resultSec));
+  const settings = await db.userSettings.findUnique({
+    where: { userId },
+    select: { vdotSource: true, vdotOverrideAt: true },
+  });
+  const currentVdot = await getEffectiveVdot(userId);
+  const today0 = userToday();
+  const { layoffActive, volumeGate } = await loadBrakes(userId, today0);
+
+  const decision = decideVdotUpdate({
+    currentVdot,
+    calibration: { finalVdot: measured, confidence: "high", insufficientData: false },
+    vdotSource: settings?.vdotSource ?? null,
+    vdotSetAt: settings?.vdotOverrideAt ?? null,
+    layoffActive,
+    volumeGate,
+    now: new Date(),
+  });
+
+  const km = input.distanceM / 1000;
+  const time = `${Math.floor(input.resultSec / 60)}:${String(Math.round(input.resultSec % 60)).padStart(2, "0")}`;
+  if (decision.status === "applied" && decision.newVdot !== null) {
+    await db.userSettings.update({
+      where: { userId },
+      data: {
+        vdotOverride: decision.newVdot,
+        vdotOverrideAt: new Date(),
+        vdotSource: VDOT_SOURCE_TEST,
+        vdotOverrideRationale: `${km}-km-Test in ${time} → VDOT ${measured}. ${decision.reason}`,
+      },
+    });
+  }
+
+  await createNotificationIfNew(
+    {
+      userId,
+      type: "VDOT_CALIBRATED",
+      title:
+        decision.newVdot !== null
+          ? `${km}-km-Test: VDOT ${decision.currentVdot} → ${decision.newVdot}`
+          : `${km}-km-Test: VDOT ${measured} gemessen`,
+      message: `${km} km in ${time}. ${decision.reason}`,
+      severity: "INFO",
+      actionUrl: "/settings",
+    },
+    60,
+  );
+  if (measured >= RACE_READY_VDOT) {
+    await createNotificationIfNew(
+      {
+        userId,
+        type: "RACE_READY",
+        title: "Rennen planen",
+        message: `Der ${km}-km-Test entspricht VDOT ${measured} — das 5k-Ziel ist in Reichweite. Zeit, ein Rennen auszusuchen.`,
+        severity: "INFO",
+      },
+      NOTIFY_DEDUPE_MINUTES,
+    );
+  }
+
+  return { measured, decision };
 }
 
 /**

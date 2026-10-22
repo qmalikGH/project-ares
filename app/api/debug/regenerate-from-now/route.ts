@@ -19,7 +19,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db/client";
 import { resolveRouteUserId } from "@/lib/auth/route-user";
 import { userTodayDynamic } from "@/lib/date";
-import { resyncFutureWorkoutsToGarmin } from "@/lib/garmin/workout-sync";
+import { pushWindowEnd, removeWorkoutFromGarmin, resyncFutureWorkoutsToGarmin } from "@/lib/garmin/workout-sync";
 import { materializeWorkouts } from "@/lib/coach-engine/materialize";
 import { regeneratePlansFromNow } from "@/lib/db/queries/regenerate-plans";
 
@@ -73,16 +73,24 @@ export async function POST(req: NextRequest) {
   // used to roll a plan out to the watch was the one path with no brakes.
   // Delegate to the shared helper; the route keeps only the extras that make
   // it useful for ops (before-summary, materialize, Garmin re-sync).
-  const { regenerated, gate, layoff } = await regeneratePlansFromNow(userId);
+  const { regenerated, gate, layoff, progression } = await regeneratePlansFromNow(userId);
 
   // Sprint v1.6: Materialize Workout rows so the Garmin-push cron and
   // session-start flow always find them. Must run BEFORE Garmin re-sync.
-  const materialized = await materializeWorkouts(userId, today0);
+  // Sprint 3.3: the whole horizon, and rows the new plan dropped come off the
+  // watch before they go.
+  const materialized = await materializeWorkouts(
+    userId,
+    today0,
+    new Date(today0.getTime() + 400 * 86400000),
+    userSettings?.garminWorkoutPushEnabled ? { removeFromGarmin: removeWorkoutFromGarmin } : {},
+  );
 
-  // Best-effort Garmin re-sync.
+  // Best-effort Garmin re-sync. Sprint 3.3: only the push window (this week +
+  // next) — the run projection re-plans later weeks every evening.
   const garminResync =
     userSettings?.garminWorkoutPushEnabled
-      ? await resyncFutureWorkoutsToGarmin(userId, today0)
+      ? await resyncFutureWorkoutsToGarmin(userId, today0, undefined, pushWindowEnd(today0))
       : { considered: 0, removed: 0, repushed: 0, errors: [] };
 
   return NextResponse.json({
@@ -91,6 +99,7 @@ export async function POST(req: NextRequest) {
     materialized,
     gate,
     layoff,
+    progression,
     constraints: {
       forcedRestDaysIso: userSettings?.forcedRestDays ?? "default",
       preferredLongRunDayIso: userSettings?.preferredLongRunDay ?? "default",

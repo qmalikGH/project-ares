@@ -137,12 +137,13 @@ describe("computeRunVolumeProgression — default-arg backwards compat", () => {
 // phaseConfig.blockNumber through to the progression computation.
 // ─────────────────────────────────────────────────────
 
-  // Sprint v0.13: long run now includes +5 min for pre-run activation (Leppänen 2024).
-  // All expected durations are base + ACTIVATION_DURATION_MIN (5).
-  const ACT = 5; // ACTIVATION_DURATION_MIN
+  // Sprint v0.13 added +5 min for pre-run activation to the long run.
+  // Sprint 3.3 (B3): activation is shown next to the run (activationMin), not
+  // inside durationMin — the long run is running time only.
+  const ACT = 0;
 
 describe("generateWeekRunPlan — applies block-1 conservative progression", () => {
-  it("W1 long run = baseline (50min) + activation", () => {
+  it("W1 long run = baseline (50min), activation not included", () => {
     const plan = generateWeekRunPlan(BLOCK1_CONFIG, 1, 42, MONDAY);
     const long = findLong(plan);
     if (long > 0) {
@@ -150,7 +151,7 @@ describe("generateWeekRunPlan — applies block-1 conservative progression", () 
     }
   });
 
-  it("W2 long run = baseline × 1.05 ≈ 52-53min + activation (Block 1 conservative)", () => {
+  it("W2 long run = baseline × 1.05 ≈ 52-53min (Block 1 conservative)", () => {
     const plan = generateWeekRunPlan(BLOCK1_CONFIG, 2, 42, MONDAY);
     const long = findLong(plan);
     if (long > 0) {
@@ -159,7 +160,7 @@ describe("generateWeekRunPlan — applies block-1 conservative progression", () 
     }
   });
 
-  it("W3 long run = baseline × 1.10 = 55min + activation (Block 1 conservative)", () => {
+  it("W3 long run = baseline × 1.10 = 55min (Block 1 conservative)", () => {
     const plan = generateWeekRunPlan(BLOCK1_CONFIG, 3, 42, MONDAY);
     const long = findLong(plan);
     if (long > 0) {
@@ -168,7 +169,7 @@ describe("generateWeekRunPlan — applies block-1 conservative progression", () 
     }
   });
 
-  it("W4 long run = baseline × 0.80 = 40min + activation (Block 1 deload)", () => {
+  it("W4 long run = baseline × 0.80 = 40min (Block 1 deload)", () => {
     const plan = generateWeekRunPlan(BLOCK1_CONFIG, 4, 42, MONDAY);
     const long = findLong(plan);
     if (long > 0) {

@@ -28,10 +28,21 @@ export interface MaterializeResult {
  * @param fromDate — start of window (inclusive). Default: now.
  * @param toDate   — end of window (exclusive). Default: +60 days.
  */
+export interface MaterializeOptions {
+  /**
+   * Sprint 3.3: called for every orphaned row that was pushed to Garmin, BEFORE
+   * the row is deleted. Without it the watch keeps a workout no row points to —
+   * the Karteileiche mechanism behind the 09.08. and 04.10. clean-ups. Callers
+   * that push pass removeWorkoutFromGarmin; best-effort, failures are ignored.
+   */
+  removeFromGarmin?: (workoutId: string) => Promise<unknown>;
+}
+
 export async function materializeWorkouts(
   userId: string,
   fromDate?: Date,
   toDate?: Date,
+  opts: MaterializeOptions = {},
 ): Promise<MaterializeResult> {
   const from = fromDate ?? new Date();
   const to = toDate ?? new Date(Date.now() + 60 * 86400000);
@@ -121,6 +132,16 @@ export async function materializeWorkouts(
   );
   let deleted = 0;
   if (orphans.length > 0) {
+    if (opts.removeFromGarmin) {
+      for (const o of orphans) {
+        if (!o.garminWorkoutId) continue;
+        try {
+          await opts.removeFromGarmin(o.id);
+        } catch (e) {
+          console.warn("[materialize] Garmin cleanup of orphan failed:", e);
+        }
+      }
+    }
     await db.workout.deleteMany({
       where: { id: { in: orphans.map((o) => o.id) } },
     });

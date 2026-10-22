@@ -15,7 +15,10 @@ export type NotificationType =
   // Sprint 3.0: sessions the Garmin import completed or could not prove, still
   // waiting for an RPE and a shin score. Without them the volume gate stays on
   // hold and the training max cannot move.
-  | "SESSIONS_AWAITING_CONFIRMATION";
+  | "SESSIONS_AWAITING_CONFIRMATION"
+  // Sprint 3.3 (B5): a 3-km test reached the VDOT of the 5k goal. There is no
+  // fixed race date any more — this is the prompt to pick one.
+  | "RACE_READY";
 
 export type NotificationSeverity = "INFO" | "WARNING" | "CRITICAL";
 

@@ -226,6 +226,13 @@ export interface SessionPlan {
   // ============================================
   /** Pre-run activation block for run-only days (Leppänen 2024, Naderi 2025). */
   preRunActivation?: Exercise[];
+  /**
+   * Sprint 3.3 (B3): minutes of that activation block, shown next to the run.
+   * NOT part of `durationMin`, which is running time only — the hidden +5 made
+   * every threshold look 5 min longer than the sum of its structure, and put a
+   * long run on the watch 5 min longer than prescribed.
+   */
+  activationMin?: number;
 }
 
 export interface FinalSession extends SessionPlan {
@@ -492,6 +499,12 @@ export const RunExecutedSessionSchema = z.object({
   // (esp. long/quality), not strength — captured here to feed the safety logic.
   shinPainNrs: z.number().int().min(0).max(10).optional(),
   shinPainNote: z.string().max(500).optional(),
+
+  /** Sprint 3.3 (B5): the test's own result, typed in /confirm. Separate from
+   *  durationSec, which is the whole session including warm-up. */
+  timeTrial: z
+    .object({ distanceM: z.number().positive(), resultSec: z.number().positive() })
+    .optional(),
 });
 
 /** Strength executed session — manual set-by-set logger. */

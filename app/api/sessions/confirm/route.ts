@@ -30,6 +30,14 @@
 //   topSets -> one rated set per training-max lift. The only /confirm input
 //           that can move a TM; "as prescribed" now only records volume.
 //           Also for garmin_auto strength, which used to get no sets at all.
+//
+// SPRINT 3.3
+//   run duration -> REQUIRED for a run no watch recorded. The run progression
+//           (single-session cap) reads only real minutes, so a run confirmed
+//           without them would count as not run at all. Answered with
+//           `duration_required` rather than stored as an estimate.
+//   timeTrialSec -> the 3-km test's own time, required for a test. Moves the
+//           VDOT through the same decider as the rolling calibration.
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -41,8 +49,11 @@ import {
   buildAttestedStrengthSession,
   buildConfirmedExercises,
   mergeShinIntoExecuted,
+  timeTrialDistanceM,
 } from "@/lib/coach-engine/attest";
+import { applyTimeTrialResult, type TimeTrialVdotResult } from "@/lib/coach-engine/vdot-recalibration";
 import { buildRunImport, buildStrengthImport, type ImportedRun } from "@/lib/garmin/run-import";
+import { disciplineOf } from "@/lib/garmin/confirm-candidates";
 import {
   buildExerciseLogRows,
   replaceExerciseLogsForWorkout,
@@ -62,6 +73,8 @@ const ItemSchema = z
     shinPainNote: z.string().max(500).optional(),
     asPrescribed: z.boolean().optional(),
     durationActualMin: z.number().int().min(1).max(600).optional(),
+    // Sprint 3.3 (B5): 3-km test result in seconds.
+    timeTrialSec: z.number().int().min(60).max(7200).optional(),
     notes: z.string().max(2000).optional(),
     // Sprint 3.2a
     garminActivityId: z.number().int().positive().optional(),
@@ -101,6 +114,8 @@ type Outcome =
   | "not_skippable"
   | "not_found"
   | "activity_taken"
+  | "duration_required"
+  | "result_required"
   | "error";
 
 export async function POST(req: Request) {
@@ -133,6 +148,8 @@ export async function POST(req: Request) {
   // Sprint 3.2a: a Garmin activity may back exactly one session — also within
   // one batch, where the same ad-hoc run is offered for Monday and Tuesday.
   const activitiesUsedInBatch = new Set<string>();
+  // Sprint 3.3 (B5): applied after the loop, before the one regeneration.
+  const testResults: Array<{ distanceM: number; resultSec: number }> = [];
 
   for (const item of parsed.data.items) {
     try {
@@ -193,6 +210,28 @@ export async function POST(req: Request) {
       const rpe = item.rpe as number;
       const isStrength = workout.type.startsWith("strength");
 
+      // Sprint 3.3 — the run progression reads real minutes only, so a run no
+      // watch recorded is not confirmable without them.
+      if (
+        disciplineOf(workout.type) === "run" &&
+        cohort === "planned" &&
+        item.garminActivityId === undefined &&
+        item.durationActualMin === undefined &&
+        workout.durationActualMin == null
+      ) {
+        results.push({ workoutId: item.workoutId, outcome: "duration_required", cohort });
+        continue;
+      }
+      const testDistanceM = timeTrialDistanceM(planned);
+      if (testDistanceM != null && item.timeTrialSec === undefined) {
+        results.push({ workoutId: item.workoutId, outcome: "result_required", cohort });
+        continue;
+      }
+      const timeTrial =
+        testDistanceM != null && item.timeTrialSec !== undefined
+          ? { distanceM: testDistanceM, resultSec: item.timeTrialSec }
+          : undefined;
+
       // Sprint 3.2a — a Garmin activity the athlete recognised as this session.
       // Only for planned rows: a garmin_auto row already has its recording.
       let imported: ImportedRun | null = null;
@@ -247,6 +286,7 @@ export async function POST(req: Request) {
         if (merged && isStrength && confirmed.exercises.length > 0) {
           merged.exercises = confirmed.exercises;
         }
+        if (merged && timeTrial) merged.timeTrial = timeTrial;
         if (merged) data.executedSession = merged;
         if (realDuration != null && workout.durationActualMin == null) {
           data.durationActualMin = realDuration;
@@ -254,6 +294,7 @@ export async function POST(req: Request) {
       } else if (imported) {
         const merged = mergeShinIntoExecuted(imported.executedSession, shin, item.shinPainNote);
         if (merged && isStrength) merged.exercises = confirmed.exercises;
+        if (merged && timeTrial) merged.timeTrial = timeTrial;
         data.status = "completed";
         data.executedSession = merged;
         data.durationActualMin = imported.durationActualMin;
@@ -278,10 +319,12 @@ export async function POST(req: Request) {
           plannedDurationMin: planned?.durationMin ?? null,
           shinPainNrs: shin,
           shinPainNote: item.shinPainNote,
+          timeTrial,
         });
       }
 
       await db.workout.update({ where: { id: workout.id }, data });
+      if (timeTrial) testResults.push(timeTrial);
 
       // ExerciseLog is rewritten, not appended, so a second confirmation — or a
       // correction that un-claims the session — leaves the right rows behind.
@@ -325,6 +368,23 @@ export async function POST(req: Request) {
   // the "completed but none rated" hold, or dropping to regress on a single
   // shin >= 4 — so the caller gets the gate and its reason back verbatim to
   // show the athlete. Silently rewriting next week would not be acceptable.
+  // Sprint 3.3 (B5): a test result can move the VDOT. Applied before the
+  // regeneration below, so the new paces land in the same pass.
+  const timeTrials: Array<Pick<TimeTrialVdotResult, "measured"> & { status: string; newVdot: number | null; reason: string }> = [];
+  for (const t of testResults) {
+    try {
+      const r = await applyTimeTrialResult(userId, t);
+      timeTrials.push({
+        measured: r.measured,
+        status: r.decision.status,
+        newVdot: r.decision.newVdot,
+        reason: r.decision.reason,
+      });
+    } catch (e) {
+      timeTrials.push({ measured: 0, status: "error", newVdot: null, reason: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   let regenerate: Record<string, unknown> | null = null;
   if (parsed.data.regenerate !== false && changed > 0) {
     try {
@@ -348,9 +408,13 @@ export async function POST(req: Request) {
     attested: results.filter((r) => r.outcome === "attested" || r.outcome === "attested_no_load").length,
     skipped: results.filter((r) => r.outcome === "skipped").length,
     failed: results.filter((r) =>
-      ["not_found", "not_eligible", "not_skippable", "activity_taken", "error"].includes(r.outcome),
+      [
+        "not_found", "not_eligible", "not_skippable", "activity_taken",
+        "duration_required", "result_required", "error",
+      ].includes(r.outcome),
     ).length,
     results,
+    timeTrials,
     regenerate,
   });
 }

@@ -31,7 +31,6 @@
 //   Sun: REST (forced)
 
 import type { SessionPlan, SessionType } from "./types";
-import { ACTIVATION_DURATION_MIN } from "./run-coach/activation";
 
 export interface WeekScheduleConstraints {
   /** 0 = Mon, 1 = Tue, ..., 6 = Sun. Sessions placed on these days are dropped/replaced with rest. */
@@ -175,13 +174,15 @@ export function planWeekSchedule(
   // templates already cover hip/core activation patterns — adding the
   // pre-run block would be redundant. Activation only stays on run-only
   // days (typically Tue=quality, Sat=long run).
+  // Sprint 3.3 (B3): activation is no longer inside durationMin, so stripping
+  // it leaves the running time alone.
   for (let d = 0; d < 7; d++) {
     const hasStrength = days[d].some((s) => s.type.startsWith("strength"));
     if (hasStrength) {
       for (const s of days[d]) {
         if (s.preRunActivation) {
-          s.durationMin = (s.durationMin ?? 0) - ACTIVATION_DURATION_MIN;
           delete s.preRunActivation;
+          delete s.activationMin;
         }
       }
     }

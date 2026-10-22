@@ -67,6 +67,8 @@ export function buildAttestedRunSession(input: {
   plannedDurationMin?: number | null;
   shinPainNrs: number;
   shinPainNote?: string;
+  /** Sprint 3.3 (B5): result of a 3-km test. */
+  timeTrial?: { distanceM: number; resultSec: number };
 }): Record<string, unknown> {
   const estimated = input.durationActualMin == null;
   const minutes = input.durationActualMin ?? input.plannedDurationMin ?? 0;
@@ -86,7 +88,18 @@ export function buildAttestedRunSession(input: {
     splits: [],
     shinPainNrs: input.shinPainNrs,
     ...(input.shinPainNote !== undefined ? { shinPainNote: input.shinPainNote } : {}),
+    ...(input.timeTrial ? { timeTrial: input.timeTrial } : {}),
   };
+}
+
+/**
+ * Sprint 3.3 (B5): the distance of a planned 3-km test, or null for any other
+ * session (the legacy Block-5 5k trial carries no distance step).
+ */
+export function timeTrialDistanceM(planned: SessionPlan | null | undefined): number | null {
+  if (planned?.type !== "time_trial_5k") return null;
+  const iv = planned.structure?.workIntervals?.find((w) => typeof w.distanceM === "number" && w.distanceM > 0);
+  return iv?.distanceM ?? null;
 }
 
 /**

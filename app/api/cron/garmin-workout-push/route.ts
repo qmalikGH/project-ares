@@ -6,6 +6,9 @@
 // the resulting IDs on the Workout row. Best-effort: per-user failures are
 // captured into garminPushStatus / garminPushError without crashing the cron.
 //
+// Sprint 3.3: before that, this week + next are regenerated and every
+// already-pushed workout that changed is replaced (lib/garmin/plan-refresh.ts).
+//
 // Pushed at vorabend so the FR165 has 12+ hours to bluetooth-sync via Garmin
 // Connect Mobile (the iPhone needs to be near the watch — sync latency is
 // 15-60min in practice).
@@ -17,7 +20,12 @@ import { vdotToPaces } from "@/lib/coach-engine/run-coach";
 import { getEffectiveVdot } from "@/lib/db/queries/settings";
 import { pushWorkoutToGarmin } from "@/lib/garmin/workout-sync";
 import { materializeWorkouts } from "@/lib/coach-engine/materialize";
+import { refreshUpcomingPlan, type PlanRefreshResult } from "@/lib/garmin/plan-refresh";
 import type { SessionPlan } from "@/lib/coach-engine/types";
+
+// Sprint 3.3: the evening regeneration + diff re-push adds DB and Garmin work.
+// Same ceiling as garmin-sync-daily.
+export const maxDuration = 60;
 
 function authorized(req: Request): boolean {
   const auth = req.headers.get("authorization") ?? "";
@@ -44,6 +52,7 @@ export async function GET(req: Request) {
     status: string;
     error?: string;
     targetDate?: string;
+    refresh?: PlanRefreshResult;
   }> = [];
 
   for (const settings of usersWithPush) {
@@ -54,9 +63,41 @@ export async function GET(req: Request) {
       const tomorrowKey = await userTomorrowForUser(settings.userId);
       const dayAfter = new Date(tomorrowKey.getTime() + 86400000);
 
+      // Sprint 2.6 (A6): was `settings.vdotOverride ?? 40` — a second, private
+      // resolution of the same number with a different default (40) than the
+      // engine's (35 since A6, 42 before). The watch could be handed paces the
+      // app never showed. One resolver for one number.
+      const effectiveVdot = await getEffectiveVdot(settings.userId);
+      let paces;
+      try {
+        paces = vdotToPaces(effectiveVdot);
+      } catch (e) {
+        results.push({
+          userId: settings.userId,
+          status: "vdot_error",
+          error: e instanceof Error ? e.message : String(e),
+        });
+        continue;
+      }
+
+      // Sprint 3.3 (B1): regenerate this week + next against what was actually
+      // run, and replace changed workouts already on the watch, BEFORE
+      // tomorrow is pushed. Best-effort: a failure here must not cost the
+      // athlete tomorrow's workout.
+      try {
+        const refresh = await refreshUpcomingPlan(settings.userId, tomorrowKey, paces);
+        results.push({ userId: settings.userId, status: "plan_refreshed", refresh });
+      } catch (e) {
+        results.push({
+          userId: settings.userId,
+          status: "plan_refresh_error",
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+
       // Each user can have multiple sessions per day (run AM + strength PM).
       // Push every PLANNED session — buildGarminWorkout returns null for the
-      // ones that do not belong on a watch (rest, mobility, the 5k time trial).
+      // ones that do not belong on a watch (rest, mobility).
       // Sprint 3.1: strength IS pushed now, as a plain timed block, so the
       // activity comes back carrying our workout id.
       let tomorrowWorkouts = await db.workout.findMany({
@@ -86,23 +127,6 @@ export async function GET(req: Request) {
           userId: settings.userId,
           status: "no_workout_tomorrow",
           targetDate: tomorrowKey.toISOString().slice(0, 10),
-        });
-        continue;
-      }
-
-      // Sprint 2.6 (A6): was `settings.vdotOverride ?? 40` — a second, private
-      // resolution of the same number with a different default (40) than the
-      // engine's (35 since A6, 42 before). The watch could be handed paces the
-      // app never showed. One resolver for one number.
-      const effectiveVdot = await getEffectiveVdot(settings.userId);
-      let paces;
-      try {
-        paces = vdotToPaces(effectiveVdot);
-      } catch (e) {
-        results.push({
-          userId: settings.userId,
-          status: "vdot_error",
-          error: e instanceof Error ? e.message : String(e),
         });
         continue;
       }
