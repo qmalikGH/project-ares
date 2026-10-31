@@ -1,4 +1,4 @@
-// GET /api/sessions/open/candidates?days=7 — Sprint 3.2a
+// GET /api/sessions/open/candidates?days=14 — Sprint 3.2a (3.3b: default 14)
 //
 // Garmin activities that could be the real recording of an open, unlinked
 // session on /confirm. Separate from /api/sessions/open on purpose: that route
@@ -7,21 +7,30 @@
 //
 // Suggestions only. Nothing is linked until the athlete taps a candidate and
 // POST /api/sessions/confirm imports it.
+//
+// Sprint 3.3b (#25 · 9): also `freeRuns` — run activities with no planned
+// session to belong to, offered on the "Freier Lauf" form
+// (POST /api/sessions/free-run).
 import { NextResponse, type NextRequest } from "next/server";
 
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { userTodayDynamic } from "@/lib/date";
 import { listActivitiesInRange } from "@/lib/garmin/activities";
-import { disciplineOf, matchConfirmCandidates } from "@/lib/garmin/confirm-candidates";
+import {
+  CONFIRM_WINDOW_DAYS,
+  disciplineOf,
+  matchConfirmCandidates,
+  unplannedRunActivities,
+} from "@/lib/garmin/confirm-candidates";
 import type { SessionPlan } from "@/lib/coach-engine/types";
 
 export async function GET(req: NextRequest) {
   const userId = await getCurrentUserId();
 
   const url = new URL(req.url);
-  const raw = Number.parseInt(url.searchParams.get("days") ?? "7", 10);
-  const days = Math.max(1, Math.min(30, Number.isFinite(raw) ? raw : 7));
+  const raw = Number.parseInt(url.searchParams.get("days") ?? String(CONFIRM_WINDOW_DAYS), 10);
+  const days = Math.max(1, Math.min(30, Number.isFinite(raw) ? raw : CONFIRM_WINDOW_DAYS));
 
   const today0 = await userTodayDynamic();
   const from = new Date(today0.getTime() - days * 86400000);
@@ -40,9 +49,10 @@ export async function GET(req: NextRequest) {
     }))
     .filter((s) => s.discipline !== "other");
 
-  if (sessions.length === 0) {
-    return NextResponse.json({ status: "ok", candidates: {} });
-  }
+  const completedRuns = await db.workout.findMany({
+    where: { userId, status: "completed", date: { gte: from, lte: today0 } },
+    select: { date: true, type: true },
+  });
 
   // An activity already behind any workout (auto-imported, or picked earlier)
   // is never offered again.
@@ -65,12 +75,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       status: "ok",
       candidates: matchConfirmCandidates(sessions, activities, linkedIds),
+      freeRuns: unplannedRunActivities(
+        sessions.filter((s) => s.discipline === "run").map((s) => s.date),
+        completedRuns.filter((w) => disciplineOf(w.type) === "run").map((w) => w.date.toISOString().slice(0, 10)),
+        activities,
+        linkedIds,
+        from.toISOString().slice(0, 10),
+      ),
     });
   } catch (e) {
     // 200, not 5xx: the screen must keep working without suggestions.
     return NextResponse.json({
       status: "garmin_unavailable",
       candidates: {},
+      freeRuns: [],
       error: e instanceof Error ? e.message : String(e),
     });
   }

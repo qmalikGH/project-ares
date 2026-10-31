@@ -1,4 +1,4 @@
-// GET /api/sessions/open?days=7
+// GET /api/sessions/open?days=14 (Sprint 3.3b: default 14, was 7)
 //
 // Sessions from the recent past that still need a human. Two cohorts:
 //
@@ -17,7 +17,7 @@ import { getCurrentUserId } from "@/lib/auth/current-user";
 import { userTodayDynamic } from "@/lib/date";
 import { timeTrialDistanceM, willLogExercise } from "@/lib/coach-engine/attest";
 import { TM_COMPOUNDS } from "@/lib/coach-engine/strength-coach/progression-mode";
-import { disciplineOf } from "@/lib/garmin/confirm-candidates";
+import { CONFIRM_WINDOW_DAYS, disciplineOf } from "@/lib/garmin/confirm-candidates";
 import type { Exercise, SessionPlan, SessionType } from "@/lib/coach-engine/types";
 
 export type OpenCohort = "planned" | "garmin_auto";
@@ -26,8 +26,8 @@ export async function GET(req: NextRequest) {
   const userId = await getCurrentUserId();
 
   const url = new URL(req.url);
-  const raw = Number.parseInt(url.searchParams.get("days") ?? "7", 10);
-  const days = Math.max(1, Math.min(30, Number.isFinite(raw) ? raw : 7));
+  const raw = Number.parseInt(url.searchParams.get("days") ?? String(CONFIRM_WINDOW_DAYS), 10);
+  const days = Math.max(1, Math.min(30, Number.isFinite(raw) ? raw : CONFIRM_WINDOW_DAYS));
 
   const today0 = await userTodayDynamic();
   const from = new Date(today0.getTime() - days * 86400000);
