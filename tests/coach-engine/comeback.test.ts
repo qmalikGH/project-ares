@@ -146,13 +146,13 @@ describe("layoffGaps", () => {
 
   it("a closed gap runs from the day after the last session to the first one back", () => {
     expect(layoffGaps([d("2026-09-01"), d("2026-10-05"), d("2026-10-06")], d("2026-10-20"))).toEqual([
-      { from: d("2026-09-02"), to: d("2026-10-05") },
+      { from: d("2026-09-02"), to: d("2026-10-05"), open: false },
     ]);
   });
 
   it("an open gap runs through today", () => {
     expect(layoffGaps([d("2026-10-06")], d("2026-10-28"))).toEqual([
-      { from: d("2026-10-07"), to: d("2026-10-29") },
+      { from: d("2026-10-07"), to: d("2026-10-29"), open: true },
     ]);
   });
 

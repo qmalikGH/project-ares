@@ -16,6 +16,8 @@
 //      days carried significantly more overuse injuries; the week-to-week ratio
 //      did not. Runs up to 30 min are always allowed. The floor keeps the rule
 //      monotone: more evidence can never lower the cap below "no evidence".
+//      Sprint 3.3b (#25 · 2): in a deload week every run stays under
+//      0.75 × the cap, and so do the fit checks for quality and test.
 //   B2 threshold ladder: one rung above the highest rung completed in the 28
 //      days before the week. Nothing completed → the bottom rung.
 //   B5 3-km test: in a deload week, never before TIME_TRIAL_EARLIEST, at most
@@ -40,6 +42,8 @@ export const RUN_CAP_FLOOR_MIN = 30;
 /** Largest single-session step over the 30-day longest run (B1). */
 export const RUN_CAP_GROWTH = 1.1;
 export const RUN_CAP_WINDOW_DAYS = 30;
+/** Share of the cap a deload week may use for any single run (#25 · 2). */
+export const DELOAD_CAP_SHARE = 0.75;
 /** How far back a completed threshold rung counts (B2). */
 export const THRESHOLD_HISTORY_DAYS = 28;
 /** Top rung index of the threshold ladder (L0..L3). */
@@ -75,6 +79,21 @@ export function runCapForWeek(runs: readonly CountedRun[], weekStart: Date): num
     if (t >= start && t < end && r.minutes > longest) longest = r.minutes;
   }
   return Math.max(RUN_CAP_FLOOR_MIN, Math.floor(longest * RUN_CAP_GROWTH));
+}
+
+/**
+ * Sprint 3.3b (#25 · 2) — the cap a week actually runs under. In a deload week
+ * 75 % of B1, so the deload stays one once the cap has grown past the template.
+ * The cap does not climb over the deload week: the week after still sees the
+ * longer runs from before it, the shorter deload runs add nothing.
+ */
+export function weekRunCap(
+  runs: readonly CountedRun[],
+  weekStart: Date,
+  isDeloadWeek: boolean,
+): number {
+  const cap = runCapForWeek(runs, weekStart);
+  return isDeloadWeek ? Math.floor(cap * DELOAD_CAP_SHARE) : cap;
 }
 
 /** B2 — the rung the week starting `weekStart` has earned. */

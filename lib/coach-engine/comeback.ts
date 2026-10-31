@@ -187,7 +187,9 @@ export function comebackWeekFor(
  * Sprint 3.3 (C2): every training gap ≥ minGapDays as [from, to) — from the
  * day after the last session before the gap to the first session after it, or
  * to `today` while the gap is still open. The export leaves sessions planned
- * inside a gap out of the compliance rate: a break is not 3 weeks of "missed".
+ * inside a closed gap out of the compliance rate: a break is not 3 weeks of
+ * "missed". Sprint 3.3b (#25 · 1): an `open` gap is not left out — it is the
+ * very stretch of unconfirmed sessions the rate has to show.
  *
  * Pure.
  */
@@ -195,20 +197,20 @@ export function layoffGaps(
   completedDates: readonly Date[],
   today: Date,
   minGapDays: number = LAYOFF_MIN_GAP_DAYS,
-): Array<{ from: Date; to: Date }> {
+): Array<{ from: Date; to: Date; open: boolean }> {
   const sorted = [...completedDates]
     .map(toUtcMidnight)
     .sort((a, b) => a.getTime() - b.getTime());
-  const gaps: Array<{ from: Date; to: Date }> = [];
+  const gaps: Array<{ from: Date; to: Date; open: boolean }> = [];
   for (let i = 1; i < sorted.length; i++) {
     if (diffDays(sorted[i], sorted[i - 1]) >= minGapDays) {
-      gaps.push({ from: new Date(sorted[i - 1].getTime() + 86400000), to: sorted[i] });
+      gaps.push({ from: new Date(sorted[i - 1].getTime() + 86400000), to: sorted[i], open: false });
     }
   }
   const last = sorted[sorted.length - 1];
   const end = toUtcMidnight(today);
   if (last && diffDays(end, last) >= minGapDays) {
-    gaps.push({ from: new Date(last.getTime() + 86400000), to: new Date(end.getTime() + 86400000) });
+    gaps.push({ from: new Date(last.getTime() + 86400000), to: new Date(end.getTime() + 86400000), open: true });
   }
   return gaps;
 }

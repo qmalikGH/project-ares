@@ -240,6 +240,13 @@ export interface SessionPlan {
    * long run on the watch 5 min longer than prescribed.
    */
   activationMin?: number;
+  /**
+   * Sprint 3.3b (#21 note fix): an easy run standing in for the week's quality
+   * session (shin gate, comeback ramp, quality that does not fit under the
+   * cap). The scheduler keeps it in the quality slot, so its note stays on
+   * the day the quality session would have been.
+   */
+  replacesQuality?: boolean;
 }
 
 export interface FinalSession extends SessionPlan {
