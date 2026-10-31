@@ -6,6 +6,7 @@ import {
   disciplineOf,
   matchConfirmCandidates,
   MAX_CANDIDATES,
+  unplannedRunActivities,
 } from "@/lib/garmin/confirm-candidates";
 
 function act(over: Partial<ActivitySummary>): ActivitySummary {
@@ -113,5 +114,30 @@ describe("disciplineOf", () => {
     expect(disciplineOf("vo2max_intervals")).toBe("run");
     expect(disciplineOf("strength_b")).toBe("strength");
     expect(disciplineOf("mobility")).toBe("other");
+  });
+});
+
+// Sprint 3.3b (#25 · 9): Garmin runs with no planned session — the Friday run
+// of the four-day week — are offered on the "Freier Lauf" form.
+describe("unplannedRunActivities", () => {
+  const fri = act({ activityId: 10, startTimeLocal: "2026-10-30 18:05:00" });
+  const tue = act({ activityId: 11, startTimeLocal: "2026-10-27 18:30:00" });
+  const gym = act({ activityId: 12, startTimeLocal: "2026-10-30 12:00:00", category: "strength" });
+
+  it("offers a run with no open run session within ±1 day", () => {
+    const r = unplannedRunActivities(["2026-10-27"], [], [fri, tue, gym], new Set(), "2026-10-17");
+    expect(r.map((c) => c.activityId)).toEqual([10]);
+    expect(r[0]).toMatchObject({ date: "2026-10-30", durationMin: 13, distanceKm: 2.3 });
+  });
+
+  it("leaves out linked activities, days with a completed run and anything before the window", () => {
+    expect(unplannedRunActivities([], [], [fri], new Set(["10"]), "2026-10-17")).toEqual([]);
+    expect(unplannedRunActivities([], ["2026-10-30"], [fri], new Set(), "2026-10-17")).toEqual([]);
+    expect(unplannedRunActivities([], [], [fri], new Set(), "2026-10-31")).toEqual([]);
+  });
+
+  it("newest first", () => {
+    const r = unplannedRunActivities([], [], [tue, fri], new Set(), "2026-10-17");
+    expect(r.map((c) => c.activityId)).toEqual([10, 11]);
   });
 });

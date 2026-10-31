@@ -22,6 +22,16 @@
 //     reads nothing else, so the field is required and starts empty — no plan
 //     number to nod through.
 //   - the 3-km test asks for its time (mm:ss).
+//
+// Sprint 3.3b (#25):
+//   - finished cards go out, unfinished ones stay. One card with an empty
+//     minutes field used to lock the button for all of them — without saying
+//     why — so nothing was confirmed, the layoff detector saw three weeks
+//     without training and restarted the comeback ramp.
+//   - 14 days instead of 7: after a missed week, real sessions fell out of the
+//     window for good.
+//   - "Freier Lauf": a run on a day with nothing planned, typed in or picked
+//     from the Garmin runs that match no planned session.
 
 import { useCallback, useEffect, useState } from "react";
 
@@ -30,6 +40,7 @@ import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { SESSION_LABEL } from "@/components/training/shared";
 import { getSessionColor } from "@/lib/ui/session-colors";
 import { cn } from "@/lib/utils";
+import { CONFIRM_WINDOW_DAYS } from "@/lib/garmin/confirm-candidates";
 
 interface PrescribedExercise {
   name: string;
@@ -68,6 +79,35 @@ interface Candidate {
   distanceKm: number | null;
   averageHr: number | null;
 }
+
+/** Sprint 3.3b: a Garmin run with no planned session to belong to. */
+type FreeRunCandidate = Omit<Candidate, "dayOffset">;
+
+interface FreeRunDraft {
+  open: boolean;
+  date: string;
+  minutes: string;
+  rpe: number | null;
+  shin: number | null;
+  garminActivityId: number | null;
+}
+
+const EMPTY_FREE_RUN: FreeRunDraft = {
+  open: false,
+  date: "",
+  minutes: "",
+  rpe: null,
+  shin: null,
+  garminActivityId: null,
+};
+
+const FREE_RUN_ERRORS: Record<string, string> = {
+  planned_session_exists: "An diesem Tag ist ein Easy Run geplant — bitte oben in seiner Karte bestätigen.",
+  run_already_recorded: "Für diesen Tag ist schon ein Easy Run erfasst.",
+  activity_taken: "Diese Garmin-Aktivität ist schon einer Einheit zugeordnet.",
+  date_out_of_window: `Nur heute und die letzten ${CONFIRM_WINDOW_DAYS} Tage.`,
+  garmin_import_failed: "Garmin gerade nicht erreichbar — Minuten eintippen geht auch.",
+};
 
 interface TopSetDraft {
   kg: string;
@@ -168,16 +208,25 @@ export default function ConfirmView() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ConfirmResponse | null>(null);
+  const [freeRuns, setFreeRuns] = useState<FreeRunCandidate[]>([]);
+  const [freeRun, setFreeRun] = useState<FreeRunDraft>(EMPTY_FREE_RUN);
+  const [freeRunMsg, setFreeRunMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const loadCandidates = useCallback(async () => {
     setCandidatesState("loading");
     try {
-      const r = await fetch("/api/sessions/open/candidates?days=7");
-      const d = (await r.json()) as { status: string; candidates: Record<string, Candidate[]> };
+      const r = await fetch(`/api/sessions/open/candidates?days=${CONFIRM_WINDOW_DAYS}`);
+      const d = (await r.json()) as {
+        status: string;
+        candidates: Record<string, Candidate[]>;
+        freeRuns?: FreeRunCandidate[];
+      };
       setCandidates(d.candidates ?? {});
+      setFreeRuns(d.freeRuns ?? []);
       setCandidatesState(d.status === "ok" ? "ok" : "unavailable");
     } catch {
       setCandidates({});
+      setFreeRuns([]);
       setCandidatesState("unavailable");
     }
   }, []);
@@ -185,14 +234,15 @@ export default function ConfirmView() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const r = await fetch("/api/sessions/open?days=7");
+      const r = await fetch(`/api/sessions/open?days=${CONFIRM_WINDOW_DAYS}`);
       const d = (await r.json()) as { sessions: OpenSession[] };
       setSessions(d.sessions);
-      setDrafts(Object.fromEntries(d.sessions.map((s) => [s.id, { ...EMPTY_DRAFT }])));
-      if (d.sessions.length > 0) setExpanded(d.sessions[0].id);
-      // After the cards are on screen — this one needs a Garmin login.
-      if (d.sessions.some((s) => s.cohort === "planned")) void loadCandidates();
-      else setCandidatesState("ok");
+      // Sprint 3.3b: a card that stayed open keeps what was already typed.
+      setDrafts((prev) => Object.fromEntries(d.sessions.map((s) => [s.id, prev[s.id] ?? { ...EMPTY_DRAFT }])));
+      if (d.sessions.length > 0) setExpanded((cur) => (cur && d.sessions.some((s) => s.id === cur) ? cur : d.sessions[0].id));
+      // After the cards are on screen — this one needs a Garmin login. Always:
+      // the free-run suggestions come from it too.
+      void loadCandidates();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Laden fehlgeschlagen");
     }
@@ -227,28 +277,36 @@ export default function ConfirmView() {
   /** Sprint 3.3 (A4): no RPE, no shin score — ticked off or missed. */
   const isPrevention = (s: OpenSession) => s.type === "mobility";
 
-  const ready = (s: OpenSession) => {
+  /** What a touched card still needs before it can go out. Empty = ready. */
+  const missingFor = (s: OpenSession): string[] => {
     const d = drafts[s.id];
-    if (!d) return false;
-    if (d.skip) return true;
-    if (isPrevention(s)) return d.done;
-    if (d.rpe === null || d.shin === null) return false;
-    if (needsMinutes(s) && parseIntField(d.minutes) == null) return false;
-    if (s.testDistanceM != null && parseMmSsField(d.testTime) == null) return false;
-    return true;
+    if (!d) return ["Angaben"];
+    if (d.skip) return [];
+    if (isPrevention(s)) return d.done ? [] : ["Haken bei „Gemacht“"];
+    const missing: string[] = [];
+    if (d.rpe === null) missing.push("RPE");
+    if (d.shin === null) missing.push("Schienbein");
+    if (needsMinutes(s) && parseIntField(d.minutes) == null) missing.push("Minuten");
+    if (s.testDistanceM != null && parseMmSsField(d.testTime) == null) missing.push("Testzeit");
+    return missing;
   };
+  const ready = (s: OpenSession) => missingFor(s).length === 0;
 
   const pending = (sessions ?? []).filter((s) => {
     const d = drafts[s.id];
     return d && (d.skip || d.done || d.rpe !== null || d.shin !== null);
   });
-  const canSubmit = pending.length > 0 && pending.every(ready);
+  // Sprint 3.3b: the finished ones go out; an unfinished card no longer holds
+  // the rest hostage — it stays, and says what it needs.
+  const readyToSend = pending.filter(ready);
+  const incomplete = pending.filter((s) => !ready(s));
+  const canSubmit = readyToSend.length > 0;
 
   async function submit() {
     setBusy(true);
     setError(null);
     try {
-      const items = pending.map((s) => {
+      const items = readyToSend.map((s) => {
         const d = drafts[s.id];
         if (d.skip) return { workoutId: s.id, action: "skip" as const };
         if (isPrevention(s)) return { workoutId: s.id, action: "done" as const };
@@ -350,7 +408,7 @@ export default function ConfirmView() {
 
       {sessions.length === 0 && (
         <p className="rounded-lg border border-[var(--border-subtle)] bg-white/[0.03] p-6 text-center text-sm text-muted-foreground">
-          Nichts offen. Alle Einheiten der letzten 7 Tage sind bestätigt.
+          Nichts offen. Alle Einheiten der letzten {CONFIRM_WINDOW_DAYS} Tage sind bestätigt.
         </p>
       )}
 
@@ -650,10 +708,194 @@ export default function ConfirmView() {
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       {sessions.length > 0 && (
-        <PrimaryButton onClick={submit} disabled={!canSubmit || busy}>
-          {busy ? "Speichere…" : `Bestätigen (${pending.length})`}
-        </PrimaryButton>
+        <div className="flex flex-col gap-2">
+          <PrimaryButton onClick={submit} disabled={!canSubmit || busy}>
+            {busy ? "Speichere…" : `Bestätigen (${readyToSend.length})`}
+          </PrimaryButton>
+          {/* Sprint 3.3b: the button says why — and which cards wait. */}
+          {incomplete.length > 0 && (
+            <ul className="flex flex-col gap-0.5 text-xs text-amber-300">
+              {incomplete.map((s) => (
+                <li key={s.id}>
+                  {SESSION_LABEL[s.type] ?? s.type} {formatDate(s.date)}: {missingFor(s).join(", ")} fehlt
+                  {readyToSend.length > 0 ? " — bleibt stehen" : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+          {pending.length === 0 && (
+            <p className="text-xs text-muted-foreground">Karte aufklappen und ausfüllen — oder „War ausgefallen“.</p>
+          )}
+        </div>
       )}
+
+      <FreeRunSection
+        draft={freeRun}
+        candidates={freeRuns}
+        candidatesState={candidatesState}
+        message={freeRunMsg}
+        busy={busy}
+        onChange={(p) => setFreeRun((cur) => ({ ...cur, ...p }))}
+        onSubmit={submitFreeRun}
+      />
+    </div>
+  );
+
+  async function submitFreeRun() {
+    setBusy(true);
+    setFreeRunMsg(null);
+    try {
+      const minutes = parseIntField(freeRun.minutes);
+      const r = await fetch("/api/sessions/free-run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          date: freeRun.date,
+          rpe: freeRun.rpe,
+          shinPainNrs: freeRun.shin,
+          ...(freeRun.garminActivityId != null
+            ? { garminActivityId: freeRun.garminActivityId }
+            : { durationActualMin: minutes }),
+        }),
+      });
+      const d = (await r.json()) as { error?: string; durationActualMin?: number };
+      if (!r.ok) {
+        setFreeRunMsg({ ok: false, text: FREE_RUN_ERRORS[d.error ?? ""] ?? d.error ?? "Speichern fehlgeschlagen" });
+        return;
+      }
+      setFreeRunMsg({ ok: true, text: `Freier Lauf gespeichert (${d.durationActualMin} min). Der Plan ist neu berechnet.` });
+      setFreeRun(EMPTY_FREE_RUN);
+      await load();
+    } catch (e) {
+      setFreeRunMsg({ ok: false, text: e instanceof Error ? e.message : "Speichern fehlgeschlagen" });
+    } finally {
+      setBusy(false);
+    }
+  }
+}
+
+/** Sprint 3.3b (#25 · 9): a run on a day the plan had nothing for. */
+function FreeRunSection(props: {
+  draft: FreeRunDraft;
+  candidates: FreeRunCandidate[];
+  candidatesState: "loading" | "ok" | "unavailable";
+  message: { ok: boolean; text: string } | null;
+  busy: boolean;
+  onChange: (p: Partial<FreeRunDraft>) => void;
+  onSubmit: () => void;
+}) {
+  const { draft: d, candidates, candidatesState, message, busy, onChange, onSubmit } = props;
+  const fromGarmin = d.garminActivityId != null;
+  const canSave =
+    /^\d{4}-\d{2}-\d{2}$/.test(d.date) &&
+    d.rpe !== null &&
+    d.shin !== null &&
+    (fromGarmin || parseIntField(d.minutes) != null);
+
+  if (!d.open) {
+    return (
+      <div className="flex flex-col gap-2">
+        {message && <p className={cn("text-xs", message.ok ? "text-emerald-300" : "text-amber-300")}>{message.text}</p>}
+        <button
+          type="button"
+          onClick={() => onChange({ open: true })}
+          className="self-start text-sm text-muted-foreground underline underline-offset-2 hover:text-[var(--text-secondary)]"
+        >
+          + Freien Lauf erfassen (an einem Tag ohne Plan)
+          {candidates.length > 0 ? ` · ${candidates.length} von der Uhr` : ""}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4 rounded-lg border border-[var(--border-subtle)] bg-white/[0.02] px-4 py-4">
+      <div className="flex items-baseline justify-between">
+        <p className="text-sm font-medium">Freier Lauf</p>
+        <button type="button" onClick={() => onChange({ ...EMPTY_FREE_RUN })} className="text-xs text-muted-foreground underline">
+          abbrechen
+        </button>
+      </div>
+
+      {candidatesState === "ok" && candidates.length > 0 && (
+        <div>
+          <p className="label mb-2">Von der Uhr, ohne geplante Einheit</p>
+          <div className="flex flex-col gap-2">
+            {candidates.map((c) => {
+              const selected = d.garminActivityId === c.activityId;
+              return (
+                <button
+                  key={c.activityId}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() =>
+                    onChange(selected ? { garminActivityId: null } : { garminActivityId: c.activityId, date: c.date })
+                  }
+                  className={cn(
+                    "w-full rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                    selected
+                      ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
+                      : "border-[var(--border-subtle)] bg-white/[0.04] text-[var(--text-secondary)]",
+                  )}
+                >
+                  {selected ? "✓ " : ""}
+                  {c.activityName} · {formatDate(c.date)} · {c.durationMin} min
+                  {c.distanceKm ? ` · ${c.distanceKm.toFixed(2)} km` : ""}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
+        <label className="flex flex-col gap-1">
+          <span>Datum</span>
+          <input
+            type="date"
+            value={d.date}
+            disabled={fromGarmin}
+            onChange={(e) => onChange({ date: e.target.value })}
+            className={inputCls}
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span>Gelaufene Minuten</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={600}
+            value={fromGarmin ? "" : d.minutes}
+            disabled={fromGarmin}
+            placeholder={fromGarmin ? "von der Uhr" : "—"}
+            onChange={(e) => onChange({ minutes: e.target.value })}
+            className={inputCls}
+          />
+        </label>
+      </div>
+
+      <NumberSelector
+        label="Anstrengung (RPE)"
+        hint="1 = locker · 10 = maximal"
+        value={d.rpe}
+        onChange={(v) => onChange({ rpe: v })}
+        highIsGood={false}
+      />
+      <NumberSelector
+        label="Schienbein danach (NRS)"
+        hint="0 = keine · ≤3 grün · 4–5 halten · >5 zurücknehmen"
+        value={d.shin}
+        onChange={(v) => onChange({ shin: v })}
+        highIsGood={false}
+        min={0}
+        thresholds={SHIN_THRESHOLDS}
+      />
+
+      {message && <p className={cn("text-xs", message.ok ? "text-emerald-300" : "text-amber-300")}>{message.text}</p>}
+      <PrimaryButton onClick={onSubmit} disabled={!canSave || busy}>
+        {busy ? "Speichere…" : "Freien Lauf speichern"}
+      </PrimaryButton>
     </div>
   );
 }

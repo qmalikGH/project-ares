@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 // same control. Local copies of severity()/SEV_* went with it.
 import { NumberSelector } from "@/components/ui/NumberSelector";
 import { getSessionColor } from "@/lib/ui/session-colors";
+import { CONFIRM_WINDOW_DAYS } from "@/lib/garmin/confirm-candidates";
 
 // ─────────────────────────────────────────────────────
 // Domain types
@@ -961,7 +962,7 @@ export default function TodayDashboard() {
   // morning anyway.
   const [openCount, setOpenCount] = useState(0);
   useEffect(() => {
-    fetch("/api/sessions/open?days=7")
+    fetch(`/api/sessions/open?days=${CONFIRM_WINDOW_DAYS}`)
       .then((r) => r.json())
       .then((d) => setOpenCount((d?.count as number) ?? 0))
       .catch(() => {});

@@ -35,6 +35,13 @@ export interface ConfirmCandidate {
   averageHr: number | null;
 }
 
+/**
+ * Sprint 3.3b (#25): how far back /confirm reaches. Was 7 days — after one
+ * missed week, real sessions fell out of the window and could never be filled
+ * in again.
+ */
+export const CONFIRM_WINDOW_DAYS = 14;
+
 /** At most this many suggestions per card — more is a list, not a hint. */
 export const MAX_CANDIDATES = 2;
 
@@ -110,4 +117,46 @@ export function matchConfirmCandidates(
     }));
   }
   return out;
+}
+
+/** Sprint 3.3b (#25 · 9): a Garmin run with no planned session to belong to. */
+export type FreeRunCandidate = Omit<ConfirmCandidate, "dayOffset">;
+
+/**
+ * Run activities that match no open run session — a run on a day with nothing
+ * planned (Friday in the four-day week). Offered on the "Freier Lauf" form;
+ * the athlete decides, as on the cards.
+ *
+ * Left out:
+ *   - anything already linked to a workout
+ *   - anything within ±1 day of an open run session (that card offers it)
+ *   - anything on a day that already has a completed run (counted already)
+ *   - anything before `windowStart` (YYYY-MM-DD)
+ *
+ * Pure.
+ */
+export function unplannedRunActivities(
+  openRunDates: readonly string[],
+  completedRunDates: readonly string[],
+  activities: readonly ActivitySummary[],
+  linkedActivityIds: ReadonlySet<string>,
+  windowStart: string,
+): FreeRunCandidate[] {
+  const completed = new Set(completedRunDates);
+  return activities
+    .filter((a) => a.category === "run")
+    .filter((a) => !linkedActivityIds.has(String(a.activityId)))
+    .map((a) => ({ a, date: a.startTimeLocal.slice(0, 10) }))
+    .filter(({ date }) => date >= windowStart && !completed.has(date))
+    .filter(({ date }) => !openRunDates.some((d) => Math.abs(dayDiff(date, d)) <= 1))
+    .sort((x, y) => y.a.startTimeLocal.localeCompare(x.a.startTimeLocal))
+    .map(({ a, date }) => ({
+      activityId: a.activityId,
+      activityName: a.activityName,
+      date,
+      startTimeLocal: a.startTimeLocal,
+      durationMin: Math.max(1, Math.round(a.durationSec / 60)),
+      distanceKm: a.distanceM != null ? Math.round(a.distanceM / 10) / 100 : null,
+      averageHr: a.averageHr,
+    }));
 }
