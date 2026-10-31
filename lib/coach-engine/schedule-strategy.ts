@@ -104,18 +104,22 @@ export function planWeekSchedule(
 
   // 2. Sort runs by priority (long → quality → easy).
   const sortedRuns = sortRunsByPriority(runSessions);
-  const qualityRun = sortedRuns.find((r) =>
-    [
-      "threshold_run",
-      "tempo_run",
-      "vo2max_intervals",
-      "calibration_run",
-      "time_trial_5k",
-    ].includes(r.type),
-  );
+  // Sprint 3.3b (#21 note fix): an easy run standing in for the quality
+  // session keeps the quality slot. As a plain easy run it was paired with a
+  // strength day, and "Threshold pausiert" showed up on Thursday.
+  const qualityRun =
+    sortedRuns.find((r) =>
+      [
+        "threshold_run",
+        "tempo_run",
+        "vo2max_intervals",
+        "calibration_run",
+        "time_trial_5k",
+      ].includes(r.type),
+    ) ?? sortedRuns.find((r) => r.replacesQuality);
   const longRun = sortedRuns.find((r) => r.type === "long_run");
-  const easyRuns = sortedRuns.filter((r) =>
-    ["easy_run", "active_recovery"].includes(r.type),
+  const easyRuns = sortedRuns.filter(
+    (r) => ["easy_run", "active_recovery"].includes(r.type) && r !== qualityRun,
   );
 
   // 3. Quality run on Tue (day 1) alone, if not forced rest.

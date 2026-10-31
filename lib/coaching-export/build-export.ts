@@ -83,7 +83,7 @@ export async function safeSection<T>(fn: () => Promise<T>, fallback?: T): Promis
 // ── Section defaults ─────────────────────────────────────────────────────
 
 const DEFAULT_TRAINING_HISTORY: TrainingHistorySection = {
-  last28Days: { planned: 0, completed: 0, skipped: 0, complianceRate: 0 },
+  last28Days: { planned: 0, completed: 0, skipped: 0, missed: 0, complianceRate: 0 },
   sessions: [],
   volumeTrends: { weeklyRunKm: [], weeklyStrengthSets: [], weeklyPrevention: [] },
 };
@@ -262,6 +262,9 @@ function mapPlannedSession(json: unknown): PlannedSessionData {
       // know which exercises pair up. HSR-lifts never have a group set.
       supersetGroup: e.supersetGroup ?? null,
       supersetOrder: e.supersetOrder ?? null,
+      // Sprint 3.3b (#25 · 3): Deadlift top and back-off sets share a name.
+      ...(e.isWarmup ? { isWarmup: true } : {}),
+      ...(e.isBackoff ? { isBackoff: true } : {}),
     })),
   };
 }
@@ -369,39 +372,66 @@ async function buildTrainingHistory(userId: string, today: Date): Promise<Traini
     select: { date: true },
   });
   const dates = completedDates.map((w: { date: Date }) => w.date);
-  const gaps = layoffGaps(dates, todayKey);
+  // Sprint 3.3b (#25 · 1): only closed gaps. An open gap would swallow exactly
+  // the unconfirmed sessions the rate has to count as missed.
+  const gaps = layoffGaps(dates, todayKey).filter((g) => !g.open);
   const inGap = (d: Date) => gaps.some((g) => d >= g.from && d < g.to);
   const layoff = detectLayoff(dates, todayKey, null);
   let excludedInLayoff = 0;
-  const sinceRestart = { completed: 0, skipped: 0 };
+  const sinceRestart = { completed: 0, skipped: 0, missed: 0 };
 
   let plannedCount = 0;
   let completedCount = 0;
   let skippedCount = 0;
+  let missedCount = 0;
 
   const runVolByWeek = new Map<string, { planned: number; actual: number }>();
   const strengthByWeek = new Map<string, { totalSets: number; totalTonnageKg: number }>();
-  const preventionByWeek = new Map<string, { done: number; planned: number }>();
+
+  // Sprint 3.3b (#25 · 5): the home routine per week from the plan, through
+  // the end of the current week — Workout rows alone miss the days ahead and
+  // any day that never got a row. A date counts once, from either source.
+  const isoDow = todayKey.getUTCDay() || 7;
+  const weekEnd = new Date(todayKey.getTime() + (7 - isoDow) * 86400000);
+  const weekPlans = await db.weeklyPlan.findMany({
+    where: {
+      phase: { macrocycle: { userId, status: "active" } },
+      startDate: { lte: weekEnd },
+      endDate: { gte: cutoff },
+    },
+    select: { plannedSessions: true },
+  });
+  const preventionDates = new Map<string, boolean>();
+  for (const wp of weekPlans) {
+    if (!Array.isArray(wp.plannedSessions)) continue;
+    for (const raw of wp.plannedSessions as unknown as SessionPlan[]) {
+      if (raw?.type !== "mobility" || !raw.date) continue;
+      const day = dayKey(new Date(raw.date));
+      if (day >= cutoff && day <= weekEnd) preventionDates.set(formatDateStr(day), false);
+    }
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sessions: TrainingSession[] = workouts.map((w: any) => {
     if (w.type === "mobility") {
       // Sprint 3.3 (A4): the home routine is counted on its own, never as a
       // training session in the compliance rate.
-      const key = isoWeekKey(w.date);
-      const entry = preventionByWeek.get(key) ?? { done: 0, planned: 0 };
-      entry.planned++;
-      if (w.status === "completed") entry.done++;
-      preventionByWeek.set(key, entry);
+      const key = formatDateStr(w.date);
+      preventionDates.set(key, (preventionDates.get(key) ?? false) || w.status === "completed");
     } else if (w.type !== "rest") {
-      const missed = w.status !== "completed";
-      if (missed && inGap(w.date)) excludedInLayoff++;
-      else if (w.status === "completed") completedCount++;
-      else if (w.status === "skipped" || w.status === "skipped_illness") skippedCount++;
+      const done = w.status === "completed";
+      const skipped = w.status === "skipped" || w.status === "skipped_illness";
+      // Sprint 3.3b (#25 · 1): past and never confirmed = not done (#21, 5).
+      const missed = !done && !skipped && w.date < todayKey;
+      if (!done && inGap(w.date)) excludedInLayoff++;
+      else if (done) completedCount++;
+      else if (skipped) skippedCount++;
+      else if (missed) missedCount++;
       else plannedCount++;
-      if (layoff.restartWeekStart && w.date >= layoff.restartWeekStart) {
-        if (w.status === "completed") sinceRestart.completed++;
-        else if (w.status === "skipped" || w.status === "skipped_illness") sinceRestart.skipped++;
+      if (layoff.restartWeekStart && w.date >= layoff.restartWeekStart && (done || !inGap(w.date))) {
+        if (done) sinceRestart.completed++;
+        else if (skipped) sinceRestart.skipped++;
+        else if (missed) sinceRestart.missed++;
       }
     }
 
@@ -446,8 +476,18 @@ async function buildTrainingHistory(userId: string, today: Date): Promise<Traini
     };
   });
 
-  // v1.3: Exclude future planned sessions from compliance denominator
-  const total = completedCount + skippedCount;
+  // v1.3: Exclude future planned sessions from compliance denominator.
+  // Sprint 3.3b (#25 · 1): past unconfirmed ones are in it.
+  const total = completedCount + skippedCount + missedCount;
+
+  const preventionByWeek = new Map<string, { done: number; planned: number }>();
+  for (const [date, done] of preventionDates) {
+    const key = isoWeekKey(new Date(`${date}T00:00:00.000Z`));
+    const entry = preventionByWeek.get(key) ?? { done: 0, planned: 0 };
+    entry.planned++;
+    if (done) entry.done++;
+    preventionByWeek.set(key, entry);
+  }
 
   const weeklyRunKm = Array.from(runVolByWeek.entries())
     .sort(([a], [b]) => a.localeCompare(b))
@@ -466,6 +506,7 @@ async function buildTrainingHistory(userId: string, today: Date): Promise<Traini
       planned: plannedCount,
       completed: completedCount,
       skipped: skippedCount,
+      missed: missedCount,
       complianceRate: computeComplianceRate(completedCount, total),
       excludedInLayoff,
       sinceRestart: layoff.restartWeekStart
@@ -473,7 +514,11 @@ async function buildTrainingHistory(userId: string, today: Date): Promise<Traini
             restartWeekStart: formatDateStr(layoff.restartWeekStart),
             completed: sinceRestart.completed,
             skipped: sinceRestart.skipped,
-            rate: computeComplianceRate(sinceRestart.completed, sinceRestart.completed + sinceRestart.skipped),
+            missed: sinceRestart.missed,
+            rate: computeComplianceRate(
+              sinceRestart.completed,
+              sinceRestart.completed + sinceRestart.skipped + sinceRestart.missed,
+            ),
           }
         : null,
     },
@@ -697,18 +742,9 @@ async function buildUpcoming(userId: string, today: Date): Promise<UpcomingSecti
             date: formatDateStr(sessionDate),
             dayOfWeek: formatDayOfWeek(sessionDate),
             type: raw.type,
-            planned: {
-              durationMin: raw.durationMin,
-              targetHR: raw.hrTarget ? { from: raw.hrTarget.from, to: raw.hrTarget.to } : undefined,
-              // Sprint 2.3 #4: run interval structure (warmup / N×M @ pace / cooldown).
-              structure: raw.structure,
-              exercises: raw.exercises?.map((e) => ({
-                name: e.name,
-                sets: e.sets,
-                reps: e.reps,
-                loadPct: e.loadPct,
-              })),
-            },
+            // Sprint 3.3b (#25 · 3/4): the same mapper as the history — the
+            // old inline one dropped loadKg and activationMin.
+            planned: mapPlannedSession(raw),
             periodizationLabel: raw.periodizationLabel,
           });
         }

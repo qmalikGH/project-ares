@@ -77,25 +77,53 @@ beforeEach(() => {
 describe("regeneratePlansFromNow — run progression", () => {
   it("caps from measured minutes only (40 → 44), ignoring a run confirmed without minutes", async () => {
     const r = await regeneratePlansFromNow("u1");
-    expect(r.progression[0]).toMatchObject({ weekStart: "2026-10-26", capMin: 44, thresholdIndex: 2 });
+    // 26.10. is a deload week: 0.75 × 44 (3.3b #25 · 2).
+    expect(r.progression[0]).toMatchObject({ weekStart: "2026-10-26", capMin: 33, thresholdIndex: 2 });
+    expect(r.progression[1]).toMatchObject({ weekStart: "2026-11-02", capMin: 44 });
+  });
+
+  it("a deload week keeps every run under 0.75 × the cap, the cap does not climb over it", async () => {
+    const r = await regeneratePlansFromNow("u1");
+    for (const s of written("wp-8")) {
+      if (s.type !== "rest" && !s.type.startsWith("strength")) expect(s.durationMin ?? 0).toBeLessThanOrEqual(33);
+    }
+    // The deload long run (33) adds nothing: week 9 still sees the 40 from before.
+    expect(r.progression[1].capMin).toBe(44);
+  });
+
+  it("the deload threshold that does not fit under 0.75 × the cap becomes an easy run (#21 example)", async () => {
+    workoutFindMany.mockImplementation(async (args: { select?: Record<string, boolean> }) => {
+      const sel = args.select ?? {};
+      if (sel.durationActualMin) {
+        return [{ date: d("2026-10-24"), type: "long_run", durationActualMin: 30, plannedSession: { type: "long_run" } }];
+      }
+      if (sel.rpe) return [];
+      return [{ date: d("2026-10-20") }, { date: d("2026-10-24") }];
+    });
+    const r = await regeneratePlansFromNow("u1");
+    // Cap 33 → deload 24; 2×8 needs 30.
+    expect(r.progression[0].capMin).toBe(24);
+    const tuesday = written("wp-8").find((s) => new Date(s.date).toISOString().startsWith("2026-10-27"))!;
+    expect(tuesday.type).toBe("easy_run");
+    expect(tuesday.notes).toContain("Threshold 2×8 pausiert");
   });
 
   it("the next cycle's threshold steps down to what fits under the cap", async () => {
     const r = await regeneratePlansFromNow("u1");
-    // The deload long run on Sat 31.10. (45 → capped 44) is projected as done,
-    // so week 9's cap is 48. History earned L2 (3×10/3 = 49 min), which does
-    // not fit → L1 (3×8/2 = 40).
-    expect(r.progression[1]).toMatchObject({ weekStart: "2026-11-02", capMin: 48, thresholdIndex: 2 });
+    // The deload stays under 33, so week 9's cap is still 44 from the 40-min
+    // runs before it. History earned L2 (3×10/3 = 49 min), which does not
+    // fit → L1 (3×8/2 = 40).
+    expect(r.progression[1]).toMatchObject({ weekStart: "2026-11-02", capMin: 44, thresholdIndex: 2 });
     const t = written("wp-9").find((s) => s.type === "threshold_run")!;
     expect(t.structure!.workIntervals![0]).toMatchObject({ repeats: 3, durationMin: 8 });
     // Block 2's 60-min long run is held at the cap.
-    expect(written("wp-9").find((s) => s.type === "long_run")!.durationMin).toBe(48);
+    expect(written("wp-9").find((s) => s.type === "long_run")!.durationMin).toBe(44);
   });
 
   it("projects planned runs from today on, so the cap climbs week by week", async () => {
     const r = await regeneratePlansFromNow("u1");
-    // Week 9's long run (48) counts as done for week 10 → 52.
-    expect(r.progression[2]).toMatchObject({ weekStart: "2026-11-09", capMin: 52 });
+    // Week 9's long run (44) counts as done for week 10 → 48.
+    expect(r.progression[2]).toMatchObject({ weekStart: "2026-11-09", capMin: 48 });
     for (const id of ["wp-8", "wp-9", "wp-10"]) {
       const cap = r.progression[["wp-8", "wp-9", "wp-10"].indexOf(id)].capMin;
       for (const s of written(id)) {

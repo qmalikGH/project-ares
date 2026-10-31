@@ -179,6 +179,10 @@ export interface PlannedExercise {
    *  two exercises = they alternate as antagonist pair. HSR-lifts never set. */
   supersetGroup?: string | null;
   supersetOrder?: number | null;
+  /** Sprint 3.3b (#25 · 3): warm-up / activation sets. */
+  isWarmup?: boolean;
+  /** Sprint 3.3b (#25 · 3): back-off sets after the top sets of the same lift. */
+  isBackoff?: boolean;
 }
 
 /** Sprint 2.3 #4 — run interval structure (warmup + N×M work + cooldown), so
@@ -255,14 +259,19 @@ export interface TrainingSession {
 }
 
 export interface ComplianceSummary {
+  /** Today, not yet done — outside the rate. */
   planned: number;
   completed: number;
   skipped: number;
+  /** Sprint 3.3b (#25 · 1): past and never confirmed — counts as not done. */
+  missed: number;
+  /** completed / (completed + skipped + missed). */
   complianceRate: number;
-  /** Sprint 3.3 (C2): sessions left out because they fell inside a layoff gap. */
+  /** Sprint 3.3 (C2): sessions left out because they fell inside a closed
+   *  layoff gap (3.3b: an open gap counts as missed). */
   excludedInLayoff?: number;
   /** Sprint 3.3 (C2): from the week training resumed after the latest layoff. */
-  sinceRestart?: { restartWeekStart: string; completed: number; skipped: number; rate: number } | null;
+  sinceRestart?: { restartWeekStart: string; completed: number; skipped: number; missed: number; rate: number } | null;
 }
 
 export interface WeeklyRunVolume {

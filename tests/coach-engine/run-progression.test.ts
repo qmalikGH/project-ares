@@ -6,6 +6,7 @@ import {
   nextThresholdIndex,
   runCapForWeek,
   TIME_TRIAL_EARLIEST,
+  weekRunCap,
 } from "@/lib/coach-engine/run-progression";
 import {
   generateWeekRunPlan,
@@ -47,6 +48,19 @@ describe("runCapForWeek (B1)", () => {
     expect(runCapForWeek([{ date: daysBefore(31), minutes: 60 }], monday)).toBe(30);
     // A run inside the week itself does not raise that week's cap.
     expect(runCapForWeek([{ date: monday, minutes: 60 }], monday)).toBe(30);
+  });
+});
+
+describe("weekRunCap (3.3b #25 · 2)", () => {
+  const runs = [{ date: daysBefore(3), minutes: 30 }];
+
+  it("is the B1 cap outside a deload week", () => {
+    expect(weekRunCap(runs, monday, false)).toBe(33);
+  });
+
+  it("is 75 % of it in a deload week, rounded down", () => {
+    expect(weekRunCap(runs, monday, true)).toBe(24);
+    expect(weekRunCap([{ date: daysBefore(3), minutes: 40 }], monday, true)).toBe(33);
   });
 });
 

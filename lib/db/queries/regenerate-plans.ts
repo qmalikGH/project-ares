@@ -27,7 +27,7 @@ import { weekInBlockOf } from "@/lib/coach-engine/strength-coach/periodization";
 import {
   isTimeTrialWeek,
   nextThresholdIndex,
-  runCapForWeek,
+  weekRunCap,
   RUN_CAP_WINDOW_DAYS,
   THRESHOLD_HISTORY_DAYS,
   type CompletedThreshold,
@@ -312,13 +312,16 @@ export async function regeneratePlansFromNow(
     const phaseConfig = plan.phase.config as unknown as PhaseConfig;
     if (!phaseConfig) continue;
 
-    const capMin = runCapForWeek(history.runs, plan.startDate);
+    // Sprint 3.3b (#25 · 2): a deload week runs under 0.75 × the cap — every
+    // run, and the fit checks for threshold and test.
+    const isDeloadWeek = weekInBlockOf(plan.weekNumber, phaseConfig.durationWeeks) === 4;
+    const capMin = weekRunCap(history.runs, plan.startDate, isDeloadWeek);
     const weekProgression = {
       capMin,
       thresholdIndex: nextThresholdIndex(history.thresholds, plan.startDate),
       timeTrial: isTimeTrialWeek({
         testDate: new Date(plan.startDate.getTime() + 86400000),
-        isDeloadWeek: weekInBlockOf(plan.weekNumber, phaseConfig.durationWeeks) === 4,
+        isDeloadWeek,
         lastTestDate: history.lastTestDate,
         capMin,
         testDurationMin,

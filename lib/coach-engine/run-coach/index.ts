@@ -707,6 +707,7 @@ export function generateWeekRunPlan(
   const easyInsteadOf = (what: string, needMin: number): SessionPlan => {
     const s = easyRun(dateAt(1), capMin, paces, hr);
     s.notes = `[${what} pausiert: braucht ${needMin} min, Lauf-Deckel steht bei ${capMin} min]`;
+    s.replacesQuality = true;
     return s;
   };
 
@@ -744,6 +745,7 @@ export function generateWeekRunPlan(
       shinVolumeGate === "regress"
         ? "[Shin-Schutz: Quali gestrichen, locker laufen]"
         : `[Wiedereinstieg W${comebackWeek}: Quali gestrichen, locker laufen]`;
+    qualityDay.replacesQuality = true;
   } else if (
     progression?.timeTrial &&
     weekInBlock === 4 &&

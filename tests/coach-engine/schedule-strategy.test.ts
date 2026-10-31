@@ -215,6 +215,25 @@ describe("planWeekSchedule — extra easy runs", () => {
   });
 });
 
+// Sprint 3.3b (#21 note fix): the note used to land on Thursday.
+describe("planWeekSchedule — easy run standing in for the quality session", () => {
+  it("keeps the quality slot and its note on Tuesday", () => {
+    const note = "[Threshold 2×8 pausiert: braucht 30 min, Lauf-Deckel steht bei 24 min]";
+    const runs = [
+      s("easy_run"),
+      s("easy_run", { notes: note, replacesQuality: true }),
+      s("easy_run"),
+      s("easy_run"),
+      s("long_run"),
+    ];
+    const result = planWeekSchedule(runs, [s("strength_a"), s("strength_b")], MONDAY, Q_DEFAULT_CONSTRAINTS);
+    const withNote = result.filter((r) => r.notes === note);
+    expect(withNote).toHaveLength(1);
+    expect(dayIndex(withNote[0].date)).toBe(1);
+    expect(result.filter((r) => dayIndex(r.date) === 3).map((r) => r.notes)).not.toContain(note);
+  });
+});
+
 describe("planWeekSchedule — home prevention (A4)", () => {
   const names = ["Tibialis Anterior Raises", "Short Foot Exercise", "Single-Leg Calf Raises"];
   const result = planWeekSchedule([s("easy_run")], [s("strength_a")], MONDAY, Q_DEFAULT_CONSTRAINTS, {
