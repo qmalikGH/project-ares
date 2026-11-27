@@ -7,6 +7,9 @@
 // isn't running, so the absence of data was being counted as evidence of
 // health and the plan progressed at full tilt on his first day back.
 
+import { detectLayoff, type LayoffState } from "@/lib/coach-engine/comeback";
+import { isRunType, isStrengthType } from "@/lib/db/queries/progress-helpers";
+
 export type VolumeGate = "progress" | "hold" | "regress";
 
 export interface VolumeGateInput {
@@ -82,4 +85,47 @@ export function deriveVolumeGate(input: VolumeGateInput): VolumeGateDecision {
   }
 
   return { gate: "progress", reason: "shin calm, resting HR at baseline" };
+}
+
+// ── Sprint 3.4 (#28, C4): a layoff per discipline ──────────────────────────
+
+/**
+ * The comeback ramp per discipline. Until now one gap across all completed
+ * sessions decided both ramps, so a strength pause during ongoing running
+ * never reduced the strength loads (and vice versa).
+ *
+ *   - run ramp      ← gap since the last completed run
+ *   - strength ramp ← gap since the last completed strength session
+ *
+ * Threshold (21 days) and factors (RAMP_BY_WEEK) are unchanged. A discipline
+ * without any completed session in the history falls back to the global
+ * result — detectLayoff reads an empty history as "no comeback" (onboarding),
+ * and a strength-only past must not turn the first runs into a full block.
+ * The export's layoff gaps stay global (build-export.ts).
+ *
+ * `extraStrengthDates` (coach, 27.11., #28 b): days of strength activities
+ * the watch recorded but no session took (≥ 20 min, unlinked). They count as
+ * strength training days, so an ad-hoc gym session keeps the strength ramp
+ * away; they still complete no session.
+ *
+ * Pure.
+ */
+export function detectLayoffByDiscipline(
+  completed: readonly { date: Date; type: string }[],
+  today: Date,
+  fallbackRestartWeekStart: Date | null,
+  extraStrengthDates: readonly Date[] = [],
+): { run: LayoffState; strength: LayoffState; global: LayoffState } {
+  const global = detectLayoff(completed.map((w) => w.date), today, fallbackRestartWeekStart);
+  const runDates = completed.filter((w) => isRunType(w.type)).map((w) => w.date);
+  const strengthDates = [
+    ...completed.filter((w) => isStrengthType(w.type)).map((w) => w.date),
+    ...extraStrengthDates,
+  ];
+  return {
+    run: runDates.length > 0 ? detectLayoff(runDates, today, fallbackRestartWeekStart) : global,
+    strength:
+      strengthDates.length > 0 ? detectLayoff(strengthDates, today, fallbackRestartWeekStart) : global,
+    global,
+  };
 }

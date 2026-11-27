@@ -17,6 +17,8 @@ import { dbConfigToEngineConfig, seedDayTypeConfigs } from "@/lib/nutrition/seed
 import { buildSlotsForTargets, templateDayPlan } from "@/lib/nutrition/template";
 import type { DayType } from "@/lib/nutrition/types";
 import { materializeWorkouts } from "@/lib/coach-engine/materialize";
+import { regeneratePlansFromNow } from "@/lib/db/queries/regenerate-plans";
+import { upsertShinReport } from "@/lib/db/queries/shin-signal";
 
 const TherapyPhaseSchema = z.object({
   phase: z.enum(["REACTIVE", "DISREPAIR", "REMODELING", "SPORT_SPECIFIC"]),
@@ -107,6 +109,13 @@ const ForceReseedSchema = z.object({}).strict();
 // loadPreset W1 = full ramp-up (no override). W2 = W1 volume + W2 loads.
 const ResetBlockSchema = z.object({
   loadPreset: z.enum(["W1", "W2"]).default("W2"),
+}).strict();
+
+// Sprint 3.4 (#28, C3): what the athlete told the coach about the shin. Counts
+// for the volume gate like a rated session (highest value of 14 days).
+const ReportShinStatusSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  painNrs: z.number().int().min(0).max(10),
 }).strict();
 
 const SEED_DAY_TYPES: DayType[] = ["strength_run", "threshold", "long_run", "rest"];
@@ -759,6 +768,32 @@ export async function handleCoachingAction(
           reason,
         },
       });
+      return { success: true, logId: log.id, action };
+    }
+
+    // ── Sprint 3.4 (#28, C3) — shin report from the coaching chat ──────────
+    case "reportShinStatus": {
+      const parsed = ReportShinStatusSchema.safeParse(data);
+      if (!parsed.success) {
+        return { success: false, status: 400, error: "invalid_data", details: parsed.error.flatten() };
+      }
+      const date = dayKey(new Date(`${parsed.data.date}T00:00:00.000Z`));
+      const today = dayKey(new Date());
+      if (date.getTime() > today.getTime() + 86400000) {
+        return { success: false, status: 400, error: "date_in_future" };
+      }
+      await upsertShinReport(userId, date, parsed.data.painNrs, "coach");
+      const log = await db.coachingLog.create({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        data: { userId, action, data: parsed.data as any, reason },
+      });
+      // The gate decision for the next two weeks should reflect it at once.
+      // Best-effort: the report is stored either way, the 19:00 cron catches up.
+      try {
+        await regeneratePlansFromNow(userId, { horizonWeeks: 2 });
+      } catch (e) {
+        console.warn("[coaching-update] reportShinStatus: regenerate failed:", e);
+      }
       return { success: true, logId: log.id, action };
     }
 

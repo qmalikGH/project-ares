@@ -100,10 +100,8 @@ export async function POST(req: Request) {
 
   // Sprint 2.5: same shared builder as /sessions/today and /sessions/start, so
   // the explanation describes the session the athlete will actually get.
+  // Sprint 3.4 (#28, C1): works without a morning input too.
   const modCtx = await buildModulationContext(userId, today);
-  if (!modCtx) {
-    return NextResponse.json({ status: "AWAITING_MORNING_INPUT" });
-  }
   const { readiness, load, limitations, paces, inputs: todayInputs, baselines } = modCtx;
   const finalSession = modulateSession(
     plannedSession as SessionPlan,
@@ -121,7 +119,7 @@ export async function POST(req: Request) {
     bodyBatteryMorning: todayInputs.garmin?.bodyBatteryMorning ?? null,
     rhr: todayInputs.garmin?.rhr ?? null,
     rhrBaseline: Math.round(baselines.rhr28dAvg),
-    subjectiveRecovery1to10: todayInputs.userMorning.subjectiveRecovery,
+    subjectiveRecovery1to10: todayInputs.userMorning?.subjectiveRecovery ?? null,
   };
 
   const ctx: DailyExplanationContext = {

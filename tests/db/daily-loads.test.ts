@@ -24,7 +24,25 @@ describe("dailyLoadsFrom", () => {
     ).toEqual([{ date: D, load: 210 }]);
   });
 
-  it("drops rows with neither — and rows without an RPE", () => {
+  // Sprint 3.4 (#28, C2): an unrated session with HR zones has a load.
+  it("derives an unrated session's load from its HR zones (RPE equivalents)", () => {
+    const executedSession = {
+      garminHrZones: { zone1Sec: 600, zone2Sec: 1200, zone3Sec: 300, zone4Sec: 0, zone5Sec: 0, zoneFloors: {} },
+    };
+    // 10 min × 2 + 20 min × 3 + 5 min × 5 = 105
+    expect(
+      dailyLoadsFrom([{ date: D, rpe: null, durationActualMin: 35, plannedSession: null, executedSession }]),
+    ).toEqual([{ date: D, load: 105 }]);
+  });
+
+  it("prefers the athlete's RPE over the zones", () => {
+    const executedSession = { garminHrZones: { zone1Sec: 0, zone2Sec: 0, zone3Sec: 0, zone4Sec: 0, zone5Sec: 1800 } };
+    expect(
+      dailyLoadsFrom([{ date: D, rpe: 3, durationActualMin: 30, plannedSession: null, executedSession }]),
+    ).toEqual([{ date: D, load: 90 }]);
+  });
+
+  it("drops rows with neither — and rows without an RPE or HR zones", () => {
     expect(
       dailyLoadsFrom([
         { date: D, rpe: 7, durationActualMin: null, plannedSession: null },

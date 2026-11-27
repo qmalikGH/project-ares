@@ -25,14 +25,15 @@ import { db } from "@/lib/db/client";
 import { userToday } from "@/lib/date";
 import { getRecentRunSummaries } from "@/lib/garmin/profile";
 import { calibrateVdotFromRuns, vdotFromRace } from "@/lib/coach-engine/vdot-calculator";
-import { detectLayoff, comebackWeekFor } from "@/lib/coach-engine/comeback";
-import { deriveVolumeGate } from "@/lib/db/queries/regenerate-plans-helpers";
+import { comebackWeekFor } from "@/lib/coach-engine/comeback";
+import { deriveVolumeGate, detectLayoffByDiscipline } from "@/lib/db/queries/regenerate-plans-helpers";
 import { getEffectiveVdot } from "@/lib/db/queries/settings";
 import { regeneratePlansFromNow } from "@/lib/db/queries/regenerate-plans";
 import { materializeWorkouts } from "@/lib/coach-engine/materialize";
 import { createNotificationIfNew } from "@/lib/notifications/create";
 import { ExecutedSessionSchema } from "@/lib/coach-engine/types";
 import { NON_TRAINING_TYPES } from "@/lib/coach-engine/prevention";
+import { combineShinValues, loadShinReportValues, SHIN_SIGNAL_WINDOW_DAYS } from "@/lib/db/queries/shin-signal";
 import {
   decideVdotUpdate,
   VDOT_SOURCE_AUTO,
@@ -43,8 +44,9 @@ import {
 const RUN_HISTORY_DAYS = 60;
 const ROLLING_WINDOW_RUNS = 14;
 const MIN_RUNS_FOR_AUTO = 5;
-/** Matches loadRecentShinSignal's window so the gate sees the same evidence. */
-const SHIN_WINDOW_DAYS = 10;
+/** Matches loadRecentShinSignal's window so the gate sees the same evidence.
+ *  Sprint 3.4 (#28, C3): one shared constant, 14 days. */
+const SHIN_WINDOW_DAYS = SHIN_SIGNAL_WINDOW_DAYS;
 const RHR_WINDOW_DAYS = 14;
 /** Notifications are deduped per week — one voice per calibration cycle. */
 const NOTIFY_DEDUPE_MINUTES = 10080;
@@ -255,7 +257,7 @@ async function loadBrakes(
       NOT: { type: { in: [...NON_TRAINING_TYPES] } },
     },
     orderBy: { date: "asc" },
-    select: { date: true },
+    select: { date: true, type: true },
   });
 
   const nextWeek = await db.weeklyPlan.findFirst({
@@ -264,11 +266,9 @@ async function loadBrakes(
     select: { startDate: true },
   });
 
-  const layoff = detectLayoff(
-    completed.map((w) => w.date),
-    today0,
-    nextWeek?.startDate ?? null,
-  );
+  // Sprint 3.4 (#28, C4): the VDOT is a running number — only a RUN layoff
+  // brakes it, not a strength pause during ongoing running.
+  const layoff = detectLayoffByDiscipline(completed, today0, nextWeek?.startDate ?? null).run;
   const layoffActive =
     layoff.active && comebackWeekFor(nextWeek?.startDate ?? today0, layoff.restartWeekStart) !== null;
 
@@ -295,6 +295,12 @@ async function loadBrakes(
       recentShin = recentShin === null ? s : Math.max(recentShin, s);
       attestedInWindow++;
     }
+  }
+  // Sprint 3.4 (#28, C3): card and coach reports count like a rated session.
+  const reports = combineShinValues(await loadShinReportValues(userId, shinCutoff, today0));
+  if (reports.worst !== null) {
+    recentShin = recentShin === null ? reports.worst : Math.max(recentShin, reports.worst);
+    attestedInWindow += reports.count;
   }
 
   const rhrRows = await db.dailySensorData.findMany({

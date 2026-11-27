@@ -106,31 +106,65 @@ export function rowsToKneeLogs(rows: Awaited<ReturnType<typeof getRecentSensorDa
 export async function getRecentDailyLoads(userId: string, days: number) {
   const cutoff = dayKey(new Date());
   cutoff.setUTCDate(cutoff.getUTCDate() - days);
+  // Sprint 3.4 (#28, C2): no `rpe: { not: null }` any more — an unrated
+  // session with HR zones from the watch carries a load too (see below).
   const workouts = await db.workout.findMany({
     where: {
       userId,
       status: "completed",
       date: { gte: cutoff },
-      rpe: { not: null },
     },
-    select: { date: true, rpe: true, durationActualMin: true, plannedSession: true },
+    select: { date: true, rpe: true, durationActualMin: true, plannedSession: true, executedSession: true },
   });
   return dailyLoadsFrom(workouts);
 }
 
+/**
+ * Sprint 3.4 (#28, C2): RPE equivalent per Garmin HR zone, for sessions nobody
+ * rated. Garmin's five %HRmax zones mapped to the CR-10 anchors of the
+ * session-RPE scale (Foster et al. 2001): Z1 very easy 2 · Z2 easy 3 ·
+ * Z3 moderate/somewhat hard 5 · Z4 hard 7 · Z5 very hard 9.
+ *
+ * Load = Σ minutes in zone × anchor — the same arbitrary units as sRPE ×
+ * minutes, so rated and unrated sessions share one ACWR scale (a TRIMP would
+ * not). Computed on read and never stored: no RPE is invented on the row.
+ */
+export const ZONE_RPE_EQUIVALENT = [2, 3, 5, 7, 9] as const;
+
+export function loadFromHrZones(executedSession: unknown): number | null {
+  const zones = (executedSession as { garminHrZones?: Record<string, unknown> | null } | null)?.garminHrZones;
+  if (!zones) return null;
+  let load = 0;
+  let seconds = 0;
+  ZONE_RPE_EQUIVALENT.forEach((rpe, i) => {
+    const sec = zones[`zone${i + 1}Sec`];
+    if (typeof sec === "number" && Number.isFinite(sec) && sec > 0) {
+      load += (sec / 60) * rpe;
+      seconds += sec;
+    }
+  });
+  return seconds > 0 ? Math.round(load) : null;
+}
+
 /** Pure core of getRecentDailyLoads — measured duration first, plan as the
- *  documented fallback, rows with neither dropped. */
+ *  documented fallback, rows with neither dropped. Sprint 3.4: an unrated row
+ *  falls back to its HR zones; without RPE and zones it is still dropped. */
 export function dailyLoadsFrom(
   workouts: ReadonlyArray<{
     date: Date;
     rpe: number | null;
     durationActualMin: number | null;
     plannedSession: unknown;
+    executedSession?: unknown;
   }>,
 ): { date: Date; load: number }[] {
   const out: { date: Date; load: number }[] = [];
   for (const w of workouts) {
-    if (w.rpe == null) continue;
+    if (w.rpe == null) {
+      const zoneLoad = loadFromHrZones(w.executedSession);
+      if (zoneLoad != null) out.push({ date: w.date, load: zoneLoad });
+      continue;
+    }
     const planned = (w.plannedSession as { durationMin?: number } | null)?.durationMin;
     const minutes = w.durationActualMin ?? (typeof planned === "number" ? planned : null);
     if (minutes == null) continue;

@@ -137,14 +137,21 @@ export function computeReadiness(
   baselines: SensorBaselines,
   historicalScores: { date: Date; score: number }[] = [],
 ): ReadinessOutput {
-  // Subjective component (always available). Sprint 3.3: a malformed morning
-  // input reads as neutral rather than as NaN.
-  const subjectiveRaw = clamp(inputs.userMorning.subjectiveRecovery * 10, 0, 100);
-  const subjective = isFiniteNumber(subjectiveRaw) ? subjectiveRaw : 80;
-  const kneeRaw = kneeScoreFromInputs(inputs.userMorning);
-  // kneeRaw=1 → 100 (perfect), kneeRaw=10 → 10 (worst). Linear inversion.
-  const kneeScore = clamp(110 - kneeRaw * 10, 0, 100);
-  const knee = isFiniteNumber(kneeScore) ? kneeScore : 80;
+  // Subjective components. Sprint 3.3: a malformed morning input reads as
+  // neutral rather than as NaN. Sprint 3.4 (#28, C1): the morning input is
+  // optional — without it both components drop out (null) like a missing
+  // Garmin value, instead of being invented.
+  const morning = inputs.userMorning;
+  let subjective: number | null = null;
+  let knee: number | null = null;
+  if (morning) {
+    const subjectiveRaw = clamp(morning.subjectiveRecovery * 10, 0, 100);
+    subjective = isFiniteNumber(subjectiveRaw) ? subjectiveRaw : 80;
+    const kneeRaw = kneeScoreFromInputs(morning);
+    // kneeRaw=1 → 100 (perfect), kneeRaw=10 → 10 (worst). Linear inversion.
+    const kneeScore = clamp(110 - kneeRaw * 10, 0, 100);
+    knee = isFiniteNumber(kneeScore) ? kneeScore : 80;
+  }
 
   const g = inputs.garmin;
   const hrv = g && isFiniteNumber(g.hrvRmssd)
@@ -157,7 +164,19 @@ export function computeReadiness(
     : null;
   const hasGarmin = [hrv, sleep, battery, rhrDev].some((c) => c !== null);
 
-  if (!hasGarmin) {
+  if (!hasGarmin && (subjective === null || knee === null)) {
+    // Sprint 3.4 (#28, C1): no watch data and no morning input — nothing to
+    // modulate on. Neutral means no readiness rule fires: exactly 80 (GREEN),
+    // not a weighted sum that float rounding could drop below the boundary.
+    return {
+      score: 80,
+      band: "GREEN",
+      components: { hrv: null, sleep: null, battery: null, rhrDev: null, subjective: null, knee: null },
+      trend7d: trendFromScores(historicalScores),
+    };
+  }
+
+  if (!hasGarmin && subjective !== null && knee !== null) {
     // Garmin missing → neutral 80 for unobserved components.
     const score =
       WEIGHTS.hrv * 80 +

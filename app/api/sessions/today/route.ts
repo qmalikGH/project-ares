@@ -44,15 +44,11 @@ export async function GET() {
   // 2./3. Sensor outputs. Sprint 2.5: shared with /api/sessions/start so the
   // session that is displayed and the session that gets persisted are produced
   // by the same inputs.
+  // Sprint 3.4 (#28, C1): the session shows at once. Without a morning input
+  // the modulation runs on the Garmin values (or neutral); the input stays an
+  // optional card (`morningInputPending`).
   const ctx = await buildModulationContext(userId, today);
-  if (!ctx) {
-    return NextResponse.json({
-      status: "AWAITING_MORNING_INPUT",
-      plannedSession: primarySession,
-      plannedSessions,
-    });
-  }
-  const { readiness, load, limitations, paces, sensorRowId } = ctx;
+  const { readiness, load, limitations, paces, sensorRowId, morningInputPending } = ctx;
 
   // 4. Modulate every session for today (Run + Strength on two-a-day Mondays etc.)
   const finalSessions = plannedSessions.map((p) =>
@@ -115,7 +111,9 @@ export async function GET() {
   const plannedSession = primarySession;
 
   // 5. Cache computed scores back to today's row (best-effort, non-blocking from caller's perspective).
-  await import("@/lib/db/client").then(async ({ db }) => {
+  // Sprint 3.4: no row yet (no sync, no input) → nothing to cache into. The
+  // knee score is only cached from a real morning input.
+  if (sensorRowId) await import("@/lib/db/client").then(async ({ db }) => {
     await db.dailySensorData.update({
       where: { id: sensorRowId },
       data: {
@@ -130,7 +128,7 @@ export async function GET() {
           acwrEwma: load.acwrEwma,
           band: load.band,
         },
-        kneeScore: limitations.kneeScoreToday,
+        ...(morningInputPending ? {} : { kneeScore: limitations.kneeScoreToday }),
         therapyPhase: limitations.therapyPhase,
         computedAt: new Date(),
       },
@@ -139,6 +137,7 @@ export async function GET() {
 
   return NextResponse.json({
     status: "READY",
+    morningInputPending,
     plannedSession,
     plannedSessions,
     finalSession,
