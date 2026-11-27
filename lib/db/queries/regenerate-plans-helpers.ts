@@ -103,16 +103,25 @@ export function deriveVolumeGate(input: VolumeGateInput): VolumeGateDecision {
  * and a strength-only past must not turn the first runs into a full block.
  * The export's layoff gaps stay global (build-export.ts).
  *
+ * `extraStrengthDates` (coach, 27.11., #28 b): days of strength activities
+ * the watch recorded but no session took (≥ 20 min, unlinked). They count as
+ * strength training days, so an ad-hoc gym session keeps the strength ramp
+ * away; they still complete no session.
+ *
  * Pure.
  */
 export function detectLayoffByDiscipline(
   completed: readonly { date: Date; type: string }[],
   today: Date,
   fallbackRestartWeekStart: Date | null,
+  extraStrengthDates: readonly Date[] = [],
 ): { run: LayoffState; strength: LayoffState; global: LayoffState } {
   const global = detectLayoff(completed.map((w) => w.date), today, fallbackRestartWeekStart);
   const runDates = completed.filter((w) => isRunType(w.type)).map((w) => w.date);
-  const strengthDates = completed.filter((w) => isStrengthType(w.type)).map((w) => w.date);
+  const strengthDates = [
+    ...completed.filter((w) => isStrengthType(w.type)).map((w) => w.date),
+    ...extraStrengthDates,
+  ];
   return {
     run: runDates.length > 0 ? detectLayoff(runDates, today, fallbackRestartWeekStart) : global,
     strength:

@@ -16,6 +16,7 @@
 import { db } from "@/lib/db/client";
 import { userToday } from "@/lib/date";
 import { combineShinValues, loadShinReportValues, SHIN_SIGNAL_WINDOW_DAYS } from "@/lib/db/queries/shin-signal";
+import { SAME_DAY_STRENGTH_MIN_SEC } from "@/lib/garmin/auto-import";
 import {
   generateWeekRunPlan,
   thresholdLadderIndexOf,
@@ -279,10 +280,23 @@ export async function regeneratePlansFromNow(
   // Sprint 3.4 (#28, C4): one ramp per discipline — the run ramp from the gap
   // since the last run, the strength ramp from the gap since the last strength
   // session. `layoff` (the result field) reports the run ramp.
+  // Coach, 27.11. (#28 b): strength the watch recorded but no session took
+  // still counts as a strength training day (≥ 20 min, unlinked).
+  const rawStrength = await db.garminActivity.findMany({
+    where: {
+      userId,
+      category: "strength",
+      workoutRefId: null,
+      durationSec: { gte: SAME_DAY_STRENGTH_MIN_SEC },
+      localDate: { gte: new Date(today0.getTime() - 180 * 86400000), lte: today0 },
+    },
+    select: { localDate: true },
+  });
   const layoffs = detectLayoffByDiscipline(
     completedHistory,
     today0,
     plansToRegen[0]?.startDate ?? null,
+    rawStrength.map((a) => a.localDate),
   );
   const layoff = layoffs.run;
 

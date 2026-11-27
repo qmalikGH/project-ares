@@ -19,7 +19,8 @@
 //      Any session type, strength included.
 //   2. same day — a run of ≥ 10 min on the day of an OPEN easy_run or
 //      long_run completes it, even without a pushed workout; the longest run
-//      of the day wins. NEVER for threshold, VO2max or a time trial: quality
+//      of the day wins. Likewise a strength activity of ≥ 20 min for an open
+//      strength session (coach, 27.11.). NEVER for threshold, VO2max or a time trial: quality
 //      only counts through identity or a human — who can claim the free run
 //      the cron made of it (/confirm, autoMatch "claimed"). (That is
 //      also why the threshold ladder needs no extra guard: it only credits
@@ -37,7 +38,8 @@
 //   - Idempotent: a parallel /confirm that linked the same activity first
 //     makes ours fail with P2002 on @@unique([userId, garminActivityId]);
 //     that is skipped, not reported.
-//   - Unmatched strength activities stay raw data.
+//   - Unmatched strength activities stay raw data (but ≥ 20 min they count
+//     as a training day for the strength layoff, see regenerate-plans).
 //   - No RPE, no shin score: nobody rated these sessions. `source` stays
 //     "garmin_auto", so deriveVolumeGate keeps treating them as "trained,
 //     wellbeing unknown".
@@ -56,6 +58,14 @@ export const FREE_RUN_MIN_SEC = 15 * 60;
  * minimum — that run was started from the pushed workout on purpose.
  */
 export const SAME_DAY_RUN_MIN_SEC = 10 * 60;
+/**
+ * Coach, 27.11. (#28 b): pass 2 for strength — a strength activity of at
+ * least this long on the day of an open strength session completes it
+ * ("starting the watch is enough" on gym days too). Also the floor for an
+ * unlinked strength activity to count as a training day for the strength
+ * layoff (regenerate-plans).
+ */
+export const SAME_DAY_STRENGTH_MIN_SEC = 20 * 60;
 /** Pass 2 may complete only these session types. */
 export const SAME_DAY_TYPES: readonly string[] = ["long_run", "easy_run"];
 /**
@@ -229,7 +239,7 @@ export async function autoImportFromStore(
     if (exact.length > 0) await linkPlanned(w, exact[0], "identity");
   }
 
-  // ── Pass 2: same day, easy and long runs only ──────────────────────────
+  // ── Pass 2: same day — easy and long runs (strength below) ──────────────
   const openByDay = new Map<string, Planned[]>();
   for (const w of planned) {
     if (usedWorkouts.has(w.id) || !SAME_DAY_TYPES.includes(w.type)) continue;
@@ -247,6 +257,18 @@ export async function autoImportFromStore(
       if (!run) break;
       await linkPlanned(w, run, "same_day");
     }
+  }
+
+  // Coach, 27.11. (#28 b): pass 2 for strength. Same rules: same local day,
+  // the longest activity wins, ≥ 20 min. The payload carries no sets (as with
+  // identity); top sets stay optional in /confirm, without them the loads stay.
+  for (const w of planned) {
+    if (usedWorkouts.has(w.id) || !w.type.startsWith("strength")) continue;
+    const lift = pool
+      .filter((a) => !usedActivities.has(a.id) && a.category === "strength" && key(a.localDate) === key(w.date))
+      .filter((a) => a.durationSec >= SAME_DAY_STRENGTH_MIN_SEC)
+      .sort((x, y) => y.durationSec - x.durationSec)[0];
+    if (lift) await linkPlanned(w, lift, "same_day");
   }
 
   // ── Pass 3: free runs ───────────────────────────────────────────────────

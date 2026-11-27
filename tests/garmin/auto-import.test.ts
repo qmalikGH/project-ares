@@ -344,4 +344,45 @@ describe("runs without details", () => {
     const r = await autoImportFromStore("u", WINDOW, { today: TODAY });
     expect(r.imported).toEqual([expect.objectContaining({ match: "identity" })]);
   });
+});
+
+// Coach, 27.11. (#28 b): "starting the watch is enough" on gym days too.
+describe("pass 2 for strength", () => {
+  it("a strength recording ≥ 20 min completes the open strength session of that day, without sets", async () => {
+    setup(
+      [activity("2026-11-16", { category: "strength", durationSec: 45 * 60 })],
+      [planned("2026-11-16", "strength_a")],
+    );
+    const r = await autoImportFromStore("u", WINDOW);
+    expect(r.imported).toEqual([expect.objectContaining({ type: "strength_a", match: "same_day", durationActualMin: 45 })]);
+    expect(completedData("w-2026-11-16-strength_a").executedSession).toMatchObject({
+      type: "strength", exercises: [], autoMatch: "same_day",
+    });
+  });
+
+  it("the longest recording of the day wins", async () => {
+    setup(
+      [
+        activity("2026-11-16", { category: "strength", durationSec: 25 * 60 }),
+        activity("2026-11-16", { category: "strength", durationSec: 50 * 60 }),
+      ],
+      [planned("2026-11-16", "strength_b")],
+    );
+    const r = await autoImportFromStore("u", WINDOW);
+    expect(r.imported[0].durationActualMin).toBe(50);
+    expect(r.rawOnly).toEqual([expect.objectContaining({ reason: "unmatched_strength" })]);
+  });
+
+  it("under 20 min stays raw data", async () => {
+    setup([activity("2026-11-16", { category: "strength", durationSec: 19 * 60 })], [planned("2026-11-16", "strength_a")]);
+    const r = await autoImportFromStore("u", WINDOW);
+    expect(workoutUpdateMany).not.toHaveBeenCalled();
+    expect(r.rawOnly).toEqual([expect.objectContaining({ reason: "unmatched_strength" })]);
+  });
+
+  it("never across days", async () => {
+    setup([activity("2026-11-17", { category: "strength", durationSec: 45 * 60 })], [planned("2026-11-16", "strength_a")]);
+    const r = await autoImportFromStore("u", WINDOW);
+    expect(r.imported).toEqual([]);
+  });
 });

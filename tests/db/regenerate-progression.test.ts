@@ -12,6 +12,7 @@ const workoutFindFirst = vi.hoisted(() => vi.fn());
 const settingsFindUnique = vi.hoisted(() => vi.fn());
 const sensorFindMany = vi.hoisted(() => vi.fn());
 const shinReportFindMany = vi.hoisted(() => vi.fn());
+const activityFindMany = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/db/client", () => ({
   db: {
@@ -20,6 +21,7 @@ vi.mock("@/lib/db/client", () => ({
     userSettings: { findUnique: settingsFindUnique },
     dailySensorData: { findMany: sensorFindMany },
     shinReport: { findMany: shinReportFindMany },
+    garminActivity: { findMany: activityFindMany },
   },
 }));
 const today = vi.hoisted(() => ({ value: new Date("2026-10-28T00:00:00.000Z") }));
@@ -57,6 +59,7 @@ beforeEach(() => {
   });
   sensorFindMany.mockResolvedValue([]);
   shinReportFindMany.mockResolvedValue([]);
+  activityFindMany.mockResolvedValue([]);
   workoutFindFirst.mockResolvedValue(null);
   workoutFindMany.mockImplementation(async (args: { select?: Record<string, boolean> }) => {
     const sel = args.select ?? {};
@@ -241,6 +244,29 @@ describe("regeneratePlansFromNow — layoff per discipline", () => {
     expect(r.layoffByDiscipline.run.active).toBe(true);
     expect(r.layoffByDiscipline.strength.active).toBe(false);
     expect(r.layoff.active).toBe(true);
+  });
+
+  // Coach, 27.11. (#28 b): ad-hoc strength the watch recorded counts.
+  it("weekly ad-hoc strength recordings (≥ 20 min, unlinked) keep the strength ramp away", async () => {
+    // The last strength SESSION was on 01.10.; since then the watch recorded
+    // gym visits that no session took.
+    history([
+      { date: "2026-10-01", type: "strength_a" },
+      { date: "2026-10-20", type: "easy_run" },
+      { date: "2026-10-24", type: "long_run" },
+    ]);
+    // Without them: 27 days → strength ramp.
+    expect((await regeneratePlansFromNow("u1")).layoffByDiscipline.strength.active).toBe(true);
+
+    activityFindMany.mockResolvedValue([
+      { localDate: d("2026-10-08") },
+      { localDate: d("2026-10-15") },
+      { localDate: d("2026-10-22") },
+    ]);
+    const r = await regeneratePlansFromNow("u1");
+    expect(r.layoffByDiscipline.strength.active).toBe(false);
+    const where = activityFindMany.mock.calls.at(-1)![0].where;
+    expect(where).toMatchObject({ category: "strength", workoutRefId: null, durationSec: { gte: 1200 } });
   });
 
   it("a discipline without any history falls back to the global result", async () => {
