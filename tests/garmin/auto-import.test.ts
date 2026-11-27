@@ -275,3 +275,56 @@ describe("dry run (scripts/import-sessions.ts)", () => {
     expect(r.rawOnly).toEqual([expect.objectContaining({ reason: "collision" })]);
   });
 });
+
+// Review fix (#28, point 3): a run is linked once — details fetched later
+// would never reach its executedSession.
+describe("runs without details", () => {
+  const TODAY = d("2026-11-27");
+
+  it("waits: not linked, reported as details_pending", async () => {
+    setup([activity("2026-11-26", { detailFetchedAt: null })], [planned("2026-11-26", "easy_run")]);
+    const r = await autoImportFromStore("u", WINDOW, { today: TODAY });
+    expect(workoutUpdateMany).not.toHaveBeenCalled();
+    expect(workoutCreate).not.toHaveBeenCalled();
+    expect(r.rawOnly).toEqual([expect.objectContaining({ reason: "details_pending" })]);
+  });
+
+  it("the same run with details is linked, zones included", async () => {
+    const zones = { zone1Sec: 600, zone2Sec: 600, zone3Sec: 0, zone4Sec: 0, zone5Sec: 0, zoneFloors: { z1: 1, z2: 2, z3: 3, z4: 4, z5: 5 } };
+    setup(
+      [activity("2026-11-26", { detailFetchedAt: new Date(), hrZones: zones })],
+      [planned("2026-11-26", "easy_run")],
+    );
+    const r = await autoImportFromStore("u", WINDOW, { today: TODAY });
+    expect(r.imported).toEqual([expect.objectContaining({ match: "same_day" })]);
+    expect(completedData("w-2026-11-26-easy_run").executedSession.garminHrZones).toMatchObject({ zone1Sec: 600 });
+  });
+
+  it("after the grace period it is linked anyway", async () => {
+    setup([activity("2026-11-23", { detailFetchedAt: null })], [planned("2026-11-23", "easy_run")]);
+    const r = await autoImportFromStore("u", WINDOW, { today: TODAY });
+    expect(r.imported).toEqual([expect.objectContaining({ match: "same_day", date: "2026-11-23" })]);
+  });
+
+  it("applies to every pass — also the pushed workout and free runs", async () => {
+    setup(
+      [
+        activity("2026-11-25", { workoutId: "777", detailFetchedAt: null }),
+        activity("2026-11-26", { durationSec: 1800, detailFetchedAt: null }),
+      ],
+      [planned("2026-11-25", "threshold_run", { garminWorkoutId: "777" })],
+    );
+    const r = await autoImportFromStore("u", WINDOW, { today: TODAY });
+    expect(r.imported).toEqual([]);
+    expect(r.rawOnly.map((x) => x.reason)).toEqual(["details_pending", "details_pending"]);
+  });
+
+  it("strength needs no details", async () => {
+    setup(
+      [activity("2026-11-26", { workoutId: "555", category: "strength", detailFetchedAt: null })],
+      [planned("2026-11-26", "strength_a", { garminWorkoutId: "555" })],
+    );
+    const r = await autoImportFromStore("u", WINDOW, { today: TODAY });
+    expect(r.imported).toEqual([expect.objectContaining({ match: "identity" })]);
+  });
+});

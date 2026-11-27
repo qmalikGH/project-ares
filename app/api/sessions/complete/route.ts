@@ -14,6 +14,7 @@ import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { userTodayDynamic } from "@/lib/date";
 import { buildRunImport } from "@/lib/garmin/run-import";
+import { setActivityLink } from "@/lib/garmin/activity-store";
 import {
   buildExerciseLogRows,
   replaceExerciseLogsForWorkout,
@@ -157,7 +158,7 @@ export async function POST(req: Request) {
     }
   }
 
-  const updated = await db.workout.update({
+  const update = db.workout.update({
     where: { id: workout.id },
     data: {
       status: "completed",
@@ -169,6 +170,17 @@ export async function POST(req: Request) {
       updatedAt: new Date(),
     },
   });
+  // Review fix (#28): keep the raw store's link in step, in the same
+  // transaction — release the previous activity when this route replaces or
+  // drops it (it writes garminActivityId unconditionally), link the new one.
+  const previousActivityId = (workout as { garminActivityId?: string | null }).garminActivityId ?? null;
+  const linkOps = [
+    ...(previousActivityId && previousActivityId !== garminActivityIdStr
+      ? [setActivityLink(db, userId, previousActivityId, null)]
+      : []),
+    ...(garminActivityIdStr ? [setActivityLink(db, userId, garminActivityIdStr, workout.id)] : []),
+  ];
+  const updated = linkOps.length > 0 ? (await db.$transaction([update, ...linkOps]))[0] : await update;
 
   // Sprint v0.11: ExerciseLog write-through for strength sessions. Each set
   // with weight + reps becomes one log row with its Epley-estimated 1RM. The

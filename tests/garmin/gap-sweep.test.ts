@@ -24,6 +24,7 @@ import {
   GAP_SWEEP_DAYS,
   MAX_SWEEP_DAYS_PER_RUN,
   isIncompleteDay,
+  orderSweepCandidates,
   sweepRecentGaps,
 } from "@/lib/garmin/gap-sweep";
 import type { Deadline } from "@/lib/garmin/timeout";
@@ -78,6 +79,18 @@ describe("isIncompleteDay", () => {
   });
 });
 
+describe("orderSweepCandidates", () => {
+  it("never tried first, then the oldest attempt, the newer day on a tie", () => {
+    const tried = new Map([
+      [key(day(1)), 2000],
+      [key(day(2)), 1000],
+      [key(day(3)), 1000],
+    ]);
+    const order = orderSweepCandidates([day(1), day(2), day(3), day(4), day(5)], tried).map(key);
+    expect(order).toEqual([key(day(4)), key(day(5)), key(day(2)), key(day(3)), key(day(1))]);
+  });
+});
+
 describe("sweepRecentGaps", () => {
   it("looks 14 days back from the primary day", async () => {
     sensorFindMany.mockResolvedValue([]);
@@ -106,14 +119,44 @@ describe("sweepRecentGaps", () => {
     expect(out.attempted[0]).toBe(key(day(1)));
   });
 
-  it("skips days already attempted within the retry window", async () => {
+  it("skips days already attempted within the retry window (same-day guard)", async () => {
     sensorFindMany.mockResolvedValue([]);
-    logFindMany.mockResolvedValue([{ targetDate: day(1) }, { targetDate: day(2) }]);
+    const anHourAgo = new Date(NOW.getTime() - 3600 * 1000);
+    logFindMany.mockResolvedValue([
+      { targetDate: day(1), createdAt: anHourAgo },
+      { targetDate: day(2), createdAt: anHourAgo },
+    ]);
     const out = await sweepRecentGaps("u", PRIMARY, plenty, NOW);
-    expect(out.attempted[0]).toBe(key(day(3)));
-    // The guard query is scoped to recent attempts on these target dates.
-    const where = logFindMany.mock.calls[0][0].where;
-    expect(where.createdAt.gte.getTime()).toBe(NOW.getTime() - 20 * 3600 * 1000);
+    expect(out.attempted).not.toContain(key(day(1)));
+    expect(out.attempted).not.toContain(key(day(2)));
+    // The order needs every attempt on these days, not only the recent ones.
+    expect(logFindMany.mock.calls[0][0].where).not.toHaveProperty("createdAt");
+  });
+
+  it("passes the deadline on to the daily sync", async () => {
+    sensorFindMany.mockResolvedValue([]);
+    await sweepRecentGaps("u", PRIMARY, plenty, NOW);
+    expect(syncMock.mock.calls[0][1]).toEqual({ deadline: plenty });
+  });
+
+  // Review fix (#28): newest-first with a 20-h guard tried the same five days
+  // every night while they stayed incomplete.
+  it("covers all 14 permanently incomplete days in three nights", async () => {
+    sensorFindMany.mockResolvedValue([]); // no watch: nothing ever completes
+    const logs: { targetDate: Date; createdAt: Date }[] = [];
+    logFindMany.mockImplementation(async () => [...logs]);
+    persistMock.mockImplementation(async (input: { date: Date }) => {
+      logs.push({ targetDate: input.date, createdAt: currentNow });
+      return { wrote: true };
+    });
+    let currentNow = NOW;
+    const tried = new Set<string>();
+    for (let night = 0; night < 3; night++) {
+      currentNow = new Date(NOW.getTime() + night * 86400000);
+      const out = await sweepRecentGaps("u", PRIMARY, plenty, currentNow);
+      out.attempted.forEach((k) => tried.add(k));
+    }
+    expect(tried.size).toBe(GAP_SWEEP_DAYS);
   });
 
   it("starts no day once the budget is low", async () => {

@@ -311,7 +311,7 @@ export async function maybeNotifyOnGarminFailures(userId: string): Promise<void>
   }
 }
 
-const ERROR_SEVERITY = ["AUTH_FAILURE", "RATE_LIMIT", "NETWORK", "PARSE_ERROR", "API_CHANGED"];
+const ERROR_SEVERITY = ["AUTH_FAILURE", "RATE_LIMIT", "NETWORK", "PARSE_ERROR", "API_CHANGED", "TIME_BUDGET"];
 
 function pickErrorType(errors: { message: string }[]): string | null {
   if (errors.length === 0) return null;

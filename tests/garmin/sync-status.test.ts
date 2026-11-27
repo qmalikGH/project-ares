@@ -125,3 +125,34 @@ describe("auth handling", () => {
     expect(classifyError("connection timeout")).toBe("NETWORK");
   });
 });
+
+// Review fix (#28, point 2c): the daily sync respects the cron's budget.
+describe("deadline", () => {
+  it("skips every call that would not fit and says so", async () => {
+    const r = await syncGarminForDate(DATE, {
+      client: fakeClient() as never,
+      deadline: { remainingMs: () => 1_000, isNear: () => true },
+    });
+    expect(r.status).toBe("FAILURE");
+    expect(r.errors.map((e) => e.message)).toEqual(
+      expect.arrayContaining(["skipped: time budget"]),
+    );
+    expect(r.errors.map((e) => e.datatype)).toEqual(
+      expect.arrayContaining(["sleep", "rhr", "hrv", "daily_summary", "activities"]),
+    );
+    expect(classifyError("skipped: time budget")).toBe("TIME_BUDGET");
+  });
+
+  it("runs normally with time left", async () => {
+    const r = await syncGarminForDate(DATE, {
+      client: fakeClient() as never,
+      deadline: { remainingMs: () => 50_000, isNear: () => false },
+    });
+    expect(r.status).toBe("SUCCESS");
+  });
+
+  it("a login that timed out is a network problem, not an auth retry", () => {
+    expect(classifyError("Garmin timeout after 15000 ms: login")).toBe("NETWORK");
+    expect(classifyError("Login failed: invalid credentials")).toBe("AUTH_FAILURE");
+  });
+});

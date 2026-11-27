@@ -58,6 +58,7 @@ import {
 import { applyTimeTrialResult, type TimeTrialVdotResult } from "@/lib/coach-engine/vdot-recalibration";
 import { buildRunImport, buildStrengthImport, type ImportedRun } from "@/lib/garmin/run-import";
 import { disciplineOf } from "@/lib/garmin/confirm-candidates";
+import { setActivityLink } from "@/lib/garmin/activity-store";
 import {
   buildExerciseLogRows,
   replaceExerciseLogsForWorkout,
@@ -348,7 +349,16 @@ export async function POST(req: Request) {
         });
       }
 
-      await db.workout.update({ where: { id: workout.id }, data });
+      // Review fix (#28): a picked activity is linked in the raw store too, in
+      // the same transaction as the session.
+      if (imported) {
+        await db.$transaction([
+          db.workout.update({ where: { id: workout.id }, data }),
+          setActivityLink(db, userId, imported.activityId, workout.id),
+        ]);
+      } else {
+        await db.workout.update({ where: { id: workout.id }, data });
+      }
       if (timeTrial) testResults.push(timeTrial);
 
       // ExerciseLog is rewritten, not appended, so a second confirmation — or a

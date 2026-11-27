@@ -12,6 +12,7 @@
 import { db } from "@/lib/db/client";
 import { toUserDateString } from "@/lib/date";
 import { getGarminClient } from "./client";
+import { withTimeout } from "./timeout";
 import {
   buildGarminWorkout,
   type GarminStructuredWorkout,
@@ -46,7 +47,21 @@ function rawClientFor(client: unknown): RawHttpClient {
       "GarminConnect raw HTTP client (post/delete) not accessible — lib version mismatch?",
     );
   }
-  return raw;
+  // Review fix (#28): every call with a time limit. Since Sprint 3.4 the push
+  // also runs inside the 05:00 cron (refreshAfterImport), within its budget.
+  return {
+    get: <T,>(url: string) => withTimeout(raw.get<T>(url), `GET ${url}`),
+    post: <T,>(url: string, data?: unknown) => withTimeout(raw.post<T>(url, data), `POST ${url}`),
+    delete: <T,>(url: string) => withTimeout(raw.delete<T>(url), `DELETE ${url}`),
+  };
+}
+
+/** Review fix (#28): the library calls with the same time limit. */
+function timedClient(client: GarminLikeClient): GarminLikeClient {
+  return {
+    addWorkout: (workout) => withTimeout(client.addWorkout(workout), "addWorkout"),
+    deleteWorkout: (args) => withTimeout(client.deleteWorkout(args), `deleteWorkout ${args.workoutId}`),
+  };
 }
 
 export interface PushResult {
@@ -99,8 +114,9 @@ export async function pushWorkoutToGarmin(
   });
 
   try {
-    const client = (await getGarminClient()) as unknown as GarminLikeClient;
-    const raw = rawClientFor(client);
+    const garmin = await getGarminClient();
+    const client = timedClient(garmin as unknown as GarminLikeClient);
+    const raw = rawClientFor(garmin);
 
     // Replace path: best-effort cleanup of prior push.
     if (existing?.garminScheduledWorkoutId) {
@@ -194,8 +210,9 @@ export async function removeWorkoutFromGarmin(
   }
 
   try {
-    const client = (await getGarminClient()) as unknown as GarminLikeClient;
-    const raw = rawClientFor(client);
+    const garmin = await getGarminClient();
+    const client = timedClient(garmin as unknown as GarminLikeClient);
+    const raw = rawClientFor(garmin);
 
     if (w.garminScheduledWorkoutId) {
       try {
