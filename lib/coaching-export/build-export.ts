@@ -1116,11 +1116,19 @@ async function buildSync(userId: string, today: Date): Promise<SyncSection> {
   const todayKey = dayKey(today);
   const yesterday = new Date(todayKey.getTime() - 86400000);
   const from = new Date(todayKey.getTime() - SYNC_GAP_WINDOW_DAYS * 86400000);
-  const [lastOk, lastErr, rows] = await Promise.all([
+  const [lastOk, lastOkDay, lastErr, rows] = await Promise.all([
     db.garminSyncLog.findFirst({
       where: { userId, status: { in: ["SUCCESS", "PARTIAL"] } },
       orderBy: { syncedAt: "desc" },
-      select: { syncedAt: true, targetDate: true },
+      select: { syncedAt: true },
+    }),
+    // Review fix (#28): the newest DAY, not the newest row — the sweep writes
+    // after the daily sync, so by syncedAt the oldest sweep day came out on top.
+    // Same order as /api/sensors/garmin-status.
+    db.garminSyncLog.findFirst({
+      where: { userId, status: { in: ["SUCCESS", "PARTIAL"] }, targetDate: { not: null } },
+      orderBy: [{ targetDate: { sort: "desc", nulls: "last" } }, { syncedAt: "desc" }],
+      select: { targetDate: true },
     }),
     db.garminSyncLog.findFirst({
       where: { userId, OR: [{ status: "FAILURE" }, { errorMessage: { not: null } }] },
@@ -1135,7 +1143,7 @@ async function buildSync(userId: string, today: Date): Promise<SyncSection> {
   const gaps = watchDataGaps(rows, yesterday, SYNC_GAP_WINDOW_DAYS);
   return {
     lastSuccessfulSyncAt: lastOk?.syncedAt.toISOString() ?? null,
-    lastSyncedDay: lastOk?.targetDate ? formatDateStr(lastOk.targetDate) : null,
+    lastSyncedDay: lastOkDay?.targetDate ? formatDateStr(lastOkDay.targetDate) : null,
     daysWithoutGarminData: gaps.missing,
     missingDataStreak: gaps.streak,
     missingDataAlert: gaps.streak >= MISSING_DATA_ALERT_DAYS,

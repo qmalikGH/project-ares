@@ -3,7 +3,17 @@
 // breakage produces a PARTIAL log entry instead of zero data.
 import { toUserDateString } from "@/lib/date";
 import { clearGarminSession, getGarminClient } from "./client";
-import { withTimeout } from "./timeout";
+import { GARMIN_CALL_TIMEOUT_MS, withTimeout, type Deadline } from "./timeout";
+
+/** Review fix (#28): the error text of a datatype skipped for lack of time. */
+export const TIME_BUDGET_SKIP = "skipped: time budget";
+
+/** Internal: thrown before a call that would not fit into the deadline. */
+class BudgetSkip extends Error {
+  constructor() {
+    super(TIME_BUDGET_SKIP);
+  }
+}
 
 const GC_API = "https://connectapi.garmin.com";
 
@@ -67,8 +77,21 @@ interface ApiClient {
  */
 export async function syncGarminForDate(
   date: Date,
-  deps?: { client?: ApiClient },
+  deps?: {
+    client?: ApiClient;
+    /**
+     * Review fix (#28): the cron's wall-clock budget. Before every Garmin call
+     * the remaining time is checked against one call timeout; a datatype that
+     * would not fit is skipped and reported as "skipped: time budget". The
+     * manual route passes none.
+     */
+    deadline?: Deadline;
+  },
 ): Promise<SyncResult> {
+  const outOfTime = () => deps?.deadline?.isNear(GARMIN_CALL_TIMEOUT_MS) ?? false;
+  const guard = () => {
+    if (outOfTime()) throw new BudgetSkip();
+  };
   const flags: SyncStatusFlags = {
     hrvSyncOk: false,
     sleepSyncOk: false,
@@ -95,8 +118,13 @@ export async function syncGarminForDate(
 
   let client: ApiClient;
   try {
+    if (!deps?.client) guard();
     client = (deps?.client ?? (await getGarminClient())) as unknown as ApiClient;
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (e instanceof BudgetSkip) {
+      return { status: "FAILURE", flags, snapshot, activitiesCount: 0, errors: [{ datatype: "auth", message }] };
+    }
     // Sprint 2.8: drop the cached session before giving up. It lives for 30
     // minutes (client.ts), so without this a single 403 kept every subsequent
     // attempt pointed at the same dead session until the TTL expired.
@@ -106,14 +134,17 @@ export async function syncGarminForDate(
       flags,
       snapshot,
       activitiesCount: 0,
-      errors: [{ datatype: "auth", message: e instanceof Error ? e.message : String(e) }],
-      authFailed: true,
+      errors: [{ datatype: "auth", message }],
+      // Review fix (#28): only a real auth error earns the caller's retry. A
+      // login that timed out would just time out again — another 15 s.
+      authFailed: classifyError(message) === "AUTH_FAILURE",
     };
   }
 
   // Profile (used to scope a few endpoints)
   let displayName = "";
   try {
+    guard();
     const profile = await withTimeout(client.getUserProfile(), "profile");
     displayName = profile?.displayName ?? "";
   } catch {
@@ -134,6 +165,7 @@ export async function syncGarminForDate(
   // observed is most likely a sync race: Connect-App re-fetches and updates the
   // score after the watch finishes uploading detailed phases (~1h post-wake).
   try {
+    guard();
     const sleep = (await withTimeout(client.getSleepData(date), "sleep")) as
       | {
           dailySleepDTO?: {
@@ -170,6 +202,7 @@ export async function syncGarminForDate(
 
   // Heart rate (resting HR) ------------------------------------------------
   try {
+    guard();
     const hr = (await withTimeout(client.getHeartRate(date), "rhr")) as { restingHeartRate?: number } | null;
     if (hr?.restingHeartRate != null) {
       snapshot.rhr = hr.restingHeartRate;
@@ -181,6 +214,7 @@ export async function syncGarminForDate(
 
   // HRV --------------------------------------------------------------------
   try {
+    guard();
     const hrvUrl = `${GC_API}/hrv-service/hrv/${dateKey(date)}`;
     const hrv = (await withTimeout(client.get<{
       hrvSummary?: { lastNightAvg?: number; status?: string; weeklyAvg?: number };
@@ -198,6 +232,7 @@ export async function syncGarminForDate(
   // One endpoint, many fields: body battery (morning + end), TDEE / calorie
   // breakdown, average stress. Sprint v0.16 Phase A2.2.
   try {
+    guard();
     if (!displayName) {
       errors.push({
         datatype: "profile",
@@ -265,6 +300,7 @@ export async function syncGarminForDate(
 
   // Activities (last 5; we only count, not parse details here)
   try {
+    guard();
     const recent = await withTimeout(client.getActivities(0, 5), "activities");
     activitiesCount = Array.isArray(recent) ? recent.length : 0;
     flags.activitiesSyncOk = true;
@@ -286,12 +322,52 @@ export async function syncGarminForDate(
   return { status, flags, snapshot, activitiesCount, errors, authFailed };
 }
 
+/**
+ * Review fix (#28): a FAILURE result without a Garmin call — for the cron when
+ * the activity step already found Garmin unreachable. Goes through
+ * persistGarminSync like any other result (one log row, no data write).
+ */
+export function unreachableSyncResult(errors: readonly string[]): SyncResult {
+  return {
+    status: "FAILURE",
+    flags: {
+      hrvSyncOk: false,
+      sleepSyncOk: false,
+      bodyBatterySyncOk: false,
+      rhrSyncOk: false,
+      activitiesSyncOk: false,
+      energySyncOk: false,
+    },
+    snapshot: {
+      hrvStatus: null,
+      hrvRmssd: null,
+      sleepScore: null,
+      sleepDurationMin: null,
+      bodyBatteryMorning: null,
+      rhr: null,
+      totalKilocalories: null,
+      activeKilocalories: null,
+      bmrKilocalories: null,
+      bodyBatteryEnd: null,
+      averageStress: null,
+    },
+    activitiesCount: 0,
+    errors: [{ datatype: "unreachable", message: `skipped, Garmin unreachable: ${errors.join(" | ")}` }],
+  };
+}
+
 /** Internal sentinel: skip the daily-summary block without logging a second error. */
 class SkipSummary extends Error {}
 
 /** Classify a thrown error from sync into the spec's errorType buckets. */
 export function classifyError(message: string): string {
   const lower = message.toLowerCase();
+  // Review fix (#28): our own skip, not a Garmin problem.
+  if (lower.includes(TIME_BUDGET_SKIP)) return "TIME_BUDGET";
+  // Review fix (#28): our own time limit (timeout.ts) — checked before the
+  // auth pattern, which "…: login" would otherwise match. A login that timed
+  // out is a network problem, not bad credentials.
+  if (lower.includes("garmin timeout after")) return "NETWORK";
   // Sprint 2.8: bare status codes added. A Garmin 403 often carries only
   // "Forbidden" as its body, which classified as API_CHANGED — so nothing that
   // keys off AUTH_FAILURE (session clear, alerting) would ever have fired.

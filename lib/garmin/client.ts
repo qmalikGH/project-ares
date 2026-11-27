@@ -52,8 +52,9 @@ export async function getGarminClient(): Promise<GarminConnect> {
   }
   const { username, password } = readGarminCredentials();
   const client = new GarminConnect({ username, password });
-  // Login is several OAuth round trips, so it gets twice the per-call limit.
-  await withTimeout(client.login(username, password), "login", 30_000);
+  // Review fix (#28): the same 15 s as every call. With 30 s, two logins in
+  // one cron run (activities, then the daily sync) alone used up maxDuration.
+  await withTimeout(client.login(username, password), "login");
   cached = { client, loggedInAt: now };
   return client;
 }

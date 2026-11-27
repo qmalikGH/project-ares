@@ -170,6 +170,20 @@ describe("ensureRunDetails", () => {
     expect(res.pending).toBe(2);
   });
 
+  // Review fix (#28, point 2b): every further run would cost another 15 s.
+  it("stops after a timeout instead of taking the next run", async () => {
+    actFindMany.mockResolvedValueOnce([
+      { id: "g1", activityId: "11" },
+      { id: "g2", activityId: "12" },
+    ]);
+    const getDetail = vi.fn(async () => {
+      throw new Error("Garmin timeout after 15000 ms: activity 11");
+    });
+    const res = await ensureRunDetails("u", { deps: { getDetail, getZones: vi.fn() } });
+    expect(getDetail).toHaveBeenCalledTimes(1);
+    expect(res).toMatchObject({ pending: 1, rateLimited: false });
+  });
+
   it("only asks for runs without details", async () => {
     actFindMany.mockResolvedValueOnce([]);
     await ensureRunDetails("u", { since: new Date("2026-11-13T00:00:00.000Z") });

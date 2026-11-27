@@ -61,12 +61,25 @@ beforeEach(() => {
       averageHr: null, workoutId: null, workout: null,
     },
   ]);
-  logFindFirst.mockImplementation(async (args: { where: { status?: unknown; OR?: unknown } }) => {
-    if (args.where.OR) {
-      return { syncedAt: new Date("2026-11-20T05:01:00.000Z"), errorType: "NETWORK", errorMessage: "hrv: Garmin timeout after 15000 ms: hrv" };
-    }
-    return { syncedAt: new Date("2026-11-27T05:00:30.000Z"), targetDate: d("2026-11-26") };
-  });
+  // Rows as the cron writes them: yesterday first, then a sweep day (D-6).
+  const logs = [
+    { status: "PARTIAL", syncedAt: new Date("2026-11-27T05:00:10.000Z"), targetDate: d("2026-11-26") },
+    { status: "PARTIAL", syncedAt: new Date("2026-11-27T05:00:30.000Z"), targetDate: d("2026-11-21") },
+  ];
+  logFindFirst.mockImplementation(
+    async (args: { where: { OR?: unknown }; orderBy: unknown }) => {
+      if (args.where.OR) {
+        return { syncedAt: new Date("2026-11-20T05:01:00.000Z"), errorType: "NETWORK", errorMessage: "hrv: Garmin timeout after 15000 ms: hrv" };
+      }
+      const byDay = Array.isArray(args.orderBy);
+      const sorted = [...logs].sort((a, b) =>
+        byDay
+          ? b.targetDate.getTime() - a.targetDate.getTime() || b.syncedAt.getTime() - a.syncedAt.getTime()
+          : b.syncedAt.getTime() - a.syncedAt.getTime(),
+      );
+      return sorted[0];
+    },
+  );
   // Watch data on 20.11. and 21.11. only.
   sensorFindMany.mockResolvedValue([
     { date: d("2026-11-20"), garmin: { rhr: 1 } },
@@ -116,6 +129,7 @@ describe("sync", () => {
   it("shows the last good sync, the days without watch data and the last error", async () => {
     const { sync } = await buildCoachingExport("u1");
     expect(sync.lastSuccessfulSyncAt).toBe("2026-11-27T05:00:30.000Z");
+    // Review fix (#28): yesterday, not the sweep day written after it.
     expect(sync.lastSyncedDay).toBe("2026-11-26");
     // 14 days up to yesterday (13.11.–26.11.), watch data only on 20. and 21.
     expect(sync.daysWithoutGarminData).toHaveLength(12);
