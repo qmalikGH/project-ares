@@ -23,6 +23,8 @@ const vdotMock = vi.hoisted(() => vi.fn());
 const activitiesMock = vi.hoisted(() => vi.fn());
 const autoImportMock = vi.hoisted(() => vi.fn());
 const sweepMock = vi.hoisted(() => vi.fn());
+const refreshMock = vi.hoisted(() => vi.fn());
+const workoutCount = vi.hoisted(() => vi.fn());
 const budget = vi.hoisted(() => ({ near: false }));
 
 vi.mock("@/lib/db/client", () => ({
@@ -33,6 +35,7 @@ vi.mock("@/lib/db/client", () => ({
     notification: { findFirst: notificationFindFirst, create: notificationCreate },
     mealPlan: { findFirst: mealPlanFindFirst },
     userSettings: { findUnique: settingsFindUnique },
+    workout: { count: workoutCount },
   },
 }));
 
@@ -53,7 +56,8 @@ vi.mock("@/lib/coach-engine/vdot-recalibration", () => ({ recalibrateVdot: vdotM
 // unmocked — it threw on the missing db.workout and was swallowed, so the route
 // never exercised it.
 vi.mock("@/lib/garmin/activity-store", () => ({ syncRecentActivities: activitiesMock }));
-vi.mock("@/lib/garmin/auto-import", () => ({ autoImportRecent: autoImportMock }));
+vi.mock("@/lib/garmin/auto-import", () => ({ autoImportFromStore: autoImportMock }));
+vi.mock("@/lib/garmin/plan-refresh", () => ({ refreshAfterImport: refreshMock }));
 vi.mock("@/lib/garmin/gap-sweep", () => ({ sweepRecentGaps: sweepMock }));
 vi.mock("@/lib/garmin/timeout", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/garmin/timeout")>()),
@@ -126,7 +130,9 @@ beforeEach(() => {
   mealPlanFindFirst.mockResolvedValue({ calibratedAt: new Date() });
   settingsFindUnique.mockResolvedValue({ hrZonesUpdatedAt: new Date(), vdotOverrideAt: new Date() });
   activitiesMock.mockResolvedValue({ fetched: 3, created: ["a1"], details: 1, complete: true, errors: [] });
-  autoImportMock.mockResolvedValue({ imported: [], needsConfirmation: [], errors: [] });
+  autoImportMock.mockResolvedValue({ imported: [], rawOnly: [], reconciled: 0, errors: [] });
+  refreshMock.mockResolvedValue({ regenerated: 2, materialized: { created: 0, updated: 3, deleted: 0 }, repushed: 1, errors: [] });
+  workoutCount.mockResolvedValue(0);
   sweepMock.mockResolvedValue({ repaired: [], attempted: [], deferred: 0, errors: [] });
   budget.near = false;
 });
@@ -213,7 +219,7 @@ describe("Sprint 3.4 (#28): order, errors, budget", () => {
   });
 
   it("returns auto-import errors instead of dropping them", async () => {
-    autoImportMock.mockResolvedValue({ imported: [], needsConfirmation: [], errors: ["threshold_run 2026-08-11: boom"] });
+    autoImportMock.mockResolvedValue({ imported: [], rawOnly: [], reconciled: 0, errors: ["threshold_run 2026-08-11: boom"] });
     const body = await (await GET(req())).json();
     expect(body.results[0].errorDetails).toContain("auto-import: threshold_run 2026-08-11: boom");
   });
@@ -235,6 +241,59 @@ describe("Sprint 3.4 (#28): order, errors, budget", () => {
     sweepMock.mockResolvedValue({ repaired: ["2026-08-11"], attempted: ["2026-08-11"], deferred: 0, errors: [] });
     const body = await (await GET(req())).json();
     expect(body.results[0].gapsRepaired).toEqual(["2026-08-11"]);
+  });
+
+  it("imports from the raw store over the last 14 days up to yesterday", async () => {
+    await GET(req());
+    const window = autoImportMock.mock.calls[0][1];
+    expect(window.from.toISOString().slice(0, 10)).toBe("2026-07-30");
+    expect(window.to.toISOString().slice(0, 10)).toBe("2026-08-12");
+  });
+
+  it("refreshes the plan and the watch right after an import (B2)", async () => {
+    autoImportMock.mockResolvedValue({
+      imported: [{ workoutId: "w1", date: "2026-08-12", type: "easy_run", activityId: "a1", durationActualMin: 22, match: "free_run" }],
+      rawOnly: [{ activityId: "a2", date: "2026-08-12", reason: "under_15_min" }],
+      reconciled: 0,
+      errors: [],
+    });
+    const body = await (await GET(req())).json();
+    expect(refreshMock).toHaveBeenCalledWith("user_1");
+    expect(body.results[0].autoImported).toEqual(["2026-08-12 easy_run (free_run)"]);
+    expect(body.results[0].rawOnly).toEqual({ under_15_min: 1 });
+    expect(body.results[0].planRefresh).toBe("regenerated 2, repushed 1");
+  });
+
+  it("does not refresh when nothing was imported", async () => {
+    await GET(req());
+    expect(refreshMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves the refresh to the 19:00 cron when time is short", async () => {
+    autoImportMock.mockResolvedValue({
+      imported: [{ workoutId: "w1", date: "2026-08-12", type: "easy_run", activityId: "a1", durationActualMin: 22, match: "same_day" }],
+      rawOnly: [], reconciled: 0, errors: [],
+    });
+    budget.near = true;
+    const body = await (await GET(req())).json();
+    expect(refreshMock).not.toHaveBeenCalled();
+    expect(body.results[0].planRefresh).toMatch(/deferred/);
+  });
+
+  it("nudges toward /confirm only for planned sessions without a recording", async () => {
+    workoutCount.mockResolvedValue(2);
+    const body = await (await GET(req())).json();
+    expect(body.results[0].missingSessions).toBe(2);
+    const where = workoutCount.mock.calls[0][0].where;
+    expect(where.status).toBe("planned");
+    expect(where.type.notIn).toEqual(expect.arrayContaining(["rest", "mobility"]));
+    expect(notificationCreate.mock.calls[0][0].data.title).toBe("2 Einheiten ohne Aufzeichnung");
+  });
+
+  it("runs the import even when the wellness sync failed (it reads the raw store only)", async () => {
+    syncMock.mockResolvedValue(authFailure());
+    await GET(req());
+    expect(autoImportMock).toHaveBeenCalled();
   });
 
   it("skips the recalibrations when the time budget is used up", async () => {

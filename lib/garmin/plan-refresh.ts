@@ -20,6 +20,9 @@
 // anything pushed further ahead would drift from the plan by the next evening.
 // resyncFutureWorkoutsToGarmin honours the same window (`pushWindowEnd`).
 import { db } from "@/lib/db/client";
+import { userTomorrowForUser } from "@/lib/date";
+import { vdotToPaces } from "@/lib/coach-engine/run-coach";
+import { getEffectiveVdot } from "@/lib/db/queries/settings";
 import { materializeWorkouts } from "@/lib/coach-engine/materialize";
 import { regeneratePlansFromNow } from "@/lib/db/queries/regenerate-plans";
 import { pushWindowEnd, pushWorkoutToGarmin, removeWorkoutFromGarmin } from "@/lib/garmin/workout-sync";
@@ -97,4 +100,17 @@ export async function refreshUpcomingPlan(
   }
 
   return { regenerated: regen.regenerated, materialized, repushed, errors };
+}
+
+/**
+ * Sprint 3.4 (#28, Phase B2): after the morning import completed sessions,
+ * run the same refresh as the 19:00 cron at once — the cap, the threshold
+ * rung and the workouts on the watch follow what was actually run, instead of
+ * waiting for the evening. Today's session is left as it is (the evening cron
+ * pushed it, and the athlete may already be looking at it).
+ */
+export async function refreshAfterImport(userId: string): Promise<PlanRefreshResult> {
+  const tomorrowKey = await userTomorrowForUser(userId);
+  const paces = vdotToPaces(await getEffectiveVdot(userId));
+  return refreshUpcomingPlan(userId, tomorrowKey, paces);
 }

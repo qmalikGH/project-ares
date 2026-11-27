@@ -5,11 +5,12 @@
 // unattended auto-import needs the exact same payload; two copies of this would
 // drift the moment one of them learned a new field.
 
-import { getActivityDetail, getActivityHrZones } from "./activities";
+import { getActivityDetail, getActivityHrZones, type ActivityHrZones } from "./activities";
 import { mapGarminZonesToPolarizedTID } from "@/lib/coach-engine/hr-zones";
 import {
   RunExecutedSessionSchema,
   StrengthExecutedSessionSchema,
+  type AutoMatch,
 } from "@/lib/coach-engine/types";
 
 export interface ImportedRun {
@@ -105,4 +106,90 @@ export async function buildStrengthImport(
   });
 
   return { executedSession, durationActualMin, activityId: String(activityId) };
+}
+
+// ── Sprint 3.4 (#28): from the raw store, without a Garmin call ─────────────
+//
+// The nightly cron stores every activity (with splits and HR zones for runs)
+// in GarminActivity first. Matching then builds the executedSession from that
+// row: no second round of Garmin calls inside the cron's time budget, and the
+// same payload shape as buildRunImport / buildStrengthImport.
+
+/** The GarminActivity columns the builders read. */
+export interface StoredActivity {
+  activityId: string;
+  startTimeLocal: string;
+  durationSec: number;
+  distanceM: number | null;
+  averagePaceSecPerKm: number | null;
+  averageHr: number | null;
+  maxHr: number | null;
+  elevationGainM: number | null;
+  calories: number | null;
+  splits: unknown;
+  hrZones: unknown;
+}
+
+function storedSplits(splits: unknown) {
+  if (!Array.isArray(splits)) return [];
+  return splits.map((s: Record<string, unknown>) => ({
+    splitNumber: Number(s.splitNumber ?? 0),
+    distanceM: Number(s.distanceM ?? 0),
+    durationSec: Number(s.durationSec ?? 0),
+    paceSecPerKm: typeof s.paceSecPerKm === "number" ? s.paceSecPerKm : null,
+    averageHr: typeof s.averageHr === "number" ? s.averageHr : null,
+    maxHr: typeof s.maxHr === "number" ? s.maxHr : null,
+  }));
+}
+
+export function runImportFromStored(
+  a: StoredActivity,
+  source: "garmin_import" | "garmin_auto",
+  autoMatch?: AutoMatch,
+): ImportedRun {
+  const garminHrZones = (a.hrZones ?? null) as ActivityHrZones | null;
+  const polarizedTID = garminHrZones ? mapGarminZonesToPolarizedTID(garminHrZones) : null;
+  const executedSession = RunExecutedSessionSchema.parse({
+    type: "run",
+    source,
+    ...(autoMatch ? { autoMatch } : {}),
+    garminActivityId: Number(a.activityId),
+    startTimeLocal: a.startTimeLocal,
+    durationSec: a.durationSec,
+    distanceM: a.distanceM,
+    averagePaceSecPerKm: a.averagePaceSecPerKm,
+    averageHr: a.averageHr,
+    maxHr: a.maxHr,
+    elevationGainM: a.elevationGainM,
+    calories: a.calories,
+    splits: storedSplits(a.splits),
+    garminHrZones,
+    polarizedTID,
+  });
+  return {
+    executedSession,
+    durationActualMin: Math.max(1, Math.round(a.durationSec / 60)),
+    activityId: a.activityId,
+  };
+}
+
+export function strengthImportFromStored(
+  a: StoredActivity,
+  source: "garmin_import" | "garmin_auto",
+  autoMatch?: AutoMatch,
+): ImportedRun {
+  const durationActualMin = Math.max(1, Math.round(a.durationSec / 60));
+  const executedSession = StrengthExecutedSessionSchema.parse({
+    type: "strength",
+    source,
+    ...(autoMatch ? { autoMatch } : {}),
+    garminActivityId: Number(a.activityId),
+    startTimeLocal: a.startTimeLocal,
+    durationActualMin,
+    exercises: [],
+    averageHr: a.averageHr,
+    maxHr: a.maxHr,
+    calories: a.calories,
+  });
+  return { executedSession, durationActualMin, activityId: a.activityId };
 }

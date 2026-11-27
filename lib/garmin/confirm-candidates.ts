@@ -33,6 +33,12 @@ export interface ConfirmCandidate {
   durationMin: number;
   distanceKm: number | null;
   averageHr: number | null;
+  /**
+   * Coach, 27.11. (#28 a): the activity already sits in an unrated free run
+   * the cron created. Picking it moves it to this session (the free run is
+   * deleted); offered on the same day only.
+   */
+  fromAutoRun?: boolean;
 }
 
 /**
@@ -77,11 +83,16 @@ function categoryFor(discipline: OpenSessionForMatch["discipline"]): ActivityCat
  *
  * One activity may be suggested for two sessions (Mon plan, Tue training);
  * the confirm route refuses to link it twice.
+ *
+ * `claimable` (coach, 27.11., #28 a): activities behind an unrated free run the
+ * cron created. They are offered to RUN sessions of the same day only, even
+ * though they are linked, and marked `fromAutoRun`.
  */
 export function matchConfirmCandidates(
   sessions: readonly OpenSessionForMatch[],
   activities: readonly ActivitySummary[],
   linkedActivityIds: ReadonlySet<string>,
+  claimable: ReadonlySet<string> = new Set(),
 ): Record<string, ConfirmCandidate[]> {
   const out: Record<string, ConfirmCandidate[]> = {};
   for (const s of sessions) {
@@ -90,12 +101,16 @@ export function matchConfirmCandidates(
 
     const matches = activities
       .filter((a) => a.category === category)
-      .filter((a) => !linkedActivityIds.has(String(a.activityId)))
       .map((a) => {
         const date = a.startTimeLocal.slice(0, 10);
-        return { a, date, offset: dayDiff(date, s.date) };
+        const fromAutoRun = claimable.has(String(a.activityId));
+        return { a, date, offset: dayDiff(date, s.date), fromAutoRun };
       })
-      .filter((m) => Math.abs(m.offset) <= 1)
+      .filter((m) =>
+        m.fromAutoRun
+          ? category === "run" && m.offset === 0
+          : !linkedActivityIds.has(String(m.a.activityId)) && Math.abs(m.offset) <= 1,
+      )
       .sort((x, y) => {
         const byDay = Math.abs(x.offset) - Math.abs(y.offset);
         if (byDay !== 0) return byDay;
@@ -105,7 +120,7 @@ export function matchConfirmCandidates(
       .slice(0, MAX_CANDIDATES);
 
     if (matches.length === 0) continue;
-    out[s.id] = matches.map(({ a, date, offset }) => ({
+    out[s.id] = matches.map(({ a, date, offset, fromAutoRun }) => ({
       activityId: a.activityId,
       activityName: a.activityName,
       date,
@@ -114,6 +129,7 @@ export function matchConfirmCandidates(
       durationMin: Math.max(1, Math.round(a.durationSec / 60)),
       distanceKm: a.distanceM != null ? Math.round(a.distanceM / 10) / 100 : null,
       averageHr: a.averageHr,
+      ...(fromAutoRun ? { fromAutoRun: true } : {}),
     }));
   }
   return out;
@@ -123,32 +139,34 @@ export function matchConfirmCandidates(
 export type FreeRunCandidate = Omit<ConfirmCandidate, "dayOffset">;
 
 /**
- * Run activities that match no open run session — a run on a day with nothing
- * planned (Friday in the four-day week). Offered on the "Freier Lauf" form;
- * the athlete decides, as on the cards.
+ * Run activities that are not linked to any session yet — offered on the
+ * "Freier Lauf" form; the athlete decides, as on the cards.
  *
  * Left out:
  *   - anything already linked to a workout
- *   - anything within ±1 day of an open run session (that card offers it)
- *   - anything on a day that already has a completed run (counted already)
+ *   - anything on a day that already has an easy run row, planned or done:
+ *     POST /api/sessions/free-run answers 409 there (one easy run per day),
+ *     and a planned one is confirmed on its own card
  *   - anything before `windowStart` (YYYY-MM-DD)
+ *
+ * Sprint 3.4 (#28, B3): no more ±1-day exclusion around open run cards. With
+ * runs on Mon/Tue/Thu/Sat almost every day was within a day of one, so the
+ * free-run form offered practically nothing.
  *
  * Pure.
  */
 export function unplannedRunActivities(
-  openRunDates: readonly string[],
-  completedRunDates: readonly string[],
+  easyRunDates: readonly string[],
   activities: readonly ActivitySummary[],
   linkedActivityIds: ReadonlySet<string>,
   windowStart: string,
 ): FreeRunCandidate[] {
-  const completed = new Set(completedRunDates);
+  const blocked = new Set(easyRunDates);
   return activities
     .filter((a) => a.category === "run")
     .filter((a) => !linkedActivityIds.has(String(a.activityId)))
     .map((a) => ({ a, date: a.startTimeLocal.slice(0, 10) }))
-    .filter(({ date }) => date >= windowStart && !completed.has(date))
-    .filter(({ date }) => !openRunDates.some((d) => Math.abs(dayDiff(date, d)) <= 1))
+    .filter(({ date }) => date >= windowStart && !blocked.has(date))
     .sort((x, y) => y.a.startTimeLocal.localeCompare(x.a.startTimeLocal))
     .map(({ a, date }) => ({
       activityId: a.activityId,

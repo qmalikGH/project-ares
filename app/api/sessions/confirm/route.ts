@@ -56,8 +56,15 @@ import {
   timeTrialDistanceM,
 } from "@/lib/coach-engine/attest";
 import { applyTimeTrialResult, type TimeTrialVdotResult } from "@/lib/coach-engine/vdot-recalibration";
-import { buildRunImport, buildStrengthImport, type ImportedRun } from "@/lib/garmin/run-import";
+import {
+  buildRunImport,
+  buildStrengthImport,
+  runImportFromStored,
+  type ImportedRun,
+} from "@/lib/garmin/run-import";
+import { isClaimableAutoRun } from "@/lib/sessions/free-run";
 import { disciplineOf } from "@/lib/garmin/confirm-candidates";
+import { setActivityLink } from "@/lib/garmin/activity-store";
 import {
   buildExerciseLogRows,
   replaceExerciseLogsForWorkout,
@@ -260,6 +267,8 @@ export async function POST(req: Request) {
       // Sprint 3.2a — a Garmin activity the athlete recognised as this session.
       // Only for planned rows: a garmin_auto row already has its recording.
       let imported: ImportedRun | null = null;
+      // Coach, 27.11. (#28 a): the unrated free run this activity is moved from.
+      let claimFromWorkoutId: string | null = null;
       if (item.garminActivityId !== undefined) {
         if (cohort !== "planned") {
           results.push({ workoutId: item.workoutId, outcome: "not_eligible", cohort });
@@ -267,20 +276,39 @@ export async function POST(req: Request) {
         }
         const activityId = String(item.garminActivityId);
         const owner = activitiesUsedInBatch.has(activityId)
-          ? { id: "batch" }
+          ? null
           : await db.workout.findFirst({
               where: { userId, garminActivityId: activityId, NOT: { id: workout.id } },
-              select: { id: true },
+              select: {
+                id: true, date: true, type: true, status: true, rpe: true,
+                plannedSession: true, executedSession: true,
+              },
             });
-        if (owner) {
+        const claimable =
+          owner != null &&
+          !isStrength &&
+          isClaimableAutoRun(owner) &&
+          owner.date.getTime() === workout.date.getTime();
+        if (activitiesUsedInBatch.has(activityId) || (owner && !claimable)) {
           results.push({ workoutId: item.workoutId, outcome: "activity_taken", cohort });
           continue;
         }
-        // Throws on any Garmin failure → outcome "error". Deliberately no
-        // fallback to the plan: the athlete asked for the recording.
-        imported = isStrength
-          ? await buildStrengthImport(item.garminActivityId, "garmin_import")
-          : await buildRunImport(item.garminActivityId, "garmin_import");
+        if (claimable && owner) {
+          // The activity is in the raw store (the cron built the free run from
+          // it): no Garmin call needed.
+          claimFromWorkoutId = owner.id;
+          const stored = await db.garminActivity.findFirst({ where: { userId, activityId } });
+          imported = stored
+            ? runImportFromStored(stored, "garmin_import", "claimed")
+            : await buildRunImport(item.garminActivityId, "garmin_import");
+          (imported.executedSession as Record<string, unknown>).autoMatch = "claimed";
+        } else {
+          // Throws on any Garmin failure → outcome "error". Deliberately no
+          // fallback to the plan: the athlete asked for the recording.
+          imported = isStrength
+            ? await buildStrengthImport(item.garminActivityId, "garmin_import")
+            : await buildRunImport(item.garminActivityId, "garmin_import");
+        }
         activitiesUsedInBatch.add(activityId);
       }
 
@@ -348,7 +376,19 @@ export async function POST(req: Request) {
         });
       }
 
-      await db.workout.update({ where: { id: workout.id }, data });
+      // Review fix (#28): a picked activity is linked in the raw store too, in
+      // the same transaction as the session. Coach, 27.11. (#28 a): a claimed
+      // free run is deleted first — the activity can belong to one session only
+      // (@@unique([userId, garminActivityId])).
+      if (imported) {
+        await db.$transaction([
+          ...(claimFromWorkoutId ? [db.workout.delete({ where: { id: claimFromWorkoutId } })] : []),
+          db.workout.update({ where: { id: workout.id }, data }),
+          setActivityLink(db, userId, imported.activityId, workout.id),
+        ]);
+      } else {
+        await db.workout.update({ where: { id: workout.id }, data });
+      }
       if (timeTrial) testResults.push(timeTrial);
 
       // ExerciseLog is rewritten, not appended, so a second confirmation — or a
@@ -378,6 +418,7 @@ export async function POST(req: Request) {
         dailyLoadAu: loadMinutes != null ? rpe * loadMinutes : null,
         loadEstimated: realDuration == null && loadMinutes != null,
         ...(confirmed.rejected.length > 0 ? { rejectedTopSets: confirmed.rejected } : {}),
+        ...(claimFromWorkoutId ? { claimedAutoRun: claimFromWorkoutId } : {}),
       });
     } catch (e) {
       results.push({

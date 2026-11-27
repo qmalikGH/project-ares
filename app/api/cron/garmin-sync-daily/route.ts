@@ -19,7 +19,9 @@ import { db } from "@/lib/db/client";
 import { userTodayForUser } from "@/lib/date";
 import { syncGarminForDate, unreachableSyncResult } from "@/lib/garmin/sync";
 import { persistGarminSync, writeGarminSyncFailureLog } from "@/lib/garmin/persist";
-import { autoImportRecent } from "@/lib/garmin/auto-import";
+import { autoImportFromStore } from "@/lib/garmin/auto-import";
+import { refreshAfterImport } from "@/lib/garmin/plan-refresh";
+import { NON_TRAINING_TYPES } from "@/lib/coach-engine/prevention";
 import { syncRecentActivities } from "@/lib/garmin/activity-store";
 import { sweepRecentGaps } from "@/lib/garmin/gap-sweep";
 import { createDeadline, type Deadline } from "@/lib/garmin/timeout";
@@ -31,21 +33,21 @@ import { recalibrateVdot } from "@/lib/coach-engine/vdot-recalibration";
 /** Sprint v1.8 #4: damp dynamic-deficit recompute to ~once per week. */
 const RECALIBRATION_INTERVAL_MS = 7 * 86400000;
 
-/** Sprint 3.4 (#28): raw activities of the last 14 days are fetched each run. */
-const ACTIVITY_SYNC_DAYS = 14;
-
 /**
- * Sprint 2.9: how far back the session auto-import looks. Wider than the old
- * gap sweep because a missed import is not self-healing the way a missed
- * sensor row is.
+ * Sprint 3.4 (#28): raw activities of the last 14 days are fetched each run,
+ * and the auto-import links within the same window (was 7 days).
  */
-const AUTO_IMPORT_DAYS = 7;
+const ACTIVITY_SYNC_DAYS = 14;
+/** Open planned sessions this far back raise the /confirm notification. */
+const MISSING_SESSION_LOOKBACK_DAYS = 7;
 
 export const maxDuration = 60;
 /** Wall-clock budget per invocation, below maxDuration. */
 const RUN_BUDGET_MS = 50_000;
 /** Below this much time left, a recalibration (which may regenerate) is skipped. */
 const RECALIBRATION_RESERVE_MS = 15_000;
+/** Below this much time left, the post-import refresh waits for the 19:00 cron. */
+const PLAN_REFRESH_RESERVE_MS = 20_000;
 
 function authorized(req: Request): boolean {
   const auth = req.headers.get("authorization") ?? "";
@@ -65,7 +67,11 @@ type UserResult = {
   gapsRepaired?: string[];
   gapsDeferred?: number;
   autoImported?: string[];
-  needsConfirmation?: number;
+  /** Activities left as raw data, by reason (e.g. under_15_min: 2). */
+  rawOnly?: Record<string, number>;
+  planRefresh?: string;
+  /** Planned sessions of the last week with no recording. */
+  missingSessions?: number;
   recalibrated?: string;
   hrRecalibrated?: string;
   vdotRecalibrated?: string;
@@ -128,6 +134,10 @@ export async function GET(req: Request) {
         complete: acts.complete,
       };
 
+      // 3. Session auto-import — three passes over the raw store (no Garmin
+      // call), so it runs even when the wellness sync failed. Best-effort.
+      const imp = await runAutoImport(user.id, today, yesterday, deadline, noteError);
+
       // Sprint 2.8: a failed sync leaves nothing new to calibrate against.
       if (result.status === "FAILURE") {
         results.push({
@@ -138,43 +148,10 @@ export async function GET(req: Request) {
           wrote: outcome.wrote,
           skippedReason: outcome.skippedReason,
           activities,
+          ...imp,
           errorDetails,
         });
         continue;
-      }
-
-      // 3. Session auto-import. Best-effort: a failure here must not cost us
-      // the sensor sync that already succeeded.
-      let autoImported: string[] | undefined;
-      let needsConfirmation: number | undefined;
-      try {
-        const imp = await autoImportRecent(user.id, yesterday, AUTO_IMPORT_DAYS);
-        if (imp.imported.length > 0) {
-          autoImported = imp.imported.map((i) => `${i.date} ${i.type}`);
-        }
-        if (imp.needsConfirmation.length > 0) needsConfirmation = imp.needsConfirmation.length;
-        // Sprint 3.4 (#28): these were dropped on the floor before.
-        for (const e of imp.errors) noteError("auto-import", e);
-
-        // Sprint 3.0: nudge toward /confirm.
-        const awaiting = imp.imported.length + imp.needsConfirmation.length;
-        if (awaiting > 0) {
-          await createNotificationIfNew(
-            {
-              userId: user.id,
-              type: "SESSIONS_AWAITING_CONFIRMATION",
-              title: `${awaiting} Einheit${awaiting === 1 ? "" : "en"} unbestätigt`,
-              message:
-                "Die Uhr hat Dauer, Strecke und Puls geliefert. Es fehlen nur RPE und Schienbein — " +
-                "solange die fehlen, bleibt die Volumen-Bremse auf hold.",
-              severity: "INFO",
-              actionUrl: "/confirm",
-            },
-            20 * 60, // once a day at most
-          );
-        }
-      } catch (impErr) {
-        noteError("auto-import", impErr instanceof Error ? impErr.message : String(impErr));
       }
 
       // 4. Gap sweep.
@@ -227,8 +204,7 @@ export async function GET(req: Request) {
         activities,
         gapsRepaired: sweep.repaired.length > 0 ? sweep.repaired : undefined,
         gapsDeferred: sweep.deferred > 0 ? sweep.deferred : undefined,
-        autoImported,
-        needsConfirmation,
+        ...imp,
         recalibrated,
         hrRecalibrated,
         vdotRecalibrated,
@@ -254,6 +230,80 @@ export async function GET(req: Request) {
     { ranAt: new Date().toISOString(), results },
     { status: allFailed ? 500 : 200 },
   );
+}
+
+/**
+ * Sprint 3.4 (#28, B1/B2): link stored activities, refresh the plan when
+ * something was imported, and nudge toward /confirm only for sessions that
+ * have no recording at all — an auto-completed session needs nothing more.
+ */
+async function runAutoImport(
+  userId: string,
+  today: Date,
+  yesterday: Date,
+  deadline: Deadline,
+  noteError: (step: string, message: string) => void,
+): Promise<Pick<UserResult, "autoImported" | "rawOnly" | "planRefresh" | "missingSessions">> {
+  const out: Pick<UserResult, "autoImported" | "rawOnly" | "planRefresh" | "missingSessions"> = {};
+  try {
+    const from = new Date(today.getTime() - ACTIVITY_SYNC_DAYS * 86400000);
+    const imp = await autoImportFromStore(userId, { from, to: yesterday }, { today });
+    for (const e of imp.errors) noteError("auto-import", e);
+    if (imp.imported.length > 0) {
+      out.autoImported = imp.imported.map((i) => `${i.date} ${i.type} (${i.match})`);
+    }
+    if (imp.rawOnly.length > 0) {
+      out.rawOnly = {};
+      for (const r of imp.rawOnly) out.rawOnly[r.reason] = (out.rawOnly[r.reason] ?? 0) + 1;
+    }
+
+    // B2: a new session can lift the cap and close a layoff gap — the plan and
+    // the watch follow at once, through the same path as the 19:00 cron.
+    if (imp.imported.length > 0) {
+      if (deadline.isNear(PLAN_REFRESH_RESERVE_MS)) {
+        out.planRefresh = "deferred: time budget (19:00 cron)";
+      } else {
+        try {
+          const r = await refreshAfterImport(userId);
+          out.planRefresh = `regenerated ${r.regenerated}, repushed ${r.repushed}`;
+          for (const e of r.errors) noteError("plan-refresh", e);
+        } catch (e) {
+          noteError("plan-refresh", e instanceof Error ? e.message : String(e));
+        }
+      }
+    }
+  } catch (e) {
+    noteError("auto-import", e instanceof Error ? e.message : String(e));
+  }
+
+  try {
+    const missing = await db.workout.count({
+      where: {
+        userId,
+        status: "planned",
+        date: { gte: new Date(today.getTime() - MISSING_SESSION_LOOKBACK_DAYS * 86400000), lt: today },
+        type: { notIn: ["rest", ...NON_TRAINING_TYPES] },
+      },
+    });
+    if (missing > 0) {
+      out.missingSessions = missing;
+      await createNotificationIfNew(
+        {
+          userId,
+          type: "SESSIONS_AWAITING_CONFIRMATION",
+          title: `${missing} Einheit${missing === 1 ? "" : "en"} ohne Aufzeichnung`,
+          message:
+            "Ohne Uhr trainiert? In /confirm mit Minuten eintragen — sonst zählt die Einheit als verpasst.",
+          severity: "INFO",
+          actionUrl: "/confirm",
+        },
+        20 * 60, // once a day at most
+      );
+    }
+  } catch (e) {
+    noteError("missing-sessions", e instanceof Error ? e.message : String(e));
+  }
+  return out;
 }
 
 /** Run a recalibration only while enough budget is left; errors become a status string. */
