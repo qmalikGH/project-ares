@@ -79,6 +79,8 @@ interface Candidate {
   durationMin: number;
   distanceKm: number | null;
   averageHr: number | null;
+  /** Coach, 27.11. (#28 a): already stored as a free run by the nightly import. */
+  fromAutoRun?: boolean;
 }
 
 /** Sprint 3.3b: a Garmin run with no planned session to belong to. */
@@ -225,6 +227,20 @@ export default function ConfirmView() {
       setCandidates(d.candidates ?? {});
       setFreeRuns(d.freeRuns ?? []);
       setCandidatesState(d.status === "ok" ? "ok" : "unavailable");
+      // Coach, 27.11. (#28 a): the watch run of the same day, already stored as
+      // a free run, is preselected — confirming the card moves it here. Typed
+      // minutes stay possible and then mean a second run.
+      setDrafts((prev) => {
+        const next = { ...prev };
+        for (const [id, cands] of Object.entries(d.candidates ?? {})) {
+          const auto = cands.find((c) => c.fromAutoRun);
+          const cur = next[id];
+          if (auto && cur && cur.garminActivityId == null && !cur.minutes) {
+            next[id] = { ...cur, garminActivityId: auto.activityId };
+          }
+        }
+        return next;
+      });
     } catch {
       setCandidates({});
       setFreeRuns([]);
@@ -471,6 +487,12 @@ export default function ConfirmView() {
                       {candidatesState === "unavailable" && (
                         <p className="text-xs text-muted-foreground">Garmin gerade nicht erreichbar.</p>
                       )}
+                      {cands.some((c) => c.fromAutoRun) && (
+                        <p className="mb-2 text-xs text-[var(--text-secondary)]">
+                          Uhr-Lauf vom selben Tag vorhanden. Er ist als freier Lauf erfasst und wird dieser
+                          Einheit zugeordnet. Minuten eintippen heißt: ein zweiter Lauf.
+                        </p>
+                      )}
                       {cands.length > 0 && (
                         <div className="flex flex-col gap-2">
                           {cands.map((c) => {
@@ -495,6 +517,7 @@ export default function ConfirmView() {
                               >
                                 {selected ? "✓ " : ""}
                                 {c.activityName} · {candidateLabel(c)}
+                                {c.fromAutoRun && " · als freier Lauf erfasst"}
                                 {blocked && " · schon zugeordnet"}
                               </button>
                             );

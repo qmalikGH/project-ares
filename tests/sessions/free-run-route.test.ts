@@ -101,3 +101,22 @@ describe("POST /api/sessions/free-run", () => {
     expect(buildRunImport).not.toHaveBeenCalled();
   });
 });
+
+describe("isClaimableAutoRun (coach, 27.11., #28 a)", () => {
+  const base = {
+    type: "easy_run",
+    status: "completed",
+    rpe: null,
+    plannedSession: { unplanned: true },
+    executedSession: { autoMatch: "free_run" },
+  };
+  it("only an unrated free run the cron created", async () => {
+    const { isClaimableAutoRun } = await import("@/lib/sessions/free-run");
+    expect(isClaimableAutoRun(base)).toBe(true);
+    expect(isClaimableAutoRun({ ...base, rpe: 4 })).toBe(false);
+    expect(isClaimableAutoRun({ ...base, executedSession: { autoMatch: "same_day" } })).toBe(false);
+    expect(isClaimableAutoRun({ ...base, executedSession: { source: "attested" } })).toBe(false);
+    expect(isClaimableAutoRun({ ...base, plannedSession: { unplanned: false } })).toBe(false);
+    expect(isClaimableAutoRun({ ...base, type: "long_run" })).toBe(false);
+  });
+});

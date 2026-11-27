@@ -33,6 +33,12 @@ export interface ConfirmCandidate {
   durationMin: number;
   distanceKm: number | null;
   averageHr: number | null;
+  /**
+   * Coach, 27.11. (#28 a): the activity already sits in an unrated free run
+   * the cron created. Picking it moves it to this session (the free run is
+   * deleted); offered on the same day only.
+   */
+  fromAutoRun?: boolean;
 }
 
 /**
@@ -77,11 +83,16 @@ function categoryFor(discipline: OpenSessionForMatch["discipline"]): ActivityCat
  *
  * One activity may be suggested for two sessions (Mon plan, Tue training);
  * the confirm route refuses to link it twice.
+ *
+ * `claimable` (coach, 27.11., #28 a): activities behind an unrated free run the
+ * cron created. They are offered to RUN sessions of the same day only, even
+ * though they are linked, and marked `fromAutoRun`.
  */
 export function matchConfirmCandidates(
   sessions: readonly OpenSessionForMatch[],
   activities: readonly ActivitySummary[],
   linkedActivityIds: ReadonlySet<string>,
+  claimable: ReadonlySet<string> = new Set(),
 ): Record<string, ConfirmCandidate[]> {
   const out: Record<string, ConfirmCandidate[]> = {};
   for (const s of sessions) {
@@ -90,12 +101,16 @@ export function matchConfirmCandidates(
 
     const matches = activities
       .filter((a) => a.category === category)
-      .filter((a) => !linkedActivityIds.has(String(a.activityId)))
       .map((a) => {
         const date = a.startTimeLocal.slice(0, 10);
-        return { a, date, offset: dayDiff(date, s.date) };
+        const fromAutoRun = claimable.has(String(a.activityId));
+        return { a, date, offset: dayDiff(date, s.date), fromAutoRun };
       })
-      .filter((m) => Math.abs(m.offset) <= 1)
+      .filter((m) =>
+        m.fromAutoRun
+          ? category === "run" && m.offset === 0
+          : !linkedActivityIds.has(String(m.a.activityId)) && Math.abs(m.offset) <= 1,
+      )
       .sort((x, y) => {
         const byDay = Math.abs(x.offset) - Math.abs(y.offset);
         if (byDay !== 0) return byDay;
@@ -105,7 +120,7 @@ export function matchConfirmCandidates(
       .slice(0, MAX_CANDIDATES);
 
     if (matches.length === 0) continue;
-    out[s.id] = matches.map(({ a, date, offset }) => ({
+    out[s.id] = matches.map(({ a, date, offset, fromAutoRun }) => ({
       activityId: a.activityId,
       activityName: a.activityName,
       date,
@@ -114,6 +129,7 @@ export function matchConfirmCandidates(
       durationMin: Math.max(1, Math.round(a.durationSec / 60)),
       distanceKm: a.distanceM != null ? Math.round(a.distanceM / 10) / 100 : null,
       averageHr: a.averageHr,
+      ...(fromAutoRun ? { fromAutoRun: true } : {}),
     }));
   }
   return out;

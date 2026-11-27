@@ -128,10 +128,27 @@ describe("pass 2 — same day", () => {
     expect(r.imported[0]).toMatchObject({ type: "easy_run", match: "same_day", durationActualMin: 20 });
   });
 
-  it("has no minimum duration — a short run on an easy day counts with its real minutes (Q, 27.11.)", async () => {
+  it("counts a short run on an easy day with its real minutes (Q, 27.11.)", async () => {
+    setup([activity("2026-11-16", { durationSec: 12 * 60 })], [planned("2026-11-16", "easy_run")]);
+    const r = await autoImportFromStore("u", WINDOW);
+    expect(r.imported[0]).toMatchObject({ match: "same_day", durationActualMin: 12 });
+  });
+
+  // Coach, 27.11.: an accidentally started recording must not complete a session.
+  it("needs at least 10 min — a shorter run stays raw data and the session open", async () => {
     setup([activity("2026-11-16", { durationSec: 9 * 60 })], [planned("2026-11-16", "easy_run")]);
     const r = await autoImportFromStore("u", WINDOW);
-    expect(r.imported[0]).toMatchObject({ match: "same_day", durationActualMin: 9 });
+    expect(workoutUpdateMany).not.toHaveBeenCalled();
+    expect(r.rawOnly).toEqual([expect.objectContaining({ reason: "under_15_min" })]);
+  });
+
+  it("identity has no minimum — the run was started from the pushed workout", async () => {
+    setup(
+      [activity("2026-11-16", { workoutId: "777", durationSec: 5 * 60 })],
+      [planned("2026-11-16", "easy_run", { garminWorkoutId: "777" })],
+    );
+    const r = await autoImportFromStore("u", WINDOW);
+    expect(r.imported[0]).toMatchObject({ match: "identity", durationActualMin: 5 });
   });
 
   it("gives the long run the longest run of the day", async () => {

@@ -17,9 +17,11 @@
 //   1. identity — the activity carries the workoutId we pushed to the watch
 //      (activity.workoutId === Workout.garminWorkoutId), same local day.
 //      Any session type, strength included.
-//   2. same day — a run on the day of an OPEN easy_run or long_run completes
-//      it, even without a pushed workout. NEVER for threshold, VO2max or a
-//      time trial: quality only counts through identity or a human. (That is
+//   2. same day — a run of ≥ 10 min on the day of an OPEN easy_run or
+//      long_run completes it, even without a pushed workout; the longest run
+//      of the day wins. NEVER for threshold, VO2max or a time trial: quality
+//      only counts through identity or a human — who can claim the free run
+//      the cron made of it (/confirm, autoMatch "claimed"). (That is
 //      also why the threshold ladder needs no extra guard: it only credits
 //      completed threshold_run rows, and passes 2 and 3 never create one.)
 //   3. free run — any other run of ≥ 15 min becomes its own completed
@@ -48,6 +50,12 @@ import { runImportFromStored, strengthImportFromStored } from "./run-import";
 
 /** Pass 3: a run shorter than this stays raw data (coach decision, #28). */
 export const FREE_RUN_MIN_SEC = 15 * 60;
+/**
+ * Pass 2: a run shorter than this does not complete a planned session, so an
+ * accidentally started recording cannot (coach, 27.11.). Identity has no
+ * minimum — that run was started from the pushed workout on purpose.
+ */
+export const SAME_DAY_RUN_MIN_SEC = 10 * 60;
 /** Pass 2 may complete only these session types. */
 export const SAME_DAY_TYPES: readonly string[] = ["long_run", "easy_run"];
 /**
@@ -231,8 +239,10 @@ export async function autoImportFromStore(
     // The long run first, so it gets the longest run of the day.
     sessions.sort((x, y) => SAME_DAY_TYPES.indexOf(x.type) - SAME_DAY_TYPES.indexOf(y.type));
     for (const w of sessions) {
+      // The longest run of the day wins (coach, 27.11.).
       const run = pool
         .filter((a) => !usedActivities.has(a.id) && a.category === "run" && key(a.localDate) === day)
+        .filter((a) => a.durationSec >= SAME_DAY_RUN_MIN_SEC)
         .sort((x, y) => y.durationSec - x.durationSec)[0];
       if (!run) break;
       await linkPlanned(w, run, "same_day");

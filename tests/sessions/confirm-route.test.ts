@@ -16,19 +16,22 @@ const regenerate = vi.hoisted(() => vi.fn());
 const currentUser = vi.hoisted(() => vi.fn());
 const buildRunImport = vi.hoisted(() => vi.fn());
 const buildStrengthImport = vi.hoisted(() => vi.fn());
+const workoutDelete = vi.hoisted(() => vi.fn());
+const activityFindFirst = vi.hoisted(() => vi.fn());
+const runImportFromStored = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/db/client", () => ({
   db: {
-    workout: { findFirst: workoutFindFirst, update: workoutUpdate },
+    workout: { findFirst: workoutFindFirst, update: workoutUpdate, delete: workoutDelete },
     exerciseLog: { deleteMany: exerciseLogDeleteMany, createMany: exerciseLogCreateMany },
     weeklyPlan: { findFirst: weeklyPlanFindFirst },
-    garminActivity: { updateMany: activityUpdateMany },
+    garminActivity: { updateMany: activityUpdateMany, findFirst: activityFindFirst },
     $transaction: transaction,
   },
 }));
 vi.mock("@/lib/auth/current-user", () => ({ getCurrentUserId: currentUser }));
 vi.mock("@/lib/db/queries/regenerate-plans", () => ({ regeneratePlansFromNow: regenerate }));
-vi.mock("@/lib/garmin/run-import", () => ({ buildRunImport, buildStrengthImport }));
+vi.mock("@/lib/garmin/run-import", () => ({ buildRunImport, buildStrengthImport, runImportFromStored }));
 const applyTimeTrial = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/coach-engine/vdot-recalibration", () => ({ applyTimeTrialResult: applyTimeTrial }));
 
@@ -627,5 +630,71 @@ describe("Sprint 3.3 — home prevention (mobility)", () => {
     workoutFindFirst.mockResolvedValueOnce(plannedMobility());
     await POST(post({ items: [{ workoutId: "w-mob", action: "skip" }] }));
     expect(workoutUpdate.mock.calls[0][0].data.status).toBe("skipped");
+  });
+});
+
+// Coach, 27.11. (#28 a): a run the cron stored as a free run (not started from
+// the pushed workout) can be claimed by the planned run card of the same day.
+describe("claiming the nightly free run", () => {
+  const AUTO_RUN = {
+    id: "w-auto",
+    date: WORKOUT_DATE,
+    type: "easy_run",
+    status: "completed",
+    rpe: null,
+    plannedSession: { type: "easy_run", durationMin: 22, unplanned: true },
+    executedSession: { type: "run", source: "garmin_auto", autoMatch: "free_run" },
+  };
+  const STORED = { activityId: "777", durationSec: 1320 };
+
+  beforeEach(() => {
+    activityFindFirst.mockResolvedValue(STORED);
+    runImportFromStored.mockImplementation(() => ({
+      executedSession: { ...GARMIN_EXEC, source: "garmin_import", autoMatch: "claimed", garminActivityId: 777 },
+      durationActualMin: 22,
+      activityId: "777",
+    }));
+  });
+
+  it("moves the activity to the card in one transaction: free run deleted, card completed, link moved", async () => {
+    workoutFindFirst
+      .mockResolvedValueOnce(plannedRun({ type: "threshold_run", plannedSession: { type: "threshold_run", durationMin: 40 } }))
+      .mockResolvedValueOnce(AUTO_RUN);
+    const res = await POST(post({
+      items: [{ workoutId: "w-run", action: "attest", rpe: 7, shinPainNrs: 0, garminActivityId: 777 }],
+    }));
+    const body = await res.json();
+    expect(body.results[0]).toMatchObject({ outcome: "attested", claimedAutoRun: "w-auto" });
+    // No Garmin call: the activity comes from the raw store.
+    expect(buildRunImport).not.toHaveBeenCalled();
+    expect(runImportFromStored).toHaveBeenCalledWith(STORED, "garmin_import", "claimed");
+
+    const ops = transaction.mock.calls[0][0];
+    expect(ops).toHaveLength(3);
+    expect(workoutDelete).toHaveBeenCalledWith({ where: { id: "w-auto" } });
+    // Delete before update: the activity can belong to one session only.
+    expect(workoutDelete.mock.invocationCallOrder[0]).toBeLessThan(workoutUpdate.mock.invocationCallOrder[0]);
+    const data = workoutUpdate.mock.calls[0][0].data;
+    expect(data).toMatchObject({ status: "completed", garminActivityId: "777", durationActualMin: 22 });
+    expect(data.executedSession).toMatchObject({ autoMatch: "claimed" });
+    expect(activityUpdateMany).toHaveBeenCalledWith({
+      where: { userId: "u1", activityId: "777" },
+      data: { workoutRefId: "w-run" },
+    });
+  });
+
+  it.each([
+    ["already rated", { rpe: 5 }],
+    ["not a free run", { executedSession: { type: "run", source: "garmin_auto", autoMatch: "same_day" } }],
+    ["another day", { date: new Date(WORKOUT_DATE.getTime() + 86400000) }],
+  ])("refuses a run that is %s", async (_label, over) => {
+    workoutFindFirst
+      .mockResolvedValueOnce(plannedRun())
+      .mockResolvedValueOnce({ ...AUTO_RUN, ...over });
+    const res = await POST(post({
+      items: [{ workoutId: "w-run", action: "attest", rpe: 4, shinPainNrs: 0, garminActivityId: 777 }],
+    }));
+    expect((await res.json()).results[0].outcome).toBe("activity_taken");
+    expect(workoutDelete).not.toHaveBeenCalled();
   });
 });
