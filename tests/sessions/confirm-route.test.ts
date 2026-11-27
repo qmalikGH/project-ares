@@ -11,6 +11,7 @@ const exerciseLogDeleteMany = vi.hoisted(() => vi.fn());
 const exerciseLogCreateMany = vi.hoisted(() => vi.fn());
 const weeklyPlanFindFirst = vi.hoisted(() => vi.fn());
 const transaction = vi.hoisted(() => vi.fn());
+const activityUpdateMany = vi.hoisted(() => vi.fn());
 const regenerate = vi.hoisted(() => vi.fn());
 const currentUser = vi.hoisted(() => vi.fn());
 const buildRunImport = vi.hoisted(() => vi.fn());
@@ -21,6 +22,7 @@ vi.mock("@/lib/db/client", () => ({
     workout: { findFirst: workoutFindFirst, update: workoutUpdate },
     exerciseLog: { deleteMany: exerciseLogDeleteMany, createMany: exerciseLogCreateMany },
     weeklyPlan: { findFirst: weeklyPlanFindFirst },
+    garminActivity: { updateMany: activityUpdateMany },
     $transaction: transaction,
   },
 }));
@@ -414,6 +416,12 @@ describe("Sprint 3.2a — picking the Garmin recording", () => {
     expect(data.executedSession).not.toHaveProperty("durationEstimated");
     const body = await res.json();
     expect(body.results[0]).toMatchObject({ outcome: "attested", dailyLoadAu: 52, loadEstimated: false });
+    // Review fix (#28): the raw store's link, in the same transaction.
+    expect(activityUpdateMany).toHaveBeenCalledWith({
+      where: { userId: "u1", activityId: "777" },
+      data: { workoutRefId: "w-run" },
+    });
+    expect(transaction.mock.calls[0][0]).toHaveLength(2);
   });
 
   it("refuses an activity another workout already owns — nothing written", async () => {

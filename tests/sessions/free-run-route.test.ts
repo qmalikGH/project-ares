@@ -6,9 +6,15 @@ const workoutFindFirst = vi.hoisted(() => vi.fn());
 const workoutCreate = vi.hoisted(() => vi.fn());
 const regenerate = vi.hoisted(() => vi.fn());
 const buildRunImport = vi.hoisted(() => vi.fn());
+const activityUpdateMany = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/db/client", () => ({
-  db: { workout: { findFirst: workoutFindFirst, create: workoutCreate } },
+  db: {
+    workout: { findFirst: workoutFindFirst, create: workoutCreate },
+    garminActivity: { updateMany: activityUpdateMany },
+    $transaction: async (fn: (tx: unknown) => unknown) =>
+      fn({ workout: { create: workoutCreate }, garminActivity: { updateMany: activityUpdateMany } }),
+  },
 }));
 vi.mock("@/lib/auth/current-user", () => ({ getCurrentUserId: vi.fn(async () => "u1") }));
 vi.mock("@/lib/date", () => ({ userTodayDynamic: vi.fn(async () => new Date("2026-10-31T00:00:00.000Z")) }));
@@ -61,6 +67,11 @@ describe("POST /api/sessions/free-run", () => {
     const data = workoutCreate.mock.calls[0][0].data;
     expect(data).toMatchObject({ durationActualMin: 29, garminActivityId: "777" });
     expect(data.executedSession).toMatchObject({ source: "garmin_import", distanceM: 4800, shinPainNrs: 1 });
+    // Review fix (#28): linked in the raw store too.
+    expect(activityUpdateMany).toHaveBeenCalledWith({
+      where: { userId: "u1", activityId: "777" },
+      data: { workoutRefId: "w-new" },
+    });
   });
 
   it("refuses a run with neither minutes nor a recording", async () => {

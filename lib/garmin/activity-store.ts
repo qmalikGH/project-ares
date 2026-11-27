@@ -10,7 +10,7 @@
 // cutoff. Before this, auto-import called getActivities(0, 20) once per day
 // with a plan and filtered in code — a day beyond the 20 newest activities was
 // silently invisible.
-import type { Prisma } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 
 import { db } from "@/lib/db/client";
 import {
@@ -121,6 +121,29 @@ export function toActivityRow(a: RawActivity) {
     workoutId: s.workoutId != null ? String(s.workoutId) : null,
     raw: a as unknown as Prisma.InputJsonValue,
   };
+}
+
+/**
+ * Review fix (#28, point 5): keep GarminActivity.workoutRefId in step with a
+ * manual link or unlink (/confirm, the free-run form, the wizard). Until now
+ * only the auto-import set it, so the export showed manually linked
+ * activities as unlinked until the next cron reconciled them.
+ *
+ * `updateMany`: no error when the activity is not in the store yet (picked
+ * from a live list before the cron fetched it); the cron reconciles it then.
+ * Returns the Prisma promise unawaited, so it works inside an interactive
+ * transaction and in the array form.
+ */
+export function setActivityLink(
+  client: Pick<PrismaClient, "garminActivity"> | Pick<Prisma.TransactionClient, "garminActivity">,
+  userId: string,
+  activityId: string,
+  workoutId: string | null,
+) {
+  return (client.garminActivity as PrismaClient["garminActivity"]).updateMany({
+    where: { userId, activityId },
+    data: { workoutRefId: workoutId },
+  });
 }
 
 export interface UpsertResult {

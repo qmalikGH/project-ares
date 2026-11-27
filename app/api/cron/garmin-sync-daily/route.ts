@@ -247,7 +247,7 @@ async function runAutoImport(
   const out: Pick<UserResult, "autoImported" | "rawOnly" | "planRefresh" | "missingSessions"> = {};
   try {
     const from = new Date(today.getTime() - ACTIVITY_SYNC_DAYS * 86400000);
-    const imp = await autoImportFromStore(userId, { from, to: yesterday });
+    const imp = await autoImportFromStore(userId, { from, to: yesterday }, { today });
     for (const e of imp.errors) noteError("auto-import", e);
     if (imp.imported.length > 0) {
       out.autoImported = imp.imported.map((i) => `${i.date} ${i.type} (${i.match})`);

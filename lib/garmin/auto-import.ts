@@ -50,6 +50,14 @@ import { runImportFromStored, strengthImportFromStored } from "./run-import";
 export const FREE_RUN_MIN_SEC = 15 * 60;
 /** Pass 2 may complete only these session types. */
 export const SAME_DAY_TYPES: readonly string[] = ["long_run", "easy_run"];
+/**
+ * Review fix (#28): a run whose splits and HR zones have not been fetched yet
+ * waits this many days before it is linked anyway. Linking writes the
+ * executedSession once; details that arrive later would never reach it (no
+ * zone load for ACWR, no TID). After the grace period a run without details
+ * is still better than no session at all.
+ */
+export const DETAILS_GRACE_DAYS = 3;
 
 export interface AutoImportEntry {
   workoutId: string;
@@ -95,9 +103,12 @@ export async function autoImportFromStore(
      * Collisions are predicted from the easy runs already stored.
      */
     dryRun?: boolean;
+    /** The user's local today (UTC midnight); for the details grace period. */
+    today?: Date;
   } = {},
 ): Promise<AutoImportResult> {
   const dryRun = opts.dryRun === true;
+  const todayKey = opts.today ?? new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
   const result: AutoImportResult = { imported: [], rawOnly: [], reconciled: 0, errors: [] };
 
   let pool: GarminActivity[] = await db.garminActivity.findMany({
@@ -129,6 +140,16 @@ export async function autoImportFromStore(
   });
   const usedWorkouts = new Set<string>();
   const usedActivities = new Set<string>();
+
+  // Review fix (#28): runs without details wait (all three passes), unless
+  // they are older than the grace period. Strength and "other" need none.
+  for (const a of pool) {
+    if (a.category !== "run" || a.detailFetchedAt != null) continue;
+    const ageDays = Math.round((todayKey.getTime() - a.localDate.getTime()) / 86400000);
+    if (ageDays > DETAILS_GRACE_DAYS) continue;
+    usedActivities.add(a.id);
+    result.rawOnly.push({ activityId: a.activityId, date: key(a.localDate), reason: "details_pending" });
+  }
 
   const linkPlanned = async (w: Planned, a: GarminActivity, match: AutoMatch) => {
     const isStrength = w.type.startsWith("strength");
