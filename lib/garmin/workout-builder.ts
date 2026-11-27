@@ -11,6 +11,7 @@
 //   - Builder is fully testable; the I/O wrapper lives in workout-sync.ts
 
 import type { SessionPlan } from "@/lib/coach-engine/types";
+import { exerciseDisplayName } from "@/lib/coach-engine/exercise-label";
 
 // ============================================
 // Garmin enum constants (Garmin Connect REST API contract)
@@ -331,7 +332,7 @@ function buildStrengthSession(session: SessionPlan): GarminStructuredWorkout {
     .filter((ex) => !ex.isWarmup)
     .map((ex) => {
       const load = typeof ex.loadAbs === "number" && ex.loadAbs > 0 ? " @ " + ex.loadAbs + "kg" : "";
-      return ex.name + " " + ex.sets + "x" + ex.reps + load;
+      return exerciseDisplayName(ex) + " " + ex.sets + "x" + ex.reps + load;
     });
   // Garmin truncates long descriptions on the device; work sets only.
   const description = lines.length > 0 ? lines.join(" | ").slice(0, 1024) : "Krafteinheit";

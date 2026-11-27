@@ -195,6 +195,34 @@ describe("bookkeeping", () => {
     expect(logCreate).toHaveBeenCalledTimes(1);
   });
 
+  // Sprint 3.4 (#28): the sweep's retry guard and "last sync" key off it.
+  it("stamps the synced day on the log row", async () => {
+    await persistGarminSync({ userId: USER, date: YESTERDAY, result: result() });
+    expect(logCreate.mock.calls[0][0].data.targetDate).toEqual(YESTERDAY);
+  });
+
+  it("writes no log row and no readiness refresh for the history backfill", async () => {
+    const out = await persistGarminSync({
+      userId: USER, date: YESTERDAY, result: result(), writeLog: false, refreshReadiness: false,
+    });
+    expect(logCreate).not.toHaveBeenCalled();
+    expect(out.syncLogId).toBeNull();
+    expect(sensorCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed backfill day writes nothing and raises nothing", async () => {
+    const out = await persistGarminSync({
+      userId: USER, date: YESTERDAY, writeLog: false,
+      result: result({
+        status: "FAILURE",
+        flags: { hrvSyncOk: false, sleepSyncOk: false, bodyBatterySyncOk: false, rhrSyncOk: false, activitiesSyncOk: false, energySyncOk: false },
+      }),
+    });
+    expect(out.wrote).toBe(false);
+    expect(logCreate).not.toHaveBeenCalled();
+    expect(logFindMany).not.toHaveBeenCalled();
+  });
+
   it("stamps garminLastSyncAt on success but never on failure", async () => {
     sensorFindFirst.mockResolvedValue({ id: "row_1", garmin: {} });
     await persistGarminSync({ userId: USER, date: YESTERDAY, result: result() });

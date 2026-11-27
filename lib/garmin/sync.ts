@@ -3,6 +3,7 @@
 // breakage produces a PARTIAL log entry instead of zero data.
 import { toUserDateString } from "@/lib/date";
 import { clearGarminSession, getGarminClient } from "./client";
+import { withTimeout } from "./timeout";
 
 const GC_API = "https://connectapi.garmin.com";
 
@@ -113,7 +114,7 @@ export async function syncGarminForDate(
   // Profile (used to scope a few endpoints)
   let displayName = "";
   try {
-    const profile = await client.getUserProfile();
+    const profile = await withTimeout(client.getUserProfile(), "profile");
     displayName = profile?.displayName ?? "";
   } catch {
     /* non-fatal — see the fallback below */
@@ -133,7 +134,7 @@ export async function syncGarminForDate(
   // observed is most likely a sync race: Connect-App re-fetches and updates the
   // score after the watch finishes uploading detailed phases (~1h post-wake).
   try {
-    const sleep = (await client.getSleepData(date)) as
+    const sleep = (await withTimeout(client.getSleepData(date), "sleep")) as
       | {
           dailySleepDTO?: {
             sleepScores?: {
@@ -169,7 +170,7 @@ export async function syncGarminForDate(
 
   // Heart rate (resting HR) ------------------------------------------------
   try {
-    const hr = (await client.getHeartRate(date)) as { restingHeartRate?: number } | null;
+    const hr = (await withTimeout(client.getHeartRate(date), "rhr")) as { restingHeartRate?: number } | null;
     if (hr?.restingHeartRate != null) {
       snapshot.rhr = hr.restingHeartRate;
       flags.rhrSyncOk = true;
@@ -181,9 +182,9 @@ export async function syncGarminForDate(
   // HRV --------------------------------------------------------------------
   try {
     const hrvUrl = `${GC_API}/hrv-service/hrv/${dateKey(date)}`;
-    const hrv = (await client.get<{
+    const hrv = (await withTimeout(client.get<{
       hrvSummary?: { lastNightAvg?: number; status?: string; weeklyAvg?: number };
-    }>(hrvUrl)) ?? {};
+    }>(hrvUrl), "hrv")) ?? {};
     if (hrv.hrvSummary) {
       snapshot.hrvRmssd = hrv.hrvSummary.lastNightAvg ?? hrv.hrvSummary.weeklyAvg ?? null;
       snapshot.hrvStatus = hrv.hrvSummary.status ?? null;
@@ -205,7 +206,7 @@ export async function syncGarminForDate(
       throw new SkipSummary();
     }
     const url = `${GC_API}/usersummary-service/usersummary/daily/${displayName}?calendarDate=${dateKey(date)}`;
-    const summary = (await client.get<{
+    const summary = (await withTimeout(client.get<{
       bodyBatteryMostRecentValue?: number;
       bodyBatteryAtWakeTime?: number;
       bodyBatteryLowestValue?: number;
@@ -213,7 +214,7 @@ export async function syncGarminForDate(
       activeKilocalories?: number;
       bmrKilocalories?: number;
       averageStressLevel?: number;
-    }>(url)) ?? {};
+    }>(url), "daily_summary")) ?? {};
 
     // Body battery morning — prefer at-wake-time, fall back to most-recent.
     if (typeof summary.bodyBatteryAtWakeTime === "number") {
@@ -264,7 +265,7 @@ export async function syncGarminForDate(
 
   // Activities (last 5; we only count, not parse details here)
   try {
-    const recent = await client.getActivities(0, 5);
+    const recent = await withTimeout(client.getActivities(0, 5), "activities");
     activitiesCount = Array.isArray(recent) ? recent.length : 0;
     flags.activitiesSyncOk = true;
   } catch (e) {

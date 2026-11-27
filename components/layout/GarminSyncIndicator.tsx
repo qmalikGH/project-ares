@@ -13,6 +13,8 @@ type GarminStatus = {
     rhrSyncOk: boolean;
     activitiesSyncOk: boolean;
     energySyncOk: boolean;
+    /** Sprint 3.4 (#28): the day the row synced; null on older rows. */
+    targetDate?: string | null;
   } | null;
   consecutiveFailures: number;
 };
@@ -99,7 +101,12 @@ export function GarminSyncIndicator({ compact = false }: { compact?: boolean }) 
             <span className="text-sm font-semibold">Garmin Sync</span>
             <span className={`h-2 w-2 rounded-full ${dotColor}`} />
           </div>
-          <p className="text-xs text-muted-foreground">{ageLabel}</p>
+          <p className="text-xs text-muted-foreground">
+            {ageLabel}
+            {status?.lastSync?.targetDate
+              ? ` · Daten vom ${new Date(status.lastSync.targetDate).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", timeZone: "UTC" })}`
+              : ""}
+          </p>
           {status?.lastSync && (
             <div className="mt-2 grid grid-cols-2 gap-1 text-xs text-muted-foreground">
               <div>HRV: {status.lastSync.hrvSyncOk ? "✓" : "✗"}</div>

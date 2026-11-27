@@ -6,6 +6,7 @@
 // `match.ts`.
 import { toUserDateString } from "@/lib/date";
 import { getGarminClient } from "./client";
+import { withTimeout } from "./timeout";
 
 export type ActivityCategory = "run" | "strength" | "other";
 
@@ -13,7 +14,7 @@ export type ActivityCategory = "run" | "strength" | "other";
 // optional in practice (indoor activities lack distance, etc.). We re-type
 // against `any` and validate at the boundary.
 
-interface RawActivity {
+export interface RawActivity {
   activityId: number;
   activityName?: string;
   /**
@@ -126,6 +127,11 @@ export function classifyActivity(activity: RawActivity): ActivityCategory {
   return "other";
 }
 
+/** Garmin's raw sport key (e.g. "street_running"); kept verbatim in the raw store. */
+export function garminTypeOf(activity: RawActivity): string | null {
+  return activity.activityType?.typeKey ?? activity.activityTypeDTO?.typeKey ?? null;
+}
+
 export interface ActivitySummary {
   activityId: number;
   activityName: string;
@@ -144,7 +150,7 @@ export interface ActivitySummary {
   workoutId: number | null;
 }
 
-function toSummary(a: RawActivity): ActivitySummary {
+export function toSummary(a: RawActivity): ActivitySummary {
   const distanceM = typeof a.distance === "number" && a.distance > 0 ? a.distance : null;
   const durationSec = typeof a.duration === "number" ? Math.round(a.duration) : 0;
   const avgPaceSecPerKm =
@@ -175,12 +181,23 @@ interface GarminAPI {
 }
 
 /**
+ * Sprint 3.4 (#28): one page of the activity list, newest first, unfiltered.
+ * The library has no date range — callers page with `start` until they pass
+ * their cutoff (see activity-store.ts).
+ */
+export async function listActivitiesPage(start: number, limit: number): Promise<RawActivity[]> {
+  const client = (await getGarminClient()) as unknown as GarminAPI;
+  const raw = await withTimeout(client.getActivities(start, limit), `activities ${start}+${limit}`);
+  return Array.isArray(raw) ? (raw as RawActivity[]) : [];
+}
+
+/**
  * List recent activities. Filters to the given `date` (local YYYY-MM-DD).
  * Sorted ascending by start time so AM activities precede PM in pickers.
  */
 export async function listActivitiesForDate(date: Date): Promise<ActivitySummary[]> {
   const client = (await getGarminClient()) as unknown as GarminAPI;
-  const raw = (await client.getActivities(0, 20)) as RawActivity[];
+  const raw = (await withTimeout(client.getActivities(0, 20), "activities")) as RawActivity[];
 
   // Garmin's startTimeLocal is already in the user's local timezone.
   // Compare with Berlin date, not UTC — fixes UTC vs local mismatch.
@@ -206,7 +223,7 @@ export async function listActivitiesForDate(date: Date): Promise<ActivitySummary
  */
 export async function listActivitiesInRange(from: Date, to: Date): Promise<ActivitySummary[]> {
   const client = (await getGarminClient()) as unknown as GarminAPI;
-  const raw = (await client.getActivities(0, 40)) as RawActivity[];
+  const raw = (await withTimeout(client.getActivities(0, 40), "activities")) as RawActivity[];
   const fromKey = toUserDateString(from);
   const toKey = toUserDateString(to);
   return raw
@@ -239,7 +256,10 @@ export interface ActivityDetail extends ActivitySummary {
  */
 export async function getActivityDetail(activityId: number): Promise<ActivityDetail> {
   const client = (await getGarminClient()) as unknown as GarminAPI;
-  const rawNested = (await client.getActivity({ activityId })) as RawActivity;
+  const rawNested = (await withTimeout(
+    client.getActivity({ activityId }),
+    `activity ${activityId}`,
+  )) as RawActivity;
   // getActivity nests metrics inside summaryDTO; getActivities returns them
   // flat. Normalise so toSummary always sees the same shape.
   const raw = unwrapActivity(rawNested);
@@ -308,9 +328,12 @@ export async function getActivityHrZones(
     const raw: RawHttpClient = c.client ?? c._client ?? c.http;
     if (!raw || typeof raw.get !== "function") return null;
 
-    const zones = await raw.get<
-      Array<{ zoneNumber: number; secsInZone: number; zoneLowBoundary: number }>
-    >(`${GC_API_BASE}/activity-service/activity/${activityId}/hrTimeInZones`);
+    const zones = await withTimeout(
+      raw.get<
+        Array<{ zoneNumber: number; secsInZone: number; zoneLowBoundary: number }>
+      >(`${GC_API_BASE}/activity-service/activity/${activityId}/hrTimeInZones`),
+      `hr zones ${activityId}`,
+    );
 
     if (!Array.isArray(zones) || zones.length === 0) return null;
 

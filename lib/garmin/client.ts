@@ -3,6 +3,7 @@
 // the riskiest external dependency in the project. We isolate the wire here so
 // breakage in the library doesn't bleed into the engine.
 import { GarminConnect } from "garmin-connect";
+import { withTimeout } from "./timeout";
 
 let cached: { client: GarminConnect; loggedInAt: number } | null = null;
 const SESSION_TTL_MS = 30 * 60 * 1000; // re-login every 30 minutes max
@@ -51,7 +52,8 @@ export async function getGarminClient(): Promise<GarminConnect> {
   }
   const { username, password } = readGarminCredentials();
   const client = new GarminConnect({ username, password });
-  await client.login(username, password);
+  // Login is several OAuth round trips, so it gets twice the per-call limit.
+  await withTimeout(client.login(username, password), "login", 30_000);
   cached = { client, loggedInAt: now };
   return client;
 }

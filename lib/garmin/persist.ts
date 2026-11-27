@@ -37,7 +37,8 @@ const DAY_TOTAL_COLUMNS = [
 type DayTotalColumn = (typeof DAY_TOTAL_COLUMNS)[number];
 
 export interface PersistOutcome {
-  syncLogId: string;
+  /** null when the caller asked for no log row (the history backfill). */
+  syncLogId: string | null;
   /** false when the write was deliberately skipped (a failed sync). */
   wrote: boolean;
   skippedReason?: string;
@@ -114,12 +115,34 @@ export async function persistGarminSync(input: {
   result: SyncResult;
   /** Injectable for tests; defaults to the user's local "today". */
   todayOverride?: Date;
+  /**
+   * Sprint 3.4 (#28): the history backfill writes months of days. One log row
+   * per day would bury the real "last sync" and feed the failure streak, so it
+   * passes `writeLog: false`; it also skips the per-day readiness refresh.
+   */
+  writeLog?: boolean;
+  refreshReadiness?: boolean;
 }): Promise<PersistOutcome> {
   const { userId, date, result } = input;
+  const writeLog = input.writeLog ?? true;
+  const refreshReadiness = input.refreshReadiness ?? true;
 
-  const syncLog = await db.garminSyncLog.create({
+  if (!writeLog && result.status === "FAILURE") {
+    return {
+      syncLogId: null,
+      wrote: false,
+      skippedReason: result.authFailed ? "auth_failure" : "sync_failure",
+      preserved: [],
+      withheldDayTotals: [],
+    };
+  }
+
+  const syncLog = !writeLog ? null : await db.garminSyncLog.create({
     data: {
       userId,
+      // Sprint 3.4 (#28): which day this row is about — the sweep's retry guard
+      // and the "last sync" display both key off it.
+      targetDate: date,
       status: result.status,
       hrvSyncOk: result.flags.hrvSyncOk,
       sleepSyncOk: result.flags.sleepSyncOk,
@@ -138,12 +161,12 @@ export async function persistGarminSync(input: {
   });
 
   if (result.status === "FAILURE") {
-    await maybeNotifyOnGarminFailures(userId);
+    if (writeLog) await maybeNotifyOnGarminFailures(userId);
     // The primary guard. A failed sync carries an all-null snapshot; writing it
     // would erase the row, and stamping garminLastSyncAt would destroy the only
     // staleness signal the UI has.
     return {
-      syncLogId: syncLog.id,
+      syncLogId: syncLog?.id ?? null,
       wrote: false,
       skippedReason: result.authFailed ? "auth_failure" : "sync_failure",
       preserved: [],
@@ -208,14 +231,16 @@ export async function persistGarminSync(input: {
 
   // Sprint 3.3 (C1): late Garmin data must reach the cached readiness too.
   // Best-effort — a failure here must never cost the sync its write.
-  try {
-    await refreshStoredReadiness(userId, date);
-  } catch (e) {
-    console.warn("[garmin-persist] readiness refresh failed:", e);
+  if (refreshReadiness) {
+    try {
+      await refreshStoredReadiness(userId, date);
+    } catch (e) {
+      console.warn("[garmin-persist] readiness refresh failed:", e);
+    }
   }
 
   return {
-    syncLogId: syncLog.id,
+    syncLogId: syncLog?.id ?? null,
     wrote: true,
     preserved: [...preservedWellness, ...preservedEnergy],
     withheldDayTotals: dayStillRunning ? [...DAY_TOTAL_COLUMNS] : [],
@@ -223,10 +248,15 @@ export async function persistGarminSync(input: {
 }
 
 /** Log a sync that threw before it could produce a result. */
-export async function writeGarminSyncFailureLog(userId: string, message: string): Promise<void> {
+export async function writeGarminSyncFailureLog(
+  userId: string,
+  message: string,
+  targetDate?: Date,
+): Promise<void> {
   await db.garminSyncLog.create({
     data: {
       userId,
+      targetDate: targetDate ?? null,
       status: "FAILURE",
       hrvSyncOk: false,
       sleepSyncOk: false,

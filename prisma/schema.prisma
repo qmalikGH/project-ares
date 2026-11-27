@@ -27,20 +27,21 @@ model User {
   sessions Session[]
 
   // Domain
-  visions        Vision[]
-  annualGoals    AnnualGoal[]
-  goals          Goal[]
-  macrocycles    Macrocycle[]
-  workouts       Workout[]
-  sensorData     DailySensorData[]
-  conversations  AIConversation[]
-  garminSyncLogs GarminSyncLog[]
-  notifications  Notification[]
-  exerciseLogs   ExerciseLog[]
-  settings       UserSettings?
-  coachingLogs   CoachingLog[]
-  mealPlans      MealPlan[]
-  nutritionLogs  DailyNutritionLog[]
+  visions          Vision[]
+  annualGoals      AnnualGoal[]
+  goals            Goal[]
+  macrocycles      Macrocycle[]
+  workouts         Workout[]
+  sensorData       DailySensorData[]
+  conversations    AIConversation[]
+  garminSyncLogs   GarminSyncLog[]
+  garminActivities GarminActivity[]
+  notifications    Notification[]
+  exerciseLogs     ExerciseLog[]
+  settings         UserSettings?
+  coachingLogs     CoachingLog[]
+  mealPlans        MealPlan[]
+  nutritionLogs    DailyNutritionLog[]
 }
 
 model Account {
@@ -83,17 +84,17 @@ model VerificationToken {
 // Domain: Goal Hierarchy (Sprint v0.14)
 // ============================================
 model Vision {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  status      String   @default("active") // active | archived
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  status    String   @default("active") // active | archived
 
   // Ziel-Dimensionen als JSON — flexibel erweiterbar
   // Schema: GoalDimensions from lib/coach-engine/types.ts
   targets     Json
-  timeHorizon String   @default("3-5 years") // human-readable
+  timeHorizon String  @default("3-5 years") // human-readable
   notes       String?
 
   annualGoals AnnualGoal[]
@@ -102,26 +103,26 @@ model Vision {
 }
 
 model AnnualGoal {
-  id          String   @id @default(cuid())
-  visionId    String
-  vision      Vision   @relation(fields: [visionId], references: [id])
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  status      String   @default("active") // active | completed | archived
+  id        String   @id @default(cuid())
+  visionId  String
+  vision    Vision   @relation(fields: [visionId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  status    String   @default("active") // active | completed | archived
 
   // Ziel-Dimensionen — gleiches Schema wie Vision
-  targets     Json
-  startDate   DateTime
-  targetDate  DateTime
-  notes       String?
+  targets    Json
+  startDate  DateTime
+  targetDate DateTime
+  notes      String?
 
   // Verknüpfung zu Makrozyklen die diesem Jahresziel dienen
   macrocycles Macrocycle[]
 
   // Evaluation am Ende
-  evaluation  Json?      // { dimensions: [{ name, start, end, target, gap, verdict }] }
+  evaluation  Json? // { dimensions: [{ name, start, end, target, gap, verdict }] }
   evaluatedAt DateTime?
 
   @@index([userId, status])
@@ -168,11 +169,11 @@ model Macrocycle {
 
   // Sprint v0.14: Prioritäts-Modus für diesen Zyklus
   // "balanced" | "strength_focus" | "endurance_focus" | "recomp"
-  focusMode    String?     @default("balanced")
+  focusMode String? @default("balanced")
 
   // Sprint v0.14: Evaluation am Ende des Zyklus
-  evaluation   Json?
-  evaluatedAt  DateTime?
+  evaluation  Json?
+  evaluatedAt DateTime?
 
   startDate  DateTime
   endDate    DateTime
@@ -277,9 +278,16 @@ model Workout {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Sprint 3.4 (#28): the raw Garmin activities linked to this session.
+  garminActivities GarminActivity[]
+
   // Sprint v1.6: enables upsert by (userId, date, type) for materializeWorkouts().
   // Pre-migration: check for duplicates and delete older rows first.
   @@unique([userId, date, type])
+  // Sprint 3.4 (#28): one Garmin activity completes at most one session. The
+  // auto-import and a parallel /confirm can race; the loser gets P2002.
+  // NULLs do not collide, so unlinked sessions are unaffected.
+  @@unique([userId, garminActivityId])
 }
 
 // ============================================
@@ -307,16 +315,16 @@ model DailySensorData {
   loadMetrics Json? // {daily_load_au, acute_7d, chronic_28d, acwr_rolling, acwr_ewma, band}
 
   // Sprint v0.15: Body weight tracking (manual input, scale-ready)
-  bodyWeightKg     Float?   // Körpergewicht in kg
-  bodyWeightSource String?  // "manual" | "scale" | "garmin"
+  bodyWeightKg     Float? // Körpergewicht in kg
+  bodyWeightSource String? // "manual" | "scale" | "garmin"
 
   // Sprint v0.16 Phase A2: extended Garmin wellness columns. Top-level (not in
   // `garmin` JSON) so they are queryable for the nutrition adjustment engine.
-  totalKilocalories  Int?    // TDEE — total daily energy expenditure
-  activeKilocalories Int?    // Active calories (training + NEAT)
-  bmrKilocalories    Int?    // Basal metabolic rate
-  bodyBatteryEnd     Int?    // 0-100 at end of day
-  averageStress      Float?  // 0-100 average stress level
+  totalKilocalories  Int? // TDEE — total daily energy expenditure
+  activeKilocalories Int? // Active calories (training + NEAT)
+  bmrKilocalories    Int? // Basal metabolic rate
+  bodyBatteryEnd     Int? // 0-100 at end of day
+  averageStress      Float? // 0-100 average stress level
 
   kneeScore    Int? // computed from morning_stiffness + stairs + last_training
   therapyPhase String? // "REACTIVE" | "DISREPAIR" | "REMODELING" | "SPORT_SPECIFIC"
@@ -371,6 +379,11 @@ model GarminSyncLog {
   activitiesSyncOk  Boolean
   energySyncOk      Boolean @default(false)
 
+  // Sprint 3.4 (#28): the day this row synced. Without it a gap-sweep row for
+  // D-4 looked like "last sync" and the sweep could not tell which days it had
+  // already retried. Null on rows written before the column existed.
+  targetDate DateTime? @db.Date
+
   errorType    String? // "AUTH_FAILURE" | "RATE_LIMIT" | "API_CHANGED" | "NETWORK" | "PARSE_ERROR"
   errorMessage String? @db.Text
   retryCount   Int     @default(0)
@@ -381,6 +394,58 @@ model GarminSyncLog {
   createdAt DateTime @default(now())
 
   @@index([userId, syncedAt(sort: Desc)])
+  @@index([userId, targetDate])
+}
+
+// ============================================
+// Domain: Garmin raw activities (Sprint 3.4, #28)
+// ============================================
+// Every activity the watch records, regardless of plan or sport. Matching it to
+// a planned Workout is a separate step (auto-import, /confirm) and never a
+// precondition for storing it: an activity is never lost because it fits no
+// session. 3.5 (analysis model) and 3.6 (MCP) read from here.
+model GarminActivity {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Garmin activityId — exceeds int32, stored as text like Workout.garminActivityId.
+  activityId     String
+  activityName   String?
+  /// Garmin's local wall-clock start, "YYYY-MM-DD HH:mm:ss", verbatim.
+  startTimeLocal String
+  /// Local calendar date of the start — what "same day" means everywhere.
+  localDate      DateTime  @db.Date
+  startTimeGMT   DateTime?
+  category       String // "run" | "strength" | "other"
+  /// Raw Garmin sport key (activityType.typeKey), e.g. "street_running".
+  garminType     String?
+
+  durationSec         Int
+  distanceM           Float?
+  averageHr           Int?
+  maxHr               Int?
+  averagePaceSecPerKm Int?
+  elevationGainM      Int?
+  calories            Int?
+  /// Garmin workout id when the activity was started from a pushed workout.
+  workoutId           String?
+
+  splits  Json? // SplitDetail[] from getActivityDetail (runs)
+  hrZones Json? // ActivityHrZones from getActivityHrZones (runs)
+  raw     Json // the unmodified list-endpoint object
+
+  fetchedAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  detailFetchedAt DateTime?
+
+  /// The Workout this activity completed, if any.
+  workoutRefId String?
+  workout      Workout? @relation(fields: [workoutRefId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, activityId])
+  @@index([userId, localDate])
+  @@index([workoutRefId])
 }
 
 // ============================================
@@ -434,78 +499,78 @@ model BlockReview {
 // User Settings (added in v0.5)
 // ============================================
 model UserSettings {
-  userId                  String    @id
-  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Garmin override (v0.5: plaintext; v0.6: encrypt at rest)
-  garminUsernameOverride  String?
-  garminPasswordOverride  String?
+  garminUsernameOverride String?
+  garminPasswordOverride String?
 
   // AI Coach
-  aiCoachEnabled          Boolean   @default(true)
-  aiModelPrimaryOverride  String?
+  aiCoachEnabled         Boolean @default(true)
+  aiModelPrimaryOverride String?
 
   // VDOT override
-  vdotOverride            Int?
-  vdotOverrideAt          DateTime?
-  vdotOverrideRationale   String?   @db.Text
+  vdotOverride          Int?
+  vdotOverrideAt        DateTime?
+  vdotOverrideRationale String?   @db.Text
   // Sprint 2.6 (A6): provenance, mirroring hrZonesSource / exerciseMaxSource.
   // Only "manual" is TTL-protected against auto-calibration (28d) — engine
   // writes and operator placeholders may be superseded by a measurement.
   // "manual" | "auto_rolling_14runs" | "block_test" | "w1_calibration"
   // | "onboarding" | "comeback_placeholder"
-  vdotSource              String?
+  vdotSource            String?
 
   // HR Zones (Karvonen HRR — Sprint v0.6)
-  hrMax                   Int?
-  hrRest                  Int?
-  hrZonesUpdatedAt        DateTime?
-  hrZonesSource           String?   // "manual" | "garmin_lthr" | "field_test"
+  hrMax            Int?
+  hrRest           Int?
+  hrZonesUpdatedAt DateTime?
+  hrZonesSource    String? // "manual" | "garmin_lthr" | "field_test"
 
   // Garmin Workout Push (Sprint v0.9) — opt-in toggle. When true, daily cron
   // pushes tomorrow's run-workouts to Garmin Connect, surfaced on FR165.
-  garminWorkoutPushEnabled Boolean   @default(false)
+  garminWorkoutPushEnabled Boolean @default(false)
 
   // Schedule constraints (Sprint v0.10) — drive planWeekSchedule.
   // Stored ISO-style: 1=Mon..7=Sun, easy to read in DB tools.
   // Default Q: Wed (3) + Sun (7) forced rest, Sat (6) long run.
-  forcedRestDays           Int[]     @default([3, 7])
-  preferredLongRunDay      Int       @default(6)
+  forcedRestDays      Int[] @default([3, 7])
+  preferredLongRunDay Int   @default(6)
 
   // 1RM Estimates (Sprint v0.11) — user inputs initial values, engine
   // auto-updates via Epley from training data. JSON: { "Hex Bar Deadlift": 120, ... }
-  exerciseMaxEstimates    Json?
-  exerciseMaxSource       String?   // "manual" | "epley_auto" | "5rm_test"
-  exerciseMaxUpdatedAt    DateTime?
+  exerciseMaxEstimates Json?
+  exerciseMaxSource    String? // "manual" | "epley_auto" | "5rm_test"
+  exerciseMaxUpdatedAt DateTime?
 
   // Therapy-Phase manual override (Sprint v0.12) — when set, wins over the
   // daily-derived DailySensorData.therapyPhase at strength-plan generation.
   // Drives wallSitNeeded (only REACTIVE/DISREPAIR insert Wall Sit).
   // Values: REACTIVE | DISREPAIR | REMODELING | SPORT_SPECIFIC
-  therapyPhaseOverride    String?
+  therapyPhaseOverride String?
 
   // Sprint v0.16: Health context maintained by the external AI coach via
   // /api/coaching-update. activeInjuries are surfaced in coaching-export
   // and drive plan modulation. preventionExercises are suggested daily.
-  activeInjuries          String[]  @default([])
-  preventionExercises     String[]  @default([])
+  activeInjuries      String[] @default([])
+  preventionExercises String[] @default([])
 
   // Sprint v0.15: Body weight tracking — cached 7d average for ×BW display
-  currentWeightKg          Float?    // 7-Tage-Durchschnitt
-  currentWeightUpdatedAt   DateTime? // Wann zuletzt berechnet
-  targetWeightKg           Float?    // Zielgewicht (aus AnnualGoal/Vision)
+  currentWeightKg        Float? // 7-Tage-Durchschnitt
+  currentWeightUpdatedAt DateTime? // Wann zuletzt berechnet
+  targetWeightKg         Float? // Zielgewicht (aus AnnualGoal/Vision)
 
   // Notifications (per-type toggle)
-  notificationPrefs       Json?
+  notificationPrefs Json?
 
   // Travel-aware timezone (Sprint v0.16) — IANA name like "America/New_York".
   // Populated by TimezoneCookieSetter via PATCH /api/settings/timezone on
   // every browser mount. Crons read from here (no request context = no cookie).
   // Null falls back to USER_TIMEZONE env (Europe/Berlin default).
-  timezone                String?
+  timezone String?
 
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ExerciseLog (Sprint v0.11) — per-set training-data log. Feeds the rolling
@@ -527,20 +592,20 @@ model UserSettings {
 // Snapshot (not read-time join) so it stays stable against later resetBlock
 // week-renumbering.
 model ExerciseLog {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  exerciseName    String
-  weightKg        Float
-  repsCompleted   Int
-  rpe             Float?
-  estimatedOneRM  Float
-  date            DateTime
-  workoutId       String?
-  slot            String?
-  isDeload        Boolean  @default(false)
-  weekInBlock     Int?
-  createdAt       DateTime @default(now())
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exerciseName   String
+  weightKg       Float
+  repsCompleted  Int
+  rpe            Float?
+  estimatedOneRM Float
+  date           DateTime
+  workoutId      String?
+  slot           String?
+  isDeload       Boolean  @default(false)
+  weekInBlock    Int?
+  createdAt      DateTime @default(now())
 
   @@index([userId, exerciseName, date(sort: Desc)])
   @@index([userId, exerciseName, slot, date(sort: Desc)])
@@ -553,8 +618,8 @@ model CoachingLog {
   id        String   @id @default(cuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  action    String   // "updateTherapyPhase" | "updateActiveInjuries" | ...
-  data      Json     // payload sent by the coach
+  action    String // "updateTherapyPhase" | "updateActiveInjuries" | ...
+  data      Json // payload sent by the coach
   reason    String   @db.Text
   createdAt DateTime @default(now())
 
@@ -569,16 +634,16 @@ model CoachingLog {
 // adjustment engine. Calibration status flips pending → calibrated once the
 // 14-day Garmin TDEE rolling averages stabilize.
 model MealPlan {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name      String   // "Block 1 Standard"
-  status    String   @default("active") // "active" | "archived"
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name   String // "Block 1 Standard"
+  status String @default("active") // "active" | "archived"
 
   // Global settings (shared across all DayPlans)
-  budgetPerDay    Float @default(15.0)
-  proteinTarget   Int   // grams/day, e.g. 190
-  deficitKcal     Int   @default(500)
+  budgetPerDay  Float @default(15.0)
+  proteinTarget Int // grams/day, e.g. 190
+  deficitKcal   Int   @default(500)
 
   // Calibration lifecycle
   calibrationStatus String    @default("pending") // "pending" | "collecting" | "calibrated"
@@ -587,8 +652,8 @@ model MealPlan {
   dayPlans       DayPlan[]
   dayTypeConfigs DayTypeConfig[]
   computedSlots  ComputedMealSlot[]
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 
   @@index([userId, status])
 }
@@ -597,7 +662,7 @@ model MealPlan {
 // the coach can patch individual slots without schema migrations. Calibrated
 // targets overwrite the initial estimates from B2.2.
 model DayPlan {
-  id         String  @id @default(cuid())
+  id         String   @id @default(cuid())
   mealPlanId String
   mealPlan   MealPlan @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
 
@@ -622,10 +687,10 @@ model DayPlan {
 // plan was and any next-day adjustments the engine applied. Used by the
 // coaching-export to surface the rolling 7-day nutrition story.
 model DailyNutritionLog {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  date      DateTime @db.Date
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date   DateTime @db.Date
 
   dayType       String
   calorieTarget Int
@@ -653,19 +718,19 @@ model DayTypeConfig {
   id                 String   @id @default(cuid())
   planId             String
   plan               MealPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
-  dayType            String   // "strength_run" | "threshold" | "long_run" | "rest"
+  dayType            String // "strength_run" | "threshold" | "long_run" | "rest"
   calorieTarget      Int
   proteinG           Int
   carbsG             Int
   fatG               Int
-  fixedSlots         Json     // FixedSlotDef structure (stable, rarely edited)
-  mainMealRecipeId   String   // → RecipeTemplate.id (code constant)
-  mainMealRatio      Float    // e.g. 0.55
-  dinnerRecipeId     String   // → RecipeTemplate.id
-  dinnerRatio        Float    // e.g. 0.45
+  fixedSlots         Json // FixedSlotDef structure (stable, rarely edited)
+  mainMealRecipeId   String // → RecipeTemplate.id (code constant)
+  mainMealRatio      Float // e.g. 0.55
+  dinnerRecipeId     String // → RecipeTemplate.id
+  dinnerRatio        Float // e.g. 0.45
   flexDessertEnabled Boolean  @default(true)
   // v1.2 — Training timing + TDEE tracking
-  tdeeEstimate       Int?     // Garmin-calibrated TDEE; calorieTarget = tdeeEstimate - deficit
+  tdeeEstimate       Int? // Garmin-calibrated TDEE; calorieTarget = tdeeEstimate - deficit
   trainingWindow     String   @default("none") // "morning" | "evening" | "both" | "none"
   dinnerNeedsCarbs   Boolean  @default(false) // true when dinner = post-workout meal
   updatedAt          DateTime @updatedAt
@@ -680,10 +745,10 @@ model ComputedMealSlot {
   planId       String
   plan         MealPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
   dayType      String
-  slotName     String   // "morning" | "preTraining" | "mainMeal" | "dinner" | ...
+  slotName     String // "morning" | "preTraining" | "mainMeal" | "dinner" | ...
   recipeId     String?
   recipeName   String?
-  items        Json     // ScaledComponent[] or FixedSlotItem[]
+  items        Json // ScaledComponent[] or FixedSlotItem[]
   totalKcal    Float
   totalProtein Float
   totalCarbs   Float

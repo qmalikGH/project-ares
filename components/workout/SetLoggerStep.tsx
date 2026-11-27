@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { Exercise, StrengthExecutedSession } from "@/lib/coach-engine/types";
+import { exerciseDisplayName } from "@/lib/coach-engine/exercise-label";
 
 interface SetData {
   reps: number;
@@ -29,6 +30,8 @@ interface ExerciseLog {
   // or an edit) — no silent clean. `confirmed` starts false for working sets.
   isWarmup: boolean;
   confirmed: boolean;
+  // Sprint 3.4 (#28): display only — the back-off Deadlift shares the name.
+  isBackoff: boolean;
 }
 
 /**
@@ -81,6 +84,7 @@ export function SetLoggerStep({
       // Warmups are auto-confirmed (and never sent to ExerciseLog); working
       // sets start unconfirmed → an explicit tap/edit is required.
       confirmed: ex.isWarmup ?? false,
+      isBackoff: ex.isBackoff ?? false,
     })),
   );
   const [actualDuration, setActualDuration] = useState(durationMin);
@@ -345,7 +349,7 @@ function ExerciseBlock({
     <div className={wrapperCls}>
       <div className="flex items-baseline justify-between mb-2 gap-2">
         <div className="min-w-0 flex-1">
-          <span className="font-medium text-sm">{ex.name}</span>
+          <span className="font-medium text-sm">{exerciseDisplayName(ex)}</span>
           <span className="ml-2 text-xs text-muted-foreground">
             Plan: {ex.plannedSets} × {ex.plannedReps}
             {ex.plannedLoadPct != null && ` @ ${ex.plannedLoadPct}%`}

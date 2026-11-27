@@ -89,6 +89,10 @@ export async function GET() {
     for (const ex of exs) {
       const name = ex.name as string;
       if (ex.isWarmup) continue;
+      // Sprint 3.4 (#28): ExerciseLog is keyed by lift name only, so a lookup
+      // for the back-off row would return the top set and show it as "letzte
+      // Woche". There is no back-off history to show — skip it.
+      if (ex.isBackoff) continue;
       if (progressionModeFor(name) === "none") continue;
       try {
         const last = await getLastNonDeloadLog(userId, name, session.type);
