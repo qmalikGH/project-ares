@@ -21,7 +21,13 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   engine: "classic",
+  // This block REPLACES the schema's datasource URLs, directUrl included.
+  // Sprint 3.4 (#28, Teil 0.1): without directUrl here, `migrate deploy` ran
+  // through Neon's pooler (PgBouncer). Prisma's migration lock is a
+  // session-level advisory lock; through a transaction pooler it can stay
+  // held on a pooled server connection, and the next build times out (P1002).
   datasource: {
     url: process.env.DATABASE_URL ?? DATABASE_URL_PLACEHOLDER,
+    ...(process.env.DIRECT_URL ? { directUrl: process.env.DIRECT_URL } : {}),
   },
 });
