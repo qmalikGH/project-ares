@@ -2,21 +2,26 @@
 //
 // Garmin activities that could be the real recording of an open, unlinked
 // session on /confirm. Separate from /api/sessions/open on purpose: that route
-// is DB-only and renders the screen at once; this one needs a Garmin login and
-// may be slow or fail. The screen loads it afterwards and works without it.
+// renders the screen at once; this one may touch Garmin. The screen loads it
+// afterwards and works without it.
 //
 // Suggestions only. Nothing is linked until the athlete taps a candidate and
 // POST /api/sessions/confirm imports it.
 //
-// Sprint 3.3b (#25 · 9): also `freeRuns` — run activities with no planned
-// session to belong to, offered on the "Freier Lauf" form
-// (POST /api/sessions/free-run).
+// Sprint 3.3b (#25 · 9): also `freeRuns` — run activities with no session to
+// belong to, offered on the "Freier Lauf" form (POST /api/sessions/free-run).
+//
+// Sprint 3.4 (#28, B3): the activities come from the raw store
+// (GarminActivity), which the nightly cron fills for the last 14 days. One
+// live page is fetched first so a run from this morning shows up too; if
+// Garmin is down, the stored activities still make suggestions.
 import { NextResponse, type NextRequest } from "next/server";
 
 import { db } from "@/lib/db/client";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { userTodayDynamic } from "@/lib/date";
-import { listActivitiesInRange } from "@/lib/garmin/activities";
+import type { ActivitySummary } from "@/lib/garmin/activities";
+import { fetchActivitiesSince, upsertGarminActivities } from "@/lib/garmin/activity-store";
 import {
   CONFIRM_WINDOW_DAYS,
   disciplineOf,
@@ -34,6 +39,8 @@ export async function GET(req: NextRequest) {
 
   const today0 = await userTodayDynamic();
   const from = new Date(today0.getTime() - days * 86400000);
+  // ±1 day around the window for the cards: the day before the oldest session.
+  const activitiesFrom = new Date(from.getTime() - 86400000);
 
   // Only "planned" rows need a recording — garmin_auto rows already have one.
   const open = await db.workout.findMany({
@@ -49,9 +56,10 @@ export async function GET(req: NextRequest) {
     }))
     .filter((s) => s.discipline !== "other");
 
-  const completedRuns = await db.workout.findMany({
-    where: { userId, status: "completed", date: { gte: from, lte: today0 } },
-    select: { date: true, type: true },
+  // Days the free-run route would refuse (one easy run per day).
+  const easyRuns = await db.workout.findMany({
+    where: { userId, type: "easy_run", date: { gte: from, lte: today0 } },
+    select: { date: true },
   });
 
   // An activity already behind any workout (auto-imported, or picked earlier)
@@ -66,30 +74,48 @@ export async function GET(req: NextRequest) {
   });
   const linkedIds = new Set(linked.map((w) => w.garminActivityId as string));
 
+  // Freshen the store with the newest page; best-effort.
+  let garminError: string | null = null;
   try {
-    // ±1 day around the window: the day before the oldest session up to today.
-    const activities = await listActivitiesInRange(
-      new Date(from.getTime() - 86400000),
-      today0,
-    );
-    return NextResponse.json({
-      status: "ok",
-      candidates: matchConfirmCandidates(sessions, activities, linkedIds),
-      freeRuns: unplannedRunActivities(
-        sessions.filter((s) => s.discipline === "run").map((s) => s.date),
-        completedRuns.filter((w) => disciplineOf(w.type) === "run").map((w) => w.date.toISOString().slice(0, 10)),
-        activities,
-        linkedIds,
-        from.toISOString().slice(0, 10),
-      ),
-    });
+    const page = await fetchActivitiesSince(activitiesFrom.toISOString().slice(0, 10), { maxPages: 1 });
+    await upsertGarminActivities(userId, page.activities);
   } catch (e) {
-    // 200, not 5xx: the screen must keep working without suggestions.
-    return NextResponse.json({
-      status: "garmin_unavailable",
-      candidates: {},
-      freeRuns: [],
-      error: e instanceof Error ? e.message : String(e),
-    });
+    garminError = e instanceof Error ? e.message : String(e);
   }
+
+  const stored = await db.garminActivity.findMany({
+    where: { userId, workoutRefId: null, localDate: { gte: activitiesFrom, lte: today0 } },
+    orderBy: [{ localDate: "asc" }, { startTimeLocal: "asc" }],
+  });
+  const activities: ActivitySummary[] = stored.map((a) => ({
+    activityId: Number(a.activityId),
+    activityName: a.activityName ?? "Activity",
+    startTimeLocal: a.startTimeLocal,
+    startTimeGMT: a.startTimeGMT?.toISOString() ?? "",
+    category: a.category as ActivitySummary["category"],
+    durationSec: a.durationSec,
+    distanceM: a.distanceM,
+    averageHr: a.averageHr,
+    maxHr: a.maxHr,
+    averagePaceSecPerKm: a.averagePaceSecPerKm,
+    elevationGainM: a.elevationGainM,
+    calories: a.calories,
+    workoutId: a.workoutId != null ? Number(a.workoutId) : null,
+  }));
+
+  // 200, not 5xx. The stored activities are valid suggestions even when the
+  // live page failed, so the status stays "ok"; `liveRefresh` says whether
+  // this morning's activities could be fetched.
+  return NextResponse.json({
+    status: "ok",
+    liveRefresh: garminError == null,
+    candidates: matchConfirmCandidates(sessions, activities, linkedIds),
+    freeRuns: unplannedRunActivities(
+      easyRuns.map((w) => w.date.toISOString().slice(0, 10)),
+      activities,
+      linkedIds,
+      from.toISOString().slice(0, 10),
+    ),
+    ...(garminError ? { error: garminError } : {}),
+  });
 }

@@ -434,6 +434,15 @@ export const StrengthExecutedExerciseSchema = z.object({
 });
 
 /** Run executed session — typically auto-imported from Garmin. */
+/**
+ * Sprint 3.4 (#28): how an unattended import linked a Garmin activity.
+ *   identity — started from the workout we pushed (activity.workoutId)
+ *   same_day — a run on the day of an open easy/long run (never quality)
+ *   free_run — a run ≥ 15 min that matched nothing; stored as its own easy run
+ */
+export const AutoMatchSchema = z.enum(["identity", "same_day", "free_run"]);
+export type AutoMatch = z.infer<typeof AutoMatchSchema>;
+
 export const RunExecutedSessionSchema = z.object({
   type: z.literal("run"),
   /**
@@ -448,6 +457,8 @@ export const RunExecutedSessionSchema = z.object({
    * hand-logged run with a real duration — while carrying the PLANNED duration.
    */
   source: z.enum(["garmin_import", "garmin_auto", "manual", "attested"]),
+  /** Sprint 3.4 (#28): how the nightly import tied the activity to this row. */
+  autoMatch: AutoMatchSchema.optional(),
   garminActivityId: z.number().nullable(),
 
   startTimeLocal: z.string(),
@@ -538,6 +549,8 @@ export const StrengthExecutedSessionSchema = z.object({
    * session confirmed in /confirm without any watch data.
    */
   source: z.enum(["manual", "garmin_auto", "garmin_import", "attested"]),
+  /** Sprint 3.4 (#28): see the run schema. */
+  autoMatch: AutoMatchSchema.optional(),
   garminActivityId: z.number().nullable(),
 
   startTimeLocal: z.string(),

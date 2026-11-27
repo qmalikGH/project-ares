@@ -123,32 +123,34 @@ export function matchConfirmCandidates(
 export type FreeRunCandidate = Omit<ConfirmCandidate, "dayOffset">;
 
 /**
- * Run activities that match no open run session — a run on a day with nothing
- * planned (Friday in the four-day week). Offered on the "Freier Lauf" form;
- * the athlete decides, as on the cards.
+ * Run activities that are not linked to any session yet — offered on the
+ * "Freier Lauf" form; the athlete decides, as on the cards.
  *
  * Left out:
  *   - anything already linked to a workout
- *   - anything within ±1 day of an open run session (that card offers it)
- *   - anything on a day that already has a completed run (counted already)
+ *   - anything on a day that already has an easy run row, planned or done:
+ *     POST /api/sessions/free-run answers 409 there (one easy run per day),
+ *     and a planned one is confirmed on its own card
  *   - anything before `windowStart` (YYYY-MM-DD)
+ *
+ * Sprint 3.4 (#28, B3): no more ±1-day exclusion around open run cards. With
+ * runs on Mon/Tue/Thu/Sat almost every day was within a day of one, so the
+ * free-run form offered practically nothing.
  *
  * Pure.
  */
 export function unplannedRunActivities(
-  openRunDates: readonly string[],
-  completedRunDates: readonly string[],
+  easyRunDates: readonly string[],
   activities: readonly ActivitySummary[],
   linkedActivityIds: ReadonlySet<string>,
   windowStart: string,
 ): FreeRunCandidate[] {
-  const completed = new Set(completedRunDates);
+  const blocked = new Set(easyRunDates);
   return activities
     .filter((a) => a.category === "run")
     .filter((a) => !linkedActivityIds.has(String(a.activityId)))
     .map((a) => ({ a, date: a.startTimeLocal.slice(0, 10) }))
-    .filter(({ date }) => date >= windowStart && !completed.has(date))
-    .filter(({ date }) => !openRunDates.some((d) => Math.abs(dayDiff(date, d)) <= 1))
+    .filter(({ date }) => date >= windowStart && !blocked.has(date))
     .sort((x, y) => y.a.startTimeLocal.localeCompare(x.a.startTimeLocal))
     .map(({ a, date }) => ({
       activityId: a.activityId,

@@ -957,15 +957,21 @@ export default function TodayDashboard() {
     refreshWorkoutMap();
   }, [refreshWorkoutMap]);
 
-  // Sprint 3.0: sessions the Garmin import completed or could not prove, still
-  // waiting for an RPE and a shin score. This banner is the entry point to
-  // /confirm — the nav is already at six items, and this is where he is every
-  // morning anyway.
+  // Sprint 3.0: the entry point to /confirm — the nav is already at six items,
+  // and this is where he is every morning anyway.
+  // Sprint 3.4 (#28): only sessions with NO recording count as open. A session
+  // the watch completed needs nothing more; rating it is optional and gets a
+  // quiet line instead of the amber banner.
   const [openCount, setOpenCount] = useState(0);
+  const [optionalCount, setOptionalCount] = useState(0);
   useEffect(() => {
     fetch(`/api/sessions/open?days=${CONFIRM_WINDOW_DAYS}`)
       .then((r) => r.json())
-      .then((d) => setOpenCount((d?.count as number) ?? 0))
+      .then((d) => {
+        const sessions = (d?.sessions ?? []) as Array<{ cohort: string; discipline: string }>;
+        setOpenCount(sessions.filter((s) => s.cohort === "planned" && s.discipline !== "other").length);
+        setOptionalCount(sessions.filter((s) => s.cohort === "garmin_auto").length);
+      })
       .catch(() => {});
   }, []);
 
@@ -1050,10 +1056,10 @@ export default function TodayDashboard() {
             <div className="mb-6 flex items-center justify-between rounded-lg border-l-4 border-amber-500 bg-amber-500/8 px-4 py-3">
               <div>
                 <p className="label" style={{ color: "rgb(245 158 11)" }}>
-                  {openCount} Einheit{openCount === 1 ? "" : "en"} unbestätigt
+                  {openCount} Einheit{openCount === 1 ? "" : "en"} ohne Aufzeichnung
                 </p>
                 <p className="mt-0.5 text-xs text-[var(--color-foreground-secondary)]">
-                  Nur RPE und Schienbein fehlen — den Rest hat die Uhr geliefert.
+                  Ohne Uhr trainiert? Mit Minuten nachtragen — sonst zählt sie als verpasst.
                 </p>
               </div>
               <Link
@@ -1063,6 +1069,14 @@ export default function TodayDashboard() {
                 Nachtragen →
               </Link>
             </div>
+          )}
+          {openCount === 0 && optionalCount > 0 && (
+            <p className="mb-6 text-xs text-[var(--color-foreground-tertiary)]">
+              {optionalCount} Einheit{optionalCount === 1 ? "" : "en"} von der Uhr erfasst ·{" "}
+              <Link href="/confirm" className="underline underline-offset-2">
+                RPE optional
+              </Link>
+            </p>
           )}
 
           {today.week.weekNumber >= 17 && !today.macrocycleEvaluated && (

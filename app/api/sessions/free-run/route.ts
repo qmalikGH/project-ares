@@ -23,6 +23,7 @@ import { buildAttestedRunSession, mergeShinIntoExecuted } from "@/lib/coach-engi
 import { buildRunImport } from "@/lib/garmin/run-import";
 import { regeneratePlansFromNow } from "@/lib/db/queries/regenerate-plans";
 import { CONFIRM_WINDOW_DAYS } from "@/lib/garmin/confirm-candidates";
+import { createFreeRunWorkout } from "@/lib/sessions/free-run";
 
 const Schema = z
   .object({
@@ -103,26 +104,15 @@ export async function POST(req: Request) {
     });
   }
 
-  const workout = await db.workout.create({
-    data: {
-      userId,
-      date,
-      type: "easy_run",
-      status: "completed",
-      // Not from the plan: the "planned" side mirrors what was run, flagged.
-      plannedSession: {
-        date: date.toISOString(),
-        type: "easy_run",
-        durationMin: durationActualMin,
-        unplanned: true,
-        notes: "Freier Lauf (nicht geplant)",
-      },
-      executedSession: executedSession as object,
-      durationActualMin,
-      rpe: input.rpe,
-      garminActivityId,
-    },
-    select: { id: true },
+  // Not from the plan: the "planned" side mirrors what was run, flagged.
+  // Sprint 3.4 (#28): shared with the nightly auto-import.
+  const workout = await createFreeRunWorkout(db, {
+    userId,
+    date,
+    durationActualMin,
+    executedSession,
+    rpe: input.rpe,
+    garminActivityId,
   });
 
   // Like /confirm: a new run can lift the cap, close a layoff gap and move

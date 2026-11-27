@@ -124,20 +124,26 @@ describe("unplannedRunActivities", () => {
   const tue = act({ activityId: 11, startTimeLocal: "2026-10-27 18:30:00" });
   const gym = act({ activityId: 12, startTimeLocal: "2026-10-30 12:00:00", category: "strength" });
 
-  it("offers a run with no open run session within ±1 day", () => {
-    const r = unplannedRunActivities(["2026-10-27"], [], [fri, tue, gym], new Set(), "2026-10-17");
-    expect(r.map((c) => c.activityId)).toEqual([10]);
+  it("offers unlinked runs, not strength", () => {
+    const r = unplannedRunActivities([], [fri, tue, gym], new Set(), "2026-10-17");
+    expect(r.map((c) => c.activityId)).toEqual([10, 11]);
     expect(r[0]).toMatchObject({ date: "2026-10-30", durationMin: 13, distanceKm: 2.3 });
   });
 
-  it("leaves out linked activities, days with a completed run and anything before the window", () => {
-    expect(unplannedRunActivities([], [], [fri], new Set(["10"]), "2026-10-17")).toEqual([]);
-    expect(unplannedRunActivities([], ["2026-10-30"], [fri], new Set(), "2026-10-17")).toEqual([]);
-    expect(unplannedRunActivities([], [], [fri], new Set(), "2026-10-31")).toEqual([]);
+  // Sprint 3.4 (#28, B3): the ±1-day exclusion hid almost every run.
+  it("offers a run the day after an open run card", () => {
+    const wed = act({ activityId: 13, startTimeLocal: "2026-10-28 18:00:00" });
+    expect(unplannedRunActivities([], [wed], new Set(), "2026-10-17").map((c) => c.activityId)).toEqual([13]);
+  });
+
+  it("leaves out linked activities, days with an easy run row and anything before the window", () => {
+    expect(unplannedRunActivities([], [fri], new Set(["10"]), "2026-10-17")).toEqual([]);
+    expect(unplannedRunActivities(["2026-10-30"], [fri], new Set(), "2026-10-17")).toEqual([]);
+    expect(unplannedRunActivities([], [fri], new Set(), "2026-10-31")).toEqual([]);
   });
 
   it("newest first", () => {
-    const r = unplannedRunActivities([], [], [tue, fri], new Set(), "2026-10-17");
+    const r = unplannedRunActivities([], [tue, fri], new Set(), "2026-10-17");
     expect(r.map((c) => c.activityId)).toEqual([10, 11]);
   });
 });

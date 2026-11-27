@@ -1,151 +1,293 @@
-// Unattended session import from Garmin — Sprint 2.9.
+// Unattended session import from Garmin — Sprint 2.9, rebuilt in Sprint 3.4.
 //
 // WHY THIS EXISTS
 //
-// The athlete trains but never opens the completion wizard. Between 2026-08-13
-// and 2026-08-29 exactly 2 of 24 sessions were recorded, while Garmin held full
-// data for every one of them. Four feedback loops sat idle waiting for a tap:
-// the volume gate, the TDEE calibration, the layoff detector and the VDOT
-// recalibration.
+// The athlete trains but rarely opens the app. Sprint 3.4 (#28) makes starting
+// the watch the only thing he has to do: everything the watch records lands in
+// the database and counts.
 //
-// WHAT IT WILL AND WILL NOT DO
+// SOURCE
 //
-// It writes a session ONLY on an identity match: the activity carries the very
-// `workoutId` we pushed to the watch. "One run of the right category that day"
-// is a fine suggestion for a human looking at a picker and far too weak to
-// write unattended — the athlete regularly records an extra ad-hoc run on the
-// same day, and those carry no workoutId at all.
+// GarminActivity — the raw store the cron fills first (activity-store.ts).
+// Only activities that are not linked yet, inside the window. No Garmin call
+// happens here: the executedSession is built from the stored row.
 //
-// It cannot produce an RPE or a shin score. That is not a gap to paper over:
-// `deriveVolumeGate` must keep treating these sessions as "trained, wellbeing
-// unknown", which is why the payload is stamped source "garmin_auto".
+// THREE PASSES, strictest first
+//
+//   1. identity — the activity carries the workoutId we pushed to the watch
+//      (activity.workoutId === Workout.garminWorkoutId), same local day.
+//      Any session type, strength included.
+//   2. same day — a run on the day of an OPEN easy_run or long_run completes
+//      it, even without a pushed workout. NEVER for threshold, VO2max or a
+//      time trial: quality only counts through identity or a human. (That is
+//      also why the threshold ladder needs no extra guard: it only credits
+//      completed threshold_run rows, and passes 2 and 3 never create one.)
+//   3. free run — any other run of ≥ 15 min becomes its own completed
+//      easy_run (`plannedSession.unplanned: true`), like the "Freier Lauf"
+//      form. Shorter runs stay raw data.
+//
+// RULES (from #28)
+//
+//   - No ±1-day matching. A run on the wrong day is a free run; the planned
+//     session stays open. Honest, and no mis-assignments.
+//   - A second run on a day that already has an easy run collides with
+//     @@unique([userId, date, type]) and stays raw data — not an error.
+//   - Idempotent: a parallel /confirm that linked the same activity first
+//     makes ours fail with P2002 on @@unique([userId, garminActivityId]);
+//     that is skipped, not reported.
+//   - Unmatched strength activities stay raw data.
+//   - No RPE, no shin score: nobody rated these sessions. `source` stays
+//     "garmin_auto", so deriveVolumeGate keeps treating them as "trained,
+//     wellbeing unknown".
+import type { GarminActivity } from "@prisma/client";
 
 import { db } from "@/lib/db/client";
-import { listActivitiesForDate } from "./activities";
-import { matchSessionToActivity } from "./match";
-import { buildRunImport, buildStrengthImport } from "./run-import";
-import type { SessionType } from "@/lib/coach-engine/types";
+import type { AutoMatch } from "@/lib/coach-engine/types";
+import { createFreeRunWorkout } from "@/lib/sessions/free-run";
+import { runImportFromStored, strengthImportFromStored } from "./run-import";
+
+/** Pass 3: a run shorter than this stays raw data (coach decision, #28). */
+export const FREE_RUN_MIN_SEC = 15 * 60;
+/** Pass 2 may complete only these session types. */
+export const SAME_DAY_TYPES: readonly string[] = ["long_run", "easy_run"];
 
 export interface AutoImportEntry {
   workoutId: string;
   date: string;
   type: string;
-  activityId: number;
+  activityId: string;
   durationActualMin: number;
+  match: AutoMatch;
 }
 
 export interface AutoImportResult {
   imported: AutoImportEntry[];
-  /** Sessions with a plausible candidate that was NOT an identity match. */
-  needsConfirmation: { workoutId: string; date: string; type: string; reason: string }[];
+  /** Activities that stay raw data, with the reason (counts only in logs). */
+  rawOnly: { activityId: string; date: string; reason: string }[];
+  /** Workouts linked before the raw store existed, now reconciled. */
+  reconciled: number;
   errors: string[];
 }
 
-/**
- * Import every planned session for `date` that Garmin can prove happened.
- *
- * Only `status: "planned"` rows are considered — a completed or skipped session
- * is a decision already made, and `materializeWorkouts` treats completed rows as
- * immutable anyway.
- */
-export async function autoImportSessionsForDate(
-  userId: string,
-  date: Date,
-): Promise<AutoImportResult> {
-  const result: AutoImportResult = { imported: [], needsConfirmation: [], errors: [] };
+type Planned = { id: string; date: Date; type: string; garminWorkoutId: string | null };
 
-  const workouts = await db.workout.findMany({
-    where: { userId, date, status: "planned" },
+function key(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function isP2002(e: unknown): boolean {
+  return typeof e === "object" && e !== null && (e as { code?: string }).code === "P2002";
+}
+
+class NotPlannedAnymore extends Error {}
+
+/**
+ * Link stored, unlinked activities in [from, to] (local dates, inclusive) to
+ * sessions. The cron runs it over the last 14 days; the one-off
+ * link-since-restart script over the time since the block restart.
+ */
+export async function autoImportFromStore(
+  userId: string,
+  window: { from: Date; to: Date },
+  opts: {
+    /**
+     * Report what would be linked without writing (scripts/import-sessions.ts).
+     * Collisions are predicted from the easy runs already stored.
+     */
+    dryRun?: boolean;
+  } = {},
+): Promise<AutoImportResult> {
+  const dryRun = opts.dryRun === true;
+  const result: AutoImportResult = { imported: [], rawOnly: [], reconciled: 0, errors: [] };
+
+  let pool: GarminActivity[] = await db.garminActivity.findMany({
+    where: { userId, workoutRefId: null, localDate: { gte: window.from, lte: window.to } },
+    orderBy: [{ localDate: "asc" }, { startTimeLocal: "asc" }],
+  });
+  if (pool.length === 0) return result;
+
+  // Sessions linked before the raw store existed carry the activity id but the
+  // activity has no workoutRefId yet. Reconcile instead of matching again.
+  const legacy = await db.workout.findMany({
+    where: { userId, garminActivityId: { in: pool.map((a) => a.activityId) } },
+    select: { id: true, garminActivityId: true },
+  });
+  if (legacy.length > 0) {
+    const byActivity = new Map(legacy.map((w) => [w.garminActivityId as string, w.id]));
+    for (const a of pool) {
+      const workoutId = byActivity.get(a.activityId);
+      if (!workoutId) continue;
+      if (!dryRun) await db.garminActivity.update({ where: { id: a.id }, data: { workoutRefId: workoutId } });
+      result.reconciled++;
+    }
+    pool = pool.filter((a) => !byActivity.has(a.activityId));
+  }
+
+  const planned: Planned[] = await db.workout.findMany({
+    where: { userId, status: "planned", date: { gte: window.from, lte: window.to } },
     select: { id: true, date: true, type: true, garminWorkoutId: true },
   });
-  if (workouts.length === 0) return result;
+  const usedWorkouts = new Set<string>();
+  const usedActivities = new Set<string>();
 
-  let activities;
-  try {
-    activities = await listActivitiesForDate(date);
-  } catch (e) {
-    result.errors.push(`listActivities: ${e instanceof Error ? e.message : String(e)}`);
-    return result;
+  const linkPlanned = async (w: Planned, a: GarminActivity, match: AutoMatch) => {
+    const isStrength = w.type.startsWith("strength");
+    if (dryRun) {
+      usedWorkouts.add(w.id);
+      usedActivities.add(a.id);
+      result.imported.push({
+        workoutId: w.id,
+        date: key(w.date),
+        type: w.type,
+        activityId: a.activityId,
+        durationActualMin: Math.max(1, Math.round(a.durationSec / 60)),
+        match,
+      });
+      return;
+    }
+    try {
+      const imp = isStrength
+        ? strengthImportFromStored(a, "garmin_auto", match)
+        : runImportFromStored(a, "garmin_auto", match);
+      await db.$transaction(async (tx) => {
+        // Only a still-open session: /confirm may have closed it meanwhile.
+        const res = await tx.workout.updateMany({
+          where: { id: w.id, status: "planned" },
+          data: {
+            status: "completed",
+            executedSession: imp.executedSession as object,
+            garminActivityId: imp.activityId,
+            durationActualMin: imp.durationActualMin,
+            // rpe stays null on purpose — nobody rated this session, and a
+            // fabricated value would feed ACWR and the training-max evaluation.
+            updatedAt: new Date(),
+          },
+        });
+        if (res.count !== 1) throw new NotPlannedAnymore();
+        await tx.garminActivity.update({ where: { id: a.id }, data: { workoutRefId: w.id } });
+      });
+      usedWorkouts.add(w.id);
+      usedActivities.add(a.id);
+      result.imported.push({
+        workoutId: w.id,
+        date: key(w.date),
+        type: w.type,
+        activityId: a.activityId,
+        durationActualMin: imp.durationActualMin,
+        match,
+      });
+    } catch (e) {
+      if (e instanceof NotPlannedAnymore) {
+        usedWorkouts.add(w.id);
+        return;
+      }
+      if (isP2002(e)) {
+        usedActivities.add(a.id);
+        result.rawOnly.push({ activityId: a.activityId, date: key(a.localDate), reason: "already_linked" });
+        return;
+      }
+      result.errors.push(`${w.type} ${key(w.date)}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  // ── Pass 1: identity ────────────────────────────────────────────────────
+  for (const w of planned) {
+    if (!w.garminWorkoutId) continue;
+    const exact = pool
+      .filter((a) => !usedActivities.has(a.id))
+      .filter((a) => a.workoutId === w.garminWorkoutId && key(a.localDate) === key(w.date))
+      .sort((x, y) => y.durationSec - x.durationSec);
+    if (exact.length > 0) await linkPlanned(w, exact[0], "identity");
   }
-  if (activities.length === 0) return result;
 
-  for (const workout of workouts) {
-    const match = matchSessionToActivity(
-      workout.type as SessionType,
-      activities,
-      workout.garminWorkoutId,
-    );
+  // ── Pass 2: same day, easy and long runs only ──────────────────────────
+  const openByDay = new Map<string, Planned[]>();
+  for (const w of planned) {
+    if (usedWorkouts.has(w.id) || !SAME_DAY_TYPES.includes(w.type)) continue;
+    openByDay.set(key(w.date), [...(openByDay.get(key(w.date)) ?? []), w]);
+  }
+  for (const [day, sessions] of openByDay) {
+    // The long run first, so it gets the longest run of the day.
+    sessions.sort((x, y) => SAME_DAY_TYPES.indexOf(x.type) - SAME_DAY_TYPES.indexOf(y.type));
+    for (const w of sessions) {
+      const run = pool
+        .filter((a) => !usedActivities.has(a.id) && a.category === "run" && key(a.localDate) === day)
+        .sort((x, y) => y.durationSec - x.durationSec)[0];
+      if (!run) break;
+      await linkPlanned(w, run, "same_day");
+    }
+  }
 
-    if (match.status !== "EXACT_MATCH" || !match.bestMatch) {
-      // Surfaced, not acted on. A human decides these in the confirmation screen.
-      if (match.status === "AUTO_MATCH" || match.status === "PICKER_NEEDED") {
-        result.needsConfirmation.push({
-          workoutId: workout.id,
-          date: workout.date.toISOString().slice(0, 10),
-          type: workout.type,
-          reason: match.status === "AUTO_MATCH"
-            ? "candidate found, but no workout-id link (ad-hoc activity or unpushed session)"
-            : "several candidates that day",
+  // ── Pass 3: free runs ───────────────────────────────────────────────────
+  // Only the dry run needs this: a real run learns about a collision from P2002.
+  const easyRunDays = new Set<string>();
+  if (dryRun) {
+    const easy = await db.workout.findMany({
+      where: { userId, type: "easy_run", date: { gte: window.from, lte: window.to } },
+      select: { date: true },
+    });
+    for (const w of easy) easyRunDays.add(key(w.date));
+  }
+  for (const a of pool) {
+    if (usedActivities.has(a.id)) continue;
+    if (a.category !== "run") {
+      result.rawOnly.push({ activityId: a.activityId, date: key(a.localDate), reason: `unmatched_${a.category}` });
+      continue;
+    }
+    if (a.durationSec < FREE_RUN_MIN_SEC) {
+      result.rawOnly.push({ activityId: a.activityId, date: key(a.localDate), reason: "under_15_min" });
+      continue;
+    }
+    if (dryRun) {
+      if (easyRunDays.has(key(a.localDate))) {
+        result.rawOnly.push({ activityId: a.activityId, date: key(a.localDate), reason: "collision" });
+      } else {
+        easyRunDays.add(key(a.localDate));
+        usedActivities.add(a.id);
+        result.imported.push({
+          workoutId: "(dry run)",
+          date: key(a.localDate),
+          type: "easy_run",
+          activityId: a.activityId,
+          durationActualMin: Math.max(1, Math.round(a.durationSec / 60)),
+          match: "free_run",
         });
       }
       continue;
     }
-
-    const activity = match.bestMatch;
     try {
-      // Sprint 3.1: strength is pushed too now, so an EXACT_MATCH is no longer
-      // necessarily a run. A strength activity gets a strength payload with no
-      // sets — the watch cannot report a usable load, and inventing one would
-      // feed the training-max evaluation.
-      const isStrength = workout.type.startsWith("strength");
-      const run = isStrength
-        ? await buildStrengthImport(activity.activityId)
-        : await buildRunImport(activity.activityId, "garmin_auto");
-      await db.workout.update({
-        where: { id: workout.id },
-        data: {
-          status: "completed",
-          executedSession: run.executedSession as object,
-          garminActivityId: run.activityId,
-          durationActualMin: run.durationActualMin,
-          // rpe stays null on purpose — nobody rated this session, and a
-          // fabricated value would feed ACWR and the training-max evaluation.
-          updatedAt: new Date(),
-        },
+      const imp = runImportFromStored(a, "garmin_auto", "free_run");
+      const workout = await db.$transaction(async (tx) => {
+        const w = await createFreeRunWorkout(tx, {
+          userId,
+          date: a.localDate,
+          durationActualMin: imp.durationActualMin,
+          executedSession: imp.executedSession,
+          rpe: null,
+          garminActivityId: imp.activityId,
+        });
+        await tx.garminActivity.update({ where: { id: a.id }, data: { workoutRefId: w.id } });
+        return w;
       });
+      usedActivities.add(a.id);
       result.imported.push({
         workoutId: workout.id,
-        date: workout.date.toISOString().slice(0, 10),
-        type: workout.type,
-        activityId: activity.activityId,
-        durationActualMin: run.durationActualMin,
+        date: key(a.localDate),
+        type: "easy_run",
+        activityId: a.activityId,
+        durationActualMin: imp.durationActualMin,
+        match: "free_run",
       });
     } catch (e) {
-      result.errors.push(
-        `${workout.type} ${workout.date.toISOString().slice(0, 10)}: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      if (isP2002(e)) {
+        // A second run on a day that already has an easy run, or an activity
+        // a parallel /confirm linked first: raw data only, by design.
+        result.rawOnly.push({ activityId: a.activityId, date: key(a.localDate), reason: "collision" });
+        continue;
+      }
+      result.errors.push(`free run ${key(a.localDate)}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
   return result;
-}
-
-/**
- * Sweep a window of recent days. The nightly cron runs this over the days it
- * may have missed; a one-off backfill runs it over a longer window.
- */
-export async function autoImportRecent(
-  userId: string,
-  endDate: Date,
-  days: number,
-): Promise<AutoImportResult> {
-  const merged: AutoImportResult = { imported: [], needsConfirmation: [], errors: [] };
-  for (let i = 0; i < days; i++) {
-    const day = new Date(endDate.getTime() - i * 86400000);
-    const r = await autoImportSessionsForDate(userId, day);
-    merged.imported.push(...r.imported);
-    merged.needsConfirmation.push(...r.needsConfirmation);
-    merged.errors.push(...r.errors);
-  }
-  return merged;
 }
