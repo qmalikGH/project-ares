@@ -4,6 +4,7 @@
 "use client";
 
 import * as React from "react";
+import { exerciseDisplayName } from "@/lib/coach-engine/exercise-label";
 
 // ============================================
 // Shapes
@@ -22,6 +23,8 @@ export type ExerciseShape = {
   notes?: string;
   /** Sprint v0.13: true for warmup/ramp-up/activation sets. */
   isWarmup?: boolean;
+  /** Sprint 3.3: back-off sets after the top sets of the same lift. */
+  isBackoff?: boolean;
   /** Sprint v1.6: superset pairing label (e.g. "A1", "B2"). Exercises with the
    *  same supersetGroup are rendered as a grouped block with an amber border. */
   supersetGroup?: string | null;
@@ -243,7 +246,7 @@ function ExerciseItem({ exercise: ex }: { exercise: ExerciseShape }) {
   return (
     <div className="flex flex-col gap-1">
       <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-foreground-secondary)]">
-        {ex.name}
+        {exerciseDisplayName(ex)}
       </span>
       <div className="flex items-baseline justify-between gap-2">
         <span className="num-md text-[var(--color-foreground)]">

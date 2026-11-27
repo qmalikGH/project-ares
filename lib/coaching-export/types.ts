@@ -12,6 +12,48 @@ export interface CoachingExport {
   upcoming: UpcomingSection;
   athlete: AthleteSection;
   nutrition: NutritionSection | null;
+  /** Sprint 3.4 (#28): every Garmin activity of the last 28 days, linked or not. */
+  activities: ActivitiesSection;
+  /** Sprint 3.4 (#28): is data arriving from the watch at all? */
+  sync: SyncSection;
+}
+
+// ── Garmin raw activities + sync health (Sprint 3.4, #28) ──────────────────
+
+export interface ActivityEntry {
+  date: string;
+  startTimeLocal: string;
+  /** "run" | "strength" | "other" */
+  category: string;
+  garminType: string | null;
+  durationMin: number;
+  distanceKm: number | null;
+  /** "m:ss" per km, null without distance. */
+  pace: string | null;
+  averageHr: number | null;
+  /** True when the activity was started from a workout pushed to the watch. */
+  fromPushedWorkout: boolean;
+  /** The session this activity completed, or null (raw only). */
+  linkedSession: { date: string; type: string; status: string } | null;
+}
+
+export interface ActivitiesSection {
+  days: number;
+  items: ActivityEntry[];
+}
+
+export interface SyncSection {
+  /** syncedAt of the newest SUCCESS/PARTIAL log row. */
+  lastSuccessfulSyncAt: string | null;
+  /** The day that row synced (GarminSyncLog.targetDate). */
+  lastSyncedDay: string | null;
+  /** Days in the last 14 without resting HR and sleep score from the watch. */
+  daysWithoutGarminData: string[];
+  /** Consecutive days up to yesterday without watch data. */
+  missingDataStreak: number;
+  /** Sprint 3.4 (C5): true from three days in a row without watch data. */
+  missingDataAlert: boolean;
+  lastError: { at: string; type: string | null; message: string | null } | null;
 }
 
 // ── Nutrition (Sprint v0.16 Phase B8) ──────────────────────────────────────
@@ -294,10 +336,27 @@ export interface VolumeTrends {
   weeklyPrevention: { week: string; prevention: { done: number; planned: number } }[];
 }
 
+/** Sprint 3.4 (#28): the figure the coach measures a week by. */
+export interface TrainingWeek {
+  /** ISO week key, e.g. "2026-W48" — same keys as volumeTrends. */
+  week: string;
+  /** Planned run sessions (free runs are not planned). */
+  plannedRuns: number;
+  /** Completed runs, free runs included. */
+  runsDone: number;
+  plannedRunMin: number;
+  /** Measured or entered minutes only; an unknown duration counts 0. */
+  runMinDone: number;
+  plannedStrength: number;
+  strengthDone: number;
+}
+
 export interface TrainingHistorySection {
   last28Days: ComplianceSummary;
   sessions: TrainingSession[];
   volumeTrends: VolumeTrends;
+  /** Sprint 3.4 (#28). */
+  weeks: TrainingWeek[];
 }
 
 // ── Wellness ───────────────────────────────────────────────────────────────

@@ -41,6 +41,7 @@ import { SESSION_LABEL } from "@/components/training/shared";
 import { getSessionColor } from "@/lib/ui/session-colors";
 import { cn } from "@/lib/utils";
 import { CONFIRM_WINDOW_DAYS } from "@/lib/garmin/confirm-candidates";
+import { exerciseDisplayName } from "@/lib/coach-engine/exercise-label";
 
 interface PrescribedExercise {
   name: string;
@@ -659,8 +660,7 @@ export default function ConfirmView() {
                               )}
                             >
                               <span className={cn(!ex.willLog && "opacity-60")}>
-                                {ex.name}
-                                {ex.isBackoff ? " (Back-off)" : ""}
+                                {exerciseDisplayName(ex)}
                               </span>
                               <span className="num">
                                 {ex.sets}×{ex.reps}

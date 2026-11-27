@@ -20,6 +20,10 @@ const settingsFindUnique = vi.hoisted(() => vi.fn());
 const calibrateMock = vi.hoisted(() => vi.fn());
 const hrMock = vi.hoisted(() => vi.fn());
 const vdotMock = vi.hoisted(() => vi.fn());
+const activitiesMock = vi.hoisted(() => vi.fn());
+const autoImportMock = vi.hoisted(() => vi.fn());
+const sweepMock = vi.hoisted(() => vi.fn());
+const budget = vi.hoisted(() => ({ near: false }));
 
 vi.mock("@/lib/db/client", () => ({
   db: {
@@ -44,6 +48,17 @@ vi.mock("@/lib/garmin/sync", async (importOriginal) => ({
 vi.mock("@/lib/nutrition/calibration", () => ({ calibrateMealPlan: calibrateMock }));
 vi.mock("@/lib/coach-engine/hr-calibration", () => ({ recalibrateHrRest: hrMock }));
 vi.mock("@/lib/coach-engine/vdot-recalibration", () => ({ recalibrateVdot: vdotMock }));
+// Sprint 3.4 (#28): the raw-activity step, the auto-import and the sweep are
+// tested in their own files; here they are seams. The auto-import used to be
+// unmocked — it threw on the missing db.workout and was swallowed, so the route
+// never exercised it.
+vi.mock("@/lib/garmin/activity-store", () => ({ syncRecentActivities: activitiesMock }));
+vi.mock("@/lib/garmin/auto-import", () => ({ autoImportRecent: autoImportMock }));
+vi.mock("@/lib/garmin/gap-sweep", () => ({ sweepRecentGaps: sweepMock }));
+vi.mock("@/lib/garmin/timeout", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/garmin/timeout")>()),
+  createDeadline: () => ({ remainingMs: () => (budget.near ? 0 : 50_000), isNear: () => budget.near }),
+}));
 
 import { GET } from "@/app/api/cron/garmin-sync-daily/route";
 import type { SyncResult } from "@/lib/garmin/sync";
@@ -110,6 +125,10 @@ beforeEach(() => {
   sensorCreate.mockResolvedValue({});
   mealPlanFindFirst.mockResolvedValue({ calibratedAt: new Date() });
   settingsFindUnique.mockResolvedValue({ hrZonesUpdatedAt: new Date(), vdotOverrideAt: new Date() });
+  activitiesMock.mockResolvedValue({ fetched: 3, created: ["a1"], details: 1, complete: true, errors: [] });
+  autoImportMock.mockResolvedValue({ imported: [], needsConfirmation: [], errors: [] });
+  sweepMock.mockResolvedValue({ repaired: [], attempted: [], deferred: 0, errors: [] });
+  budget.near = false;
 });
 
 describe("auth", () => {
@@ -170,20 +189,59 @@ describe("a successful sync", () => {
   });
 });
 
-describe("gap sweep", () => {
-  it("re-syncs a recent day that is missing data", async () => {
+describe("Sprint 3.4 (#28): order, errors, budget", () => {
+  beforeEach(() => {
     syncMock.mockResolvedValue(success());
     calibrateMock.mockResolvedValue({ status: "insufficient_data" });
     hrMock.mockResolvedValue({ status: "insufficient_data" });
     vdotMock.mockResolvedValue({ status: "insufficient_data" });
-    // Primary day complete; the day before it has a wiped row.
-    sensorFindFirst
-      .mockResolvedValueOnce({ id: "row_1", garmin: { rhr: 44, sleepScore: 70 }, totalKilocalories: 2900 })
-      .mockResolvedValueOnce({ id: "row_gap", garmin: { rhr: null, sleepScore: null }, totalKilocalories: null })
-      .mockResolvedValue({ id: "row_gap", garmin: {}, totalKilocalories: null });
+  });
 
-    const res = await GET(req());
-    const body = await res.json();
-    expect(body.results[0].gapsRepaired?.length).toBeGreaterThan(0);
+  it("stores raw activities before the sensor sync", async () => {
+    await GET(req());
+    expect(activitiesMock).toHaveBeenCalledTimes(1);
+    expect(activitiesMock.mock.invocationCallOrder[0]).toBeLessThan(syncMock.mock.invocationCallOrder[0]);
+    // 14 days back from the user's today.
+    expect(activitiesMock.mock.calls[0][2]).toBe(14);
+  });
+
+  it("still stores the activities when the sensor sync fails", async () => {
+    syncMock.mockResolvedValue(authFailure());
+    const body = await (await GET(req())).json();
+    expect(activitiesMock).toHaveBeenCalled();
+    expect(body.results[0].activities).toEqual({ fetched: 3, created: 1, details: 1, complete: true });
+  });
+
+  it("returns auto-import errors instead of dropping them", async () => {
+    autoImportMock.mockResolvedValue({ imported: [], needsConfirmation: [], errors: ["threshold_run 2026-08-11: boom"] });
+    const body = await (await GET(req())).json();
+    expect(body.results[0].errorDetails).toContain("auto-import: threshold_run 2026-08-11: boom");
+  });
+
+  it("returns activity and sweep errors", async () => {
+    activitiesMock.mockResolvedValue({ fetched: 0, created: [], details: 0, complete: false, errors: ["activities: Garmin timeout after 15000 ms: activities 0+20"] });
+    sweepMock.mockResolvedValue({ repaired: [], attempted: ["2026-08-11"], deferred: 2, errors: ["2026-08-11: hrv: down"] });
+    const body = await (await GET(req())).json();
+    expect(body.results[0].errorDetails).toEqual(
+      expect.arrayContaining([
+        "activities: activities: Garmin timeout after 15000 ms: activities 0+20",
+        "sweep: 2026-08-11: hrv: down",
+      ]),
+    );
+    expect(body.results[0].gapsDeferred).toBe(2);
+  });
+
+  it("reports repaired gap days", async () => {
+    sweepMock.mockResolvedValue({ repaired: ["2026-08-11"], attempted: ["2026-08-11"], deferred: 0, errors: [] });
+    const body = await (await GET(req())).json();
+    expect(body.results[0].gapsRepaired).toEqual(["2026-08-11"]);
+  });
+
+  it("skips the recalibrations when the time budget is used up", async () => {
+    mealPlanFindFirst.mockResolvedValue({ calibratedAt: new Date(0) });
+    budget.near = true;
+    const body = await (await GET(req())).json();
+    expect(calibrateMock).not.toHaveBeenCalled();
+    expect(body.results[0].recalibrated).toBe("skipped: time budget");
   });
 });

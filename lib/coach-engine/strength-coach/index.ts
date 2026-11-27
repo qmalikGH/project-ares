@@ -94,7 +94,8 @@ const DEADLIFT_TOP: Exercise = {
 const DEADLIFT_BACKOFF: Exercise = {
   name: "Deadlift", sets: 3, reps: 6, loadPct: 75, rpeCap: 7, tempo: "3-3-1", restSec: 180,
   isBackoff: true,
-  notes: "Back-off nach den Topsätzen (vorher der Hinge aus Kraft C).",
+  // 75 / 82 ≈ 0.91 of the top-set load.
+  notes: "Back-off nach den Topsätzen: ca. 90 % des Topsatz-Gewichts.",
 };
 
 const BLOCK_TEMPLATES: BlockTemplateMap = {

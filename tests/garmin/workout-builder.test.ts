@@ -304,6 +304,21 @@ describe("buildGarminWorkout — strength", () => {
     expect(w.description).toContain("Face Pulls 3x15");
   });
 
+  // Sprint 3.4 (#28): the back-off sets share the lift's name; on the wrist
+  // they must read as their own entry, not as a second Deadlift.
+  it("marks back-off sets in the description", () => {
+    const w = buildGarminWorkout(
+      strengthSession({
+        exercises: [
+          { name: "Deadlift", sets: 4, reps: 5, loadPct: 82, loadAbs: 100 },
+          { name: "Deadlift", sets: 3, reps: 6, loadPct: 75, loadAbs: 90, isBackoff: true },
+        ],
+      }),
+      PACES,
+    )!;
+    expect(w.description).toBe("Deadlift 4x5 @ 100kg | Deadlift (Back-off) 3x6 @ 90kg");
+  });
+
   it("leaves warmups out of the description", () => {
     const w = buildGarminWorkout(strengthSession(), PACES)!;
     expect(w.description).not.toContain("Warmup Goblet Squat");

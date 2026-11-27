@@ -9,6 +9,8 @@ import { detectLayoff, layoffGaps } from "@/lib/coach-engine/comeback";
 import { HR_CALIBRATION_WINDOW_DAYS, rollingRestingHr } from "@/lib/coach-engine/hr-calibration";
 import { NON_TRAINING_TYPES } from "@/lib/coach-engine/prevention";
 import { RECIPE_TEMPLATES } from "@/lib/nutrition/recipe-templates";
+import { isRunType, isStrengthType } from "@/lib/db/queries/progress-helpers";
+import { MISSING_DATA_ALERT_DAYS, watchDataGaps } from "@/lib/garmin/data-gaps";
 import type {
   CoachingExport,
   PeriodizationSection,
@@ -29,6 +31,10 @@ import type {
   WellnessBaselines,
   PainEntry,
   UpcomingSession,
+  ActivitiesSection,
+  ActivityEntry,
+  SyncSection,
+  TrainingWeek,
 } from "./types";
 import { getDayType } from "@/lib/nutrition/day-type";
 import { ensureNutritionIntegrity } from "@/lib/nutrition/ensure-integrity";
@@ -82,10 +88,24 @@ export async function safeSection<T>(fn: () => Promise<T>, fallback?: T): Promis
 
 // ── Section defaults ─────────────────────────────────────────────────────
 
+// Sprint 3.4 (#28).
+const ACTIVITY_EXPORT_DAYS = 28;
+const SYNC_GAP_WINDOW_DAYS = 14;
+const DEFAULT_ACTIVITIES: ActivitiesSection = { days: ACTIVITY_EXPORT_DAYS, items: [] };
+const DEFAULT_SYNC: SyncSection = {
+  lastSuccessfulSyncAt: null,
+  lastSyncedDay: null,
+  daysWithoutGarminData: [],
+  missingDataStreak: 0,
+  missingDataAlert: false,
+  lastError: null,
+};
+
 const DEFAULT_TRAINING_HISTORY: TrainingHistorySection = {
   last28Days: { planned: 0, completed: 0, skipped: 0, missed: 0, complianceRate: 0 },
   sessions: [],
   volumeTrends: { weeklyRunKm: [], weeklyStrengthSets: [], weeklyPrevention: [] },
+  weeks: [],
 };
 
 const DEFAULT_WELLNESS: WellnessSection = { days: [], baselines: null };
@@ -386,6 +406,8 @@ async function buildTrainingHistory(userId: string, today: Date): Promise<Traini
   let missedCount = 0;
 
   const runVolByWeek = new Map<string, { planned: number; actual: number }>();
+  // Sprint 3.4 (#28): planned vs done per week — runs and strength.
+  const weekAgg = new Map<string, Omit<TrainingWeek, "week">>();
   const strengthByWeek = new Map<string, { totalSets: number; totalTonnageKg: number }>();
 
   // Sprint 3.3b (#25 · 5): the home routine per week from the plan, through
@@ -437,6 +459,29 @@ async function buildTrainingHistory(userId: string, today: Date): Promise<Traini
 
     const weekKey = isoWeekKey(w.date);
     const actual = w.executedSession ? mapExecutedSession(w.executedSession) : undefined;
+
+    if (isRunType(w.type) || isStrengthType(w.type)) {
+      const agg = weekAgg.get(weekKey) ?? {
+        plannedRuns: 0, runsDone: 0, plannedRunMin: 0, runMinDone: 0, plannedStrength: 0, strengthDone: 0,
+      };
+      const plan = (w.plannedSession ?? {}) as SessionPlan & { unplanned?: boolean };
+      const wasPlanned = plan.unplanned !== true;
+      const done = w.status === "completed";
+      if (isRunType(w.type)) {
+        if (wasPlanned) {
+          agg.plannedRuns++;
+          agg.plannedRunMin += typeof plan.durationMin === "number" ? plan.durationMin : 0;
+        }
+        if (done) {
+          agg.runsDone++;
+          agg.runMinDone += typeof w.durationActualMin === "number" ? w.durationActualMin : 0;
+        }
+      } else {
+        if (wasPlanned) agg.plannedStrength++;
+        if (done) agg.strengthDone++;
+      }
+      weekAgg.set(weekKey, agg);
+    }
 
     const runKm = getRunDistanceKm(actual);
     if (runKm) {
@@ -523,6 +568,9 @@ async function buildTrainingHistory(userId: string, today: Date): Promise<Traini
         : null,
     },
     sessions,
+    weeks: Array.from(weekAgg.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([week, v]) => ({ week, ...v })),
     volumeTrends: {
       weeklyRunKm,
       weeklyStrengthSets,
@@ -1020,10 +1068,102 @@ async function buildNutrition(userId: string, today: Date): Promise<NutritionSec
 
 // ── Main export ──────────────────────────────────────────────────────────
 
+// ── Garmin raw activities (Sprint 3.4, #28) ───────────────────────────────
+
+function formatPace(secPerKm: number | null): string | null {
+  if (secPerKm == null || secPerKm <= 0) return null;
+  const m = Math.floor(secPerKm / 60);
+  const s = Math.round(secPerKm % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+async function buildActivities(userId: string, today: Date): Promise<ActivitiesSection> {
+  const from = new Date(dayKey(today).getTime() - ACTIVITY_EXPORT_DAYS * 86400000);
+  const rows = await db.garminActivity.findMany({
+    where: { userId, localDate: { gte: from } },
+    orderBy: [{ localDate: "asc" }, { startTimeLocal: "asc" }],
+    select: {
+      localDate: true,
+      startTimeLocal: true,
+      category: true,
+      garminType: true,
+      durationSec: true,
+      distanceM: true,
+      averagePaceSecPerKm: true,
+      averageHr: true,
+      workoutId: true,
+      workout: { select: { date: true, type: true, status: true } },
+    },
+  });
+  const items: ActivityEntry[] = rows.map((a) => ({
+    date: formatDateStr(a.localDate),
+    startTimeLocal: a.startTimeLocal,
+    category: a.category,
+    garminType: a.garminType,
+    durationMin: Math.round(a.durationSec / 60),
+    distanceKm: a.distanceM != null ? Math.round(a.distanceM / 100) / 10 : null,
+    pace: formatPace(a.averagePaceSecPerKm),
+    averageHr: a.averageHr,
+    fromPushedWorkout: a.workoutId != null,
+    linkedSession: a.workout
+      ? { date: formatDateStr(a.workout.date), type: a.workout.type, status: a.workout.status }
+      : null,
+  }));
+  return { days: ACTIVITY_EXPORT_DAYS, items };
+}
+
+async function buildSync(userId: string, today: Date): Promise<SyncSection> {
+  const todayKey = dayKey(today);
+  const yesterday = new Date(todayKey.getTime() - 86400000);
+  const from = new Date(todayKey.getTime() - SYNC_GAP_WINDOW_DAYS * 86400000);
+  const [lastOk, lastOkDay, lastErr, rows] = await Promise.all([
+    db.garminSyncLog.findFirst({
+      where: { userId, status: { in: ["SUCCESS", "PARTIAL"] } },
+      orderBy: { syncedAt: "desc" },
+      select: { syncedAt: true },
+    }),
+    // Review fix (#28): the newest DAY, not the newest row — the sweep writes
+    // after the daily sync, so by syncedAt the oldest sweep day came out on top.
+    // Same order as /api/sensors/garmin-status.
+    db.garminSyncLog.findFirst({
+      where: { userId, status: { in: ["SUCCESS", "PARTIAL"] }, targetDate: { not: null } },
+      orderBy: [{ targetDate: { sort: "desc", nulls: "last" } }, { syncedAt: "desc" }],
+      select: { targetDate: true },
+    }),
+    db.garminSyncLog.findFirst({
+      where: { userId, OR: [{ status: "FAILURE" }, { errorMessage: { not: null } }] },
+      orderBy: { syncedAt: "desc" },
+      select: { syncedAt: true, errorType: true, errorMessage: true },
+    }),
+    db.dailySensorData.findMany({
+      where: { userId, date: { gte: from, lte: yesterday } },
+      select: { date: true, garmin: true },
+    }),
+  ]);
+  const gaps = watchDataGaps(rows, yesterday, SYNC_GAP_WINDOW_DAYS);
+  return {
+    lastSuccessfulSyncAt: lastOk?.syncedAt.toISOString() ?? null,
+    lastSyncedDay: lastOkDay?.targetDate ? formatDateStr(lastOkDay.targetDate) : null,
+    daysWithoutGarminData: gaps.missing,
+    missingDataStreak: gaps.streak,
+    missingDataAlert: gaps.streak >= MISSING_DATA_ALERT_DAYS,
+    lastError: lastErr
+      ? {
+          at: lastErr.syncedAt.toISOString(),
+          type: lastErr.errorType,
+          message: lastErr.errorMessage ? lastErr.errorMessage.slice(0, 300) : null,
+        }
+      : null,
+  };
+}
+
 export async function buildCoachingExport(userId: string): Promise<CoachingExport> {
   const today = await userTodayDynamic();
 
-  const [periodization, performanceMarkers, trainingHistory, wellness, calories, health, upcoming, athlete, nutrition] =
+  const [
+    periodization, performanceMarkers, trainingHistory, wellness, calories, health, upcoming, athlete, nutrition,
+    activities, sync,
+  ] =
     await Promise.all([
       safeSection(() => buildPeriodization(userId, today)),
       safeSection(() => buildPerformanceMarkers(userId)),
@@ -1034,6 +1174,8 @@ export async function buildCoachingExport(userId: string): Promise<CoachingExpor
       safeSection(() => buildUpcoming(userId, today), DEFAULT_UPCOMING),
       safeSection(() => buildAthlete(userId), DEFAULT_ATHLETE),
       safeSection(() => buildNutrition(userId, today)),
+      safeSection(() => buildActivities(userId, today), DEFAULT_ACTIVITIES),
+      safeSection(() => buildSync(userId, today), DEFAULT_SYNC),
     ]);
 
   return {
@@ -1047,5 +1189,7 @@ export async function buildCoachingExport(userId: string): Promise<CoachingExpor
     upcoming,
     athlete,
     nutrition,
+    activities,
+    sync,
   };
 }

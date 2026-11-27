@@ -4,6 +4,7 @@
 // We keep this thin so a Garmin outage degrades gracefully — every caller of
 // getGarminProfileMetrics / getRecentRunSummaries must handle nulls + empty arrays.
 import { getGarminClient } from "./client";
+import { withTimeout } from "./timeout";
 
 const GC_API = "https://connectapi.garmin.com";
 
@@ -18,7 +19,8 @@ function rawClientFor(client: unknown): RawHttpClient {
   if (!raw || typeof raw.get !== "function") {
     throw new Error("Could not access authenticated http client on GarminConnect instance");
   }
-  return raw;
+  // Review fix (#28): every call with a time limit (timeout.ts).
+  return { get: <T,>(url: string) => withTimeout(raw.get<T>(url), `GET ${url}`) };
 }
 
 // ============================================

@@ -17,6 +17,7 @@ import type {
 } from "@/components/training/shared";
 import { WeekStrip } from "@/components/training/WeekStrip";
 import type { Exercise } from "@/lib/coach-engine/types";
+import { exerciseDisplayName } from "@/lib/coach-engine/exercise-label";
 import { cn } from "@/lib/utils";
 // Sprint 3.0: lifted out of this file so the confirmation screen can use the
 // same control. Local copies of severity()/SEV_* went with it.
@@ -403,7 +404,7 @@ function InlineExerciseRow({ ex, currentWeightKg }: { ex: ExerciseShape; current
   return (
     <div className="flex flex-col gap-1">
       <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-foreground-secondary)]">
-        {ex.name}
+        {exerciseDisplayName(ex)}
       </span>
       <div className="flex items-baseline justify-between gap-2">
         <span className="num-md text-[var(--color-foreground)]">

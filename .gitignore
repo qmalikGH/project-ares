@@ -46,3 +46,6 @@ next-env.d.ts
 
 # Garmin diagnostic raw dumps (Sprint v0.7 discovery — local-only, not for prod)
 garmin-diagnostic-output/
+
+# Sprint 3.4: resume state of scripts/backfill-garmin-history.ts (local only)
+scripts/.backfill-garmin-state.json
