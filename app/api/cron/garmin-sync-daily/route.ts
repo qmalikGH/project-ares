@@ -17,7 +17,7 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db/client";
 import { userTodayForUser } from "@/lib/date";
-import { syncGarminForDate } from "@/lib/garmin/sync";
+import { syncGarminForDate, unreachableSyncResult } from "@/lib/garmin/sync";
 import { persistGarminSync, writeGarminSyncFailureLog } from "@/lib/garmin/persist";
 import { autoImportRecent } from "@/lib/garmin/auto-import";
 import { syncRecentActivities } from "@/lib/garmin/activity-store";
@@ -103,13 +103,17 @@ export async function GET(req: Request) {
       const acts = await syncRecentActivities(user.id, today, ACTIVITY_SYNC_DAYS, deadline);
       for (const e of acts.errors) noteError("activities", e);
 
-      // 2. Wellness/energy for yesterday.
-      let result = await syncGarminForDate(yesterday);
+      // 2. Wellness/energy for yesterday. Review fix (#28): if Garmin did not
+      // answer in step 1 (timeout/network), do not spend another login on it —
+      // record the failure for yesterday and go on with the stored data.
+      let result = acts.unreachable
+        ? unreachableSyncResult(acts.errors)
+        : await syncGarminForDate(yesterday, { deadline });
       // Sprint 2.8: one in-process retry after an auth failure. syncGarminForDate
       // drops the cached session on its way out, so the retry re-authenticates
       // instead of hammering the same dead 30-minute session.
       if (result.authFailed) {
-        result = await syncGarminForDate(yesterday);
+        result = await syncGarminForDate(yesterday, { deadline });
       }
 
       // One writer for both routes: log row, merge-write, failure notification.
