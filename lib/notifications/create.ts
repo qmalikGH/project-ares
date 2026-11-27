@@ -18,7 +18,11 @@ export type NotificationType =
   | "SESSIONS_AWAITING_CONFIRMATION"
   // Sprint 3.3 (B5): a 3-km test reached the VDOT of the 5k goal. There is no
   // fixed race date any more — this is the prompt to pick one.
-  | "RACE_READY";
+  | "RACE_READY"
+  // Sprint 3.4 (#28, C5): three days in a row without resting HR or sleep score
+  // from the watch. A PARTIAL sync never raised anything — the server reached
+  // Garmin fine, there was simply nothing to fetch.
+  | "GARMIN_DATA_MISSING";
 
 export type NotificationSeverity = "INFO" | "WARNING" | "CRITICAL";
 

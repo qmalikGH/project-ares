@@ -71,10 +71,9 @@ export async function POST(req: Request) {
   // called computeKneeStatus WITHOUT the workout history + today, so
   // illnessRecoveryDays was always null here — /today displayed a reduced
   // session and /start then persisted the full one. One shared builder now.
+  // Sprint 3.4 (#28, C1): no 400 without a morning input — same context as
+  // /today, which no longer waits for it either.
   const ctx = await buildModulationContext(userId, today);
-  if (!ctx) {
-    return NextResponse.json({ status: "AWAITING_MORNING_INPUT" }, { status: 400 });
-  }
   const { readiness, load, limitations, paces } = ctx;
   const finalSession = modulateSession(
     plannedSession as SessionPlan,

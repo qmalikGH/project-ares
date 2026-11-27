@@ -11,6 +11,7 @@ const workoutFindMany = vi.hoisted(() => vi.fn());
 const workoutFindFirst = vi.hoisted(() => vi.fn());
 const settingsFindUnique = vi.hoisted(() => vi.fn());
 const sensorFindMany = vi.hoisted(() => vi.fn());
+const shinReportFindMany = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/db/client", () => ({
   db: {
@@ -18,6 +19,7 @@ vi.mock("@/lib/db/client", () => ({
     workout: { findMany: workoutFindMany, findFirst: workoutFindFirst },
     userSettings: { findUnique: settingsFindUnique },
     dailySensorData: { findMany: sensorFindMany },
+    shinReport: { findMany: shinReportFindMany },
   },
 }));
 const today = vi.hoisted(() => ({ value: new Date("2026-10-28T00:00:00.000Z") }));
@@ -54,6 +56,7 @@ beforeEach(() => {
     exerciseMaxEstimates: null, therapyPhaseOverride: null, garminWorkoutPushEnabled: false,
   });
   sensorFindMany.mockResolvedValue([]);
+  shinReportFindMany.mockResolvedValue([]);
   workoutFindFirst.mockResolvedValue(null);
   workoutFindMany.mockImplementation(async (args: { select?: Record<string, boolean> }) => {
     const sel = args.select ?? {};
@@ -144,7 +147,7 @@ describe("regeneratePlansFromNow — run progression", () => {
   it("leaves the home prevention routine out of the layoff and shin queries", async () => {
     await regeneratePlansFromNow("u1");
     const calls = workoutFindMany.mock.calls.map((c) => c[0] as { select: Record<string, boolean>; where: { NOT?: { type: { in: string[] } } } });
-    const layoff = calls.find((c) => Object.keys(c.select).join() === "date")!;
+    const layoff = calls.find((c) => Object.keys(c.select).join() === "date,type")!;
     const shin = calls.find((c) => c.select.rpe)!;
     expect(layoff.where.NOT?.type.in).toContain("mobility");
     expect(shin.where.NOT?.type.in).toContain("mobility");
@@ -166,5 +169,87 @@ describe("regeneratePlansFromNow — run progression", () => {
   it("horizonWeeks limits the regenerated weeks", async () => {
     await regeneratePlansFromNow("u1", { horizonWeeks: 2 });
     expect(weeklyPlanFindMany.mock.calls[0][0].take).toBe(2);
+  });
+});
+
+// Sprint 3.4 (#28, C3): the shin as a weekly signal, from any source.
+describe("regeneratePlansFromNow — shin reports", () => {
+  it("without any report in 14 days the imminent week stays on hold (2.4 rule)", async () => {
+    const r = await regeneratePlansFromNow("u1");
+    expect(r.gate).toBe("hold");
+  });
+
+  it("a report from the /today card or the coach counts as evidence", async () => {
+    shinReportFindMany.mockResolvedValue([{ painNrs: 0 }]);
+    const r = await regeneratePlansFromNow("u1");
+    expect(r.gate).toBe("progress");
+  });
+
+  it("the highest value of the window wins, not the latest", async () => {
+    shinReportFindMany.mockResolvedValue([{ painNrs: 0 }, { painNrs: 4 }]);
+    const r = await regeneratePlansFromNow("u1");
+    expect(r.gate).toBe("regress");
+  });
+
+  it("reads 14 days back", async () => {
+    await regeneratePlansFromNow("u1");
+    const where = shinReportFindMany.mock.calls[0][0].where;
+    expect(where.date.gte).toEqual(d("2026-10-14"));
+    expect(where.date.lte).toEqual(d("2026-10-28"));
+  });
+});
+
+// Sprint 3.4 (#28, C4): a layoff per discipline.
+describe("regeneratePlansFromNow — layoff per discipline", () => {
+  function history(rows: { date: string; type: string }[]) {
+    workoutFindMany.mockImplementation(async (args: { select?: Record<string, boolean> }) => {
+      const sel = args.select ?? {};
+      if (sel.durationActualMin) return [];
+      if (sel.rpe) return [];
+      return rows.map((r) => ({ date: d(r.date), type: r.type }));
+    });
+  }
+
+  it("a strength pause during ongoing running ramps strength only", async () => {
+    // Runs every few days up to 24.10.; the last strength session on 01.09.
+    history([
+      { date: "2026-09-01", type: "strength_a" },
+      { date: "2026-10-06", type: "easy_run" },
+      { date: "2026-10-13", type: "easy_run" },
+      { date: "2026-10-20", type: "easy_run" },
+      { date: "2026-10-24", type: "long_run" },
+    ]);
+    const r = await regeneratePlansFromNow("u1");
+    expect(r.layoffByDiscipline.run.active).toBe(false);
+    expect(r.layoffByDiscipline.strength.active).toBe(true);
+    expect(r.layoffByDiscipline.strength.gapDays).toBeGreaterThanOrEqual(21);
+    expect(r.layoff).toEqual(r.layoffByDiscipline.run);
+    // The strength week carries the comeback label, the runs do not ramp.
+    const strength = written("wp-8").filter((s) => s.type.startsWith("strength"));
+    expect(strength.length).toBeGreaterThan(0);
+    expect(JSON.stringify(strength)).toContain("Wiedereinstieg");
+  });
+
+  it("a run pause during ongoing strength ramps running only", async () => {
+    history([
+      { date: "2026-09-20", type: "easy_run" },
+      { date: "2026-10-12", type: "strength_a" },
+      { date: "2026-10-19", type: "strength_b" },
+      { date: "2026-10-26", type: "strength_a" },
+    ]);
+    const r = await regeneratePlansFromNow("u1");
+    expect(r.layoffByDiscipline.run.active).toBe(true);
+    expect(r.layoffByDiscipline.strength.active).toBe(false);
+    expect(r.layoff.active).toBe(true);
+  });
+
+  it("a discipline without any history falls back to the global result", async () => {
+    history([
+      { date: "2026-10-20", type: "strength_a" },
+      { date: "2026-10-26", type: "strength_b" },
+    ]);
+    const r = await regeneratePlansFromNow("u1");
+    // No run ever: the global history has no gap → no ramp, as before.
+    expect(r.layoffByDiscipline.run.active).toBe(false);
   });
 });

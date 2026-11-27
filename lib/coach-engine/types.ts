@@ -284,7 +284,8 @@ export interface UserPostSessionInputs {
 export interface DailySensorInputs {
   date: Date;
   garmin?: GarminMorningInputs;
-  userMorning: UserMorningInputs;
+  /** Sprint 3.4 (#28, C1): optional — the plan no longer waits for it. */
+  userMorning?: UserMorningInputs;
   userPostSession?: UserPostSessionInputs;
 }
 
@@ -313,8 +314,9 @@ export interface ReadinessOutput {
     sleep: number | null;
     battery: number | null;
     rhrDev: number | null;
-    subjective: number;
-    knee: number;
+    /** Sprint 3.4 (#28, C1): null without a morning input (optional now). */
+    subjective: number | null;
+    knee: number | null;
   };
   trend7d: Trend7d;
 }

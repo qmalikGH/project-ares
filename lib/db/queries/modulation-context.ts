@@ -45,31 +45,42 @@ export interface ModulationContext {
   load: LoadOutput;
   limitations: LimitationsOutput;
   paces: VDOTPaces;
-  /** Today's DailySensorData row id, so callers can cache the scores back. */
-  sensorRowId: string;
+  /** Today's DailySensorData row id, so callers can cache the scores back.
+   *  Null when no row exists yet (no sync and no input today). */
+  sensorRowId: string | null;
+  /** Sprint 3.4 (#28, C1): the morning input is missing — optional now. */
+  morningInputPending: boolean;
   /** Raw inputs + baselines, for callers that surface them (explain-session). */
   inputs: DailySensorInputs;
   baselines: SensorBaselines;
 }
 
 /**
- * Returns null when there is no morning input for the day — the caller decides
- * whether that is `AWAITING_MORNING_INPUT` or a reason to skip modulation.
+ * Knee inputs when the athlete gave none. Only for the knee-status model: a
+ * score of 1 means "no symptoms reported", so no knee rule fires. Never stored
+ * (callers skip the kneeScore cache when `morningInputPending`).
+ */
+const NO_KNEE_REPORT: UserMorningInputs = { subjectiveRecovery: 8, morningStiffness: 1, stairsScore: 1 };
+
+/**
+ * Sprint 3.4 (#28, C1): always returns a context. Without a morning input the
+ * readiness runs on the Garmin values alone (or neutral without them), and
+ * `morningInputPending` tells the caller to offer the input as optional.
  */
 export async function buildModulationContext(
   userId: string,
   today: Date,
-): Promise<ModulationContext | null> {
+): Promise<ModulationContext> {
   const todayRow = await getSensorDataOnDate(userId, today);
-  if (!todayRow || !todayRow.userMorning) return null;
+  const morning = (todayRow?.userMorning ?? null) as UserMorningInputs | null;
 
   const recentRows = await getRecentSensorData(userId, SENSOR_HISTORY_DAYS);
   const baselines = computeBaselines(rowsToSensorInputs(recentRows));
 
   const todayInputs: DailySensorInputs = {
     date: dayKey(today),
-    garmin: (todayRow.garmin as unknown as DailySensorInputs["garmin"]) ?? undefined,
-    userMorning: todayRow.userMorning as unknown as UserMorningInputs,
+    garmin: (todayRow?.garmin as unknown as DailySensorInputs["garmin"]) ?? undefined,
+    userMorning: morning ?? undefined,
   };
 
   const readiness = computeReadiness(todayInputs, baselines);
@@ -88,9 +99,9 @@ export async function buildModulationContext(
   });
 
   const limitations = computeKneeStatus(
-    { morning: todayInputs.userMorning, postSession: todayInputs.userPostSession?.trainingScore },
+    { morning: morning ?? NO_KNEE_REPORT, postSession: todayInputs.userPostSession?.trainingScore },
     rowsToKneeLogs(recentRows),
-    (todayRow.therapyPhase as TherapyPhase | null) ?? "DISREPAIR",
+    (todayRow?.therapyPhase as TherapyPhase | null) ?? "DISREPAIR",
     null,
     recentWorkouts.map((w) => ({ date: w.date, status: w.status })),
     dayKey(today),
@@ -105,7 +116,8 @@ export async function buildModulationContext(
     load,
     limitations,
     paces,
-    sensorRowId: todayRow.id,
+    sensorRowId: todayRow?.id ?? null,
+    morningInputPending: morning == null,
     inputs: todayInputs,
     baselines,
   };

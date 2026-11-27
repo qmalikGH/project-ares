@@ -25,12 +25,13 @@ const autoImportMock = vi.hoisted(() => vi.fn());
 const sweepMock = vi.hoisted(() => vi.fn());
 const refreshMock = vi.hoisted(() => vi.fn());
 const workoutCount = vi.hoisted(() => vi.fn());
+const sensorFindMany = vi.hoisted(() => vi.fn());
 const budget = vi.hoisted(() => ({ near: false }));
 
 vi.mock("@/lib/db/client", () => ({
   db: {
     user: { findMany: userFindMany },
-    dailySensorData: { findFirst: sensorFindFirst, update: sensorUpdate, create: sensorCreate },
+    dailySensorData: { findFirst: sensorFindFirst, findMany: sensorFindMany, update: sensorUpdate, create: sensorCreate },
     garminSyncLog: { create: logCreate, findMany: logFindMany, findFirst: logFindFirst },
     notification: { findFirst: notificationFindFirst, create: notificationCreate },
     mealPlan: { findFirst: mealPlanFindFirst },
@@ -133,6 +134,12 @@ beforeEach(() => {
   autoImportMock.mockResolvedValue({ imported: [], rawOnly: [], reconciled: 0, errors: [] });
   refreshMock.mockResolvedValue({ regenerated: 2, materialized: { created: 0, updated: 3, deleted: 0 }, repushed: 1, errors: [] });
   workoutCount.mockResolvedValue(0);
+  // Watch data on all three days before today by default → no C5 warning.
+  sensorFindMany.mockResolvedValue([
+    { date: new Date("2026-08-10T00:00:00.000Z"), garmin: { rhr: 1 } },
+    { date: new Date("2026-08-11T00:00:00.000Z"), garmin: { rhr: 1 } },
+    { date: new Date("2026-08-12T00:00:00.000Z"), garmin: { rhr: 1 } },
+  ]);
   sweepMock.mockResolvedValue({ repaired: [], attempted: [], deferred: 0, errors: [] });
   budget.near = false;
 });
@@ -302,5 +309,40 @@ describe("Sprint 3.4 (#28): order, errors, budget", () => {
     const body = await (await GET(req())).json();
     expect(calibrateMock).not.toHaveBeenCalled();
     expect(body.results[0].recalibrated).toBe("skipped: time budget");
+  });
+});
+
+// Sprint 3.4 (#28, C5): three days without watch data.
+describe("watch data warning", () => {
+  beforeEach(() => {
+    syncMock.mockResolvedValue(success());
+    calibrateMock.mockResolvedValue({ status: "insufficient_data" });
+    hrMock.mockResolvedValue({ status: "insufficient_data" });
+    vdotMock.mockResolvedValue({ status: "insufficient_data" });
+  });
+
+  it("warns once a day after three days without resting HR and sleep score", async () => {
+    sensorFindMany.mockResolvedValue([
+      { date: new Date("2026-08-11T00:00:00.000Z"), garmin: { rhr: null, sleepScore: null } },
+    ]);
+    const body = await (await GET(req())).json();
+    expect(body.results[0].watchDataMissingDays).toBe(3);
+    const created = notificationCreate.mock.calls.map((c) => c[0].data);
+    expect(created).toEqual(expect.arrayContaining([expect.objectContaining({ type: "GARMIN_DATA_MISSING", title: "Uhr synchronisieren" })]));
+  });
+
+  it("stays quiet when one of the three days has data", async () => {
+    sensorFindMany.mockResolvedValue([{ date: new Date("2026-08-11T00:00:00.000Z"), garmin: { sleepScore: 1 } }]);
+    const body = await (await GET(req())).json();
+    expect(body.results[0].watchDataMissingDays).toBeUndefined();
+    expect(notificationCreate.mock.calls.map((c) => c[0].data.type)).not.toContain("GARMIN_DATA_MISSING");
+  });
+
+  it("also warns when the sync itself was PARTIAL (the case that never alerted)", async () => {
+    syncMock.mockResolvedValue({ ...success(), status: "PARTIAL" });
+    sensorFindMany.mockResolvedValue([]);
+    const body = await (await GET(req())).json();
+    expect(body.results[0].status).toBe("PARTIAL");
+    expect(body.results[0].watchDataMissingDays).toBe(3);
   });
 });

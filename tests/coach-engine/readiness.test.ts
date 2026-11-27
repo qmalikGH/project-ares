@@ -238,3 +238,38 @@ describe("computeBaselines — only values that arrived (Sprint 3.3)", () => {
     expect(computeBaselines(enough).hrv28dAvg).toBe(60);
   });
 });
+
+// Sprint 3.4 (#28, C1): the morning input is optional.
+describe("computeReadiness without a morning input", () => {
+  it("scores on the Garmin values alone; subjective and knee drop out", () => {
+    const r = computeReadiness({ ...baseInputs, userMorning: undefined }, baselines);
+    // All four Garmin components at baseline → 80, renormalised.
+    expect(r.score).toBe(80);
+    expect(r.band).toBe("GREEN");
+    expect(r.components.subjective).toBeNull();
+    expect(r.components.knee).toBeNull();
+  });
+
+  it("follows a poor night even without the input", () => {
+    const r = computeReadiness(
+      { ...baseInputs, userMorning: undefined, garmin: { ...baseInputs.garmin!, sleepScore: 40, hrvRmssd: 34 } },
+      baselines,
+    );
+    expect(r.band).not.toBe("GREEN");
+  });
+
+  it("is exactly neutral (80, GREEN) with neither watch data nor input — no readiness rule fires", () => {
+    const r = computeReadiness({ date: baseInputs.date, garmin: undefined, userMorning: undefined }, baselines);
+    expect(r.score).toBe(80);
+    expect(r.band).toBe("GREEN");
+    expect(r.components).toEqual({ hrv: null, sleep: null, battery: null, rhrDev: null, subjective: null, knee: null });
+  });
+
+  it("keeps the no-watch fallback with an input unchanged (A8 stays as decided)", () => {
+    const r = computeReadiness(
+      { date: baseInputs.date, garmin: undefined, userMorning: { subjectiveRecovery: 7, morningStiffness: 3, stairsScore: 3 } },
+      baselines,
+    );
+    expect(r.band).toBe("YELLOW");
+  });
+});

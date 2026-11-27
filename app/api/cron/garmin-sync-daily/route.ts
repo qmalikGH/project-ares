@@ -22,6 +22,7 @@ import { persistGarminSync, writeGarminSyncFailureLog } from "@/lib/garmin/persi
 import { autoImportFromStore } from "@/lib/garmin/auto-import";
 import { refreshAfterImport } from "@/lib/garmin/plan-refresh";
 import { NON_TRAINING_TYPES } from "@/lib/coach-engine/prevention";
+import { MISSING_DATA_ALERT_DAYS, watchDataGaps } from "@/lib/garmin/data-gaps";
 import { syncRecentActivities } from "@/lib/garmin/activity-store";
 import { sweepRecentGaps } from "@/lib/garmin/gap-sweep";
 import { createDeadline, type Deadline } from "@/lib/garmin/timeout";
@@ -72,6 +73,8 @@ type UserResult = {
   planRefresh?: string;
   /** Planned sessions of the last week with no recording. */
   missingSessions?: number;
+  /** Sprint 3.4 (C5): days in a row without watch data, when it raised the warning. */
+  watchDataMissingDays?: number;
   recalibrated?: string;
   hrRecalibrated?: string;
   vdotRecalibrated?: string;
@@ -123,6 +126,10 @@ export async function GET(req: Request) {
       loggedThisRun = true;
       for (const e of result.errors) noteError(`sync ${e.datatype}`, e.message);
 
+      // Sprint 3.4 (C5): is the watch delivering at all? Read after the write
+      // above, so yesterday's fresh values count.
+      const watchDataMissingDays = await warnOnMissingWatchData(user.id, yesterday, noteError);
+
       const activities = {
         fetched: acts.fetched,
         created: acts.created.length,
@@ -145,6 +152,7 @@ export async function GET(req: Request) {
           skippedReason: outcome.skippedReason,
           activities,
           ...imp,
+          watchDataMissingDays,
           errorDetails,
         });
         continue;
@@ -201,6 +209,7 @@ export async function GET(req: Request) {
         gapsRepaired: sweep.repaired.length > 0 ? sweep.repaired : undefined,
         gapsDeferred: sweep.deferred > 0 ? sweep.deferred : undefined,
         ...imp,
+        watchDataMissingDays,
         recalibrated,
         hrRecalibrated,
         vdotRecalibrated,
@@ -300,6 +309,45 @@ async function runAutoImport(
     noteError("missing-sessions", e instanceof Error ? e.message : String(e));
   }
   return out;
+}
+
+/**
+ * Sprint 3.4 (#28, C5): three days in a row without watch data (no resting HR
+ * and no sleep score) → "Uhr synchronisieren". Once a day at most. Returns the
+ * streak when it warned, else undefined. The export carries the same flag
+ * (sync.missingDataAlert).
+ */
+async function warnOnMissingWatchData(
+  userId: string,
+  yesterday: Date,
+  noteError: (step: string, message: string) => void,
+): Promise<number | undefined> {
+  try {
+    const from = new Date(yesterday.getTime() - (MISSING_DATA_ALERT_DAYS - 1) * 86400000);
+    const rows = await db.dailySensorData.findMany({
+      where: { userId, date: { gte: from, lte: yesterday } },
+      select: { date: true, garmin: true },
+    });
+    const { streak } = watchDataGaps(rows, yesterday, MISSING_DATA_ALERT_DAYS);
+    if (streak < MISSING_DATA_ALERT_DAYS) return undefined;
+    await createNotificationIfNew(
+      {
+        userId,
+        type: "GARMIN_DATA_MISSING",
+        title: "Uhr synchronisieren",
+        message:
+          `Seit mindestens ${MISSING_DATA_ALERT_DAYS} Tagen kommen keine Schlaf- und Ruhepuls-Daten von der Uhr. ` +
+          "Uhr tragen und in Garmin Connect synchronisieren — ohne sie laufen Readiness und Auto-Import ins Leere.",
+        severity: "WARNING",
+        actionUrl: "/settings",
+      },
+      24 * 60,
+    );
+    return streak;
+  } catch (e) {
+    noteError("watch-data", e instanceof Error ? e.message : String(e));
+    return undefined;
+  }
 }
 
 /** Run a recalibration only while enough budget is left; errors become a status string. */

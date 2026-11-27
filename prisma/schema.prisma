@@ -36,6 +36,7 @@ model User {
   conversations    AIConversation[]
   garminSyncLogs   GarminSyncLog[]
   garminActivities GarminActivity[]
+  shinReports      ShinReport[]
   notifications    Notification[]
   exerciseLogs     ExerciseLog[]
   settings         UserSettings?
@@ -757,4 +758,28 @@ model ComputedMealSlot {
   computedAt   DateTime @default(now())
 
   @@unique([planId, dayType, slotName])
+}
+
+// ============================================
+// Domain: Shin status (Sprint 3.4, #28 — C3)
+// ============================================
+// One shin signal a week is enough. Besides the rating of a session in
+// /confirm (executedSession.shinPainNrs), the athlete can tap a weekly card on
+// /today, and the coach can enter what the athlete told him in the chat
+// (coaching action reportShinStatus). The volume gate reads the highest value
+// of the last 14 days across all three. No report in 14 days → hold, as
+// before: no data is not "healthy".
+model ShinReport {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      DateTime @db.Date
+  /// 0–10. The /today card stores the upper end of its bucket (1–2 → 2, 4+ → 4).
+  painNrs   Int
+  source    String // "today_card" | "coach"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date, source])
+  @@index([userId, date])
 }

@@ -18,6 +18,7 @@ import type {
 import { WeekStrip } from "@/components/training/WeekStrip";
 import type { Exercise } from "@/lib/coach-engine/types";
 import { exerciseDisplayName } from "@/lib/coach-engine/exercise-label";
+import { ShinWeekCard } from "@/components/today/ShinWeekCard";
 import { cn } from "@/lib/utils";
 // Sprint 3.0: lifted out of this file so the confirmation screen can use the
 // same control. Local copies of severity()/SEV_* went with it.
@@ -59,6 +60,8 @@ type TodayResponse =
     }
   | {
       status: "READY";
+      /** Sprint 3.4 (#28, C1): the session shows without it; the input is optional. */
+      morningInputPending?: boolean;
       plannedSession: SessionShape;
       plannedSessions?: SessionShape[];
       finalSession: FinalSessionShape;
@@ -1052,6 +1055,17 @@ export default function TodayDashboard() {
       {/* Ready: full dashboard — design prototype hierarchy */}
       {today.status === "READY" && (
         <>
+          {/* Sprint 3.4 (#28, C1): optional, collapsed — the plan no longer waits for it. */}
+          {today.morningInputPending && (
+            <details className="mb-6">
+              <summary className="cursor-pointer text-xs text-[var(--color-foreground-tertiary)]">
+                Morgen-Check (optional) · Erholung, Gewicht
+              </summary>
+              <div className="mt-3">
+                <MorningRitual onSubmitted={refresh} plannedSession={today.plannedSession} />
+              </div>
+            </details>
+          )}
           {openCount > 0 && (
             <div className="mb-6 flex items-center justify-between rounded-lg border-l-4 border-amber-500 bg-amber-500/8 px-4 py-3">
               <div>
@@ -1070,6 +1084,7 @@ export default function TodayDashboard() {
               </Link>
             </div>
           )}
+          <ShinWeekCard onReported={refresh} />
           {openCount === 0 && optionalCount > 0 && (
             <p className="mb-6 text-xs text-[var(--color-foreground-tertiary)]">
               {optionalCount} Einheit{optionalCount === 1 ? "" : "en"} von der Uhr erfasst ·{" "}

@@ -15,6 +15,7 @@
 // when the change touches anything pushed to the watch.
 import { db } from "@/lib/db/client";
 import { userToday } from "@/lib/date";
+import { combineShinValues, loadShinReportValues, SHIN_SIGNAL_WINDOW_DAYS } from "@/lib/db/queries/shin-signal";
 import {
   generateWeekRunPlan,
   thresholdLadderIndexOf,
@@ -39,8 +40,12 @@ import {
   constraintsFromUserSettings,
   planWeekSchedule,
 } from "@/lib/coach-engine/schedule-strategy";
-import { comebackWeekFor, detectLayoff } from "@/lib/coach-engine/comeback";
-import { deriveVolumeGate, type VolumeGate } from "@/lib/db/queries/regenerate-plans-helpers";
+import { comebackWeekFor } from "@/lib/coach-engine/comeback";
+import {
+  deriveVolumeGate,
+  detectLayoffByDiscipline,
+  type VolumeGate,
+} from "@/lib/db/queries/regenerate-plans-helpers";
 import { getEffectiveVdot } from "@/lib/db/queries/settings";
 import { pushWindowEnd, resyncFutureWorkoutsToGarmin } from "@/lib/garmin/workout-sync";
 import { ExecutedSessionSchema } from "@/lib/coach-engine/types";
@@ -63,7 +68,8 @@ async function loadRecentShinSignal(
   userId: string,
   before: Date,
 ): Promise<{ data: WeekStrengthData | null; completedInWindow: number; attestedInWindow: number }> {
-  const cutoff = new Date(before.getTime() - 10 * 86400000);
+  // Sprint 3.4 (#28, C3): 14 days (was 10) — one signal a week is enough.
+  const cutoff = new Date(before.getTime() - SHIN_SIGNAL_WINDOW_DAYS * 86400000);
   const workouts = await db.workout.findMany({
     // Sprint 3.3 (A4): the home prevention routine is no evidence about the
     // shin — it only talks under load.
@@ -94,6 +100,13 @@ async function loadRecentShinSignal(
     if (["strength_a", "strength_b", "strength_c"].includes(w.type) && !rpeByType.has(w.type) && w.rpe != null) {
       rpeByType.set(w.type, w.rpe);
     }
+  }
+  // Sprint 3.4 (#28, C3): the /today card and the coach's reports count like
+  // a rated session — the worst value wins.
+  const reports = combineShinValues(await loadShinReportValues(userId, cutoff, before));
+  if (reports.worst !== null) {
+    shin = shin === undefined ? reports.worst : Math.max(shin, reports.worst);
+    attestedInWindow += reports.count;
   }
   const completedInWindow = workouts.length;
   if (shin === undefined && rpeByType.size === 0) {
@@ -172,7 +185,13 @@ export interface RegenerateResult {
    *  (script, route, test) can assert the plan was generated braked. */
   gate: VolumeGate;
   gateReason: string;
+  /** Sprint 3.4 (#28, C4): the RUN ramp (was one global gap). */
   layoff: { active: boolean; gapDays: number; restartWeekStart: Date | null };
+  /** Sprint 3.4 (#28, C4): both ramps. */
+  layoffByDiscipline: {
+    run: { active: boolean; gapDays: number; restartWeekStart: Date | null };
+    strength: { active: boolean; gapDays: number; restartWeekStart: Date | null };
+  };
   progression: WeekProgression[];
   garminResync?: {
     considered: number;
@@ -255,13 +274,17 @@ export async function regeneratePlansFromNow(
       NOT: { type: { in: [...NON_TRAINING_TYPES] } },
     },
     orderBy: { date: "asc" },
-    select: { date: true },
+    select: { date: true, type: true },
   });
-  const layoff = detectLayoff(
-    completedHistory.map((w) => w.date),
+  // Sprint 3.4 (#28, C4): one ramp per discipline — the run ramp from the gap
+  // since the last run, the strength ramp from the gap since the last strength
+  // session. `layoff` (the result field) reports the run ramp.
+  const layoffs = detectLayoffByDiscipline(
+    completedHistory,
     today0,
     plansToRegen[0]?.startDate ?? null,
   );
+  const layoff = layoffs.run;
 
   // Sprint 2.3: graded run-volume pain governor from the worst recent shin-NRS
   // (composes the Sprint 2.2 threshold structure-floor gate — ONE signal):
@@ -335,9 +358,10 @@ export async function regeneratePlansFromNow(
     // Sprint 2.4: the ramp, unlike the pain gate, spans several weeks — a
     // return to training is a known multi-week state, not a reaction to one
     // flare, so it is applied to every plan week inside the ramp window.
-    const weekComeback = layoff.active
-      ? comebackWeekFor(plan.startDate, layoff.restartWeekStart)
-      : null;
+    const comebackWeek = (l: typeof layoff) =>
+      l.active ? comebackWeekFor(plan.startDate, l.restartWeekStart) : null;
+    const runComeback = comebackWeek(layoffs.run);
+    const strengthComeback = comebackWeek(layoffs.strength);
 
     const runPlan = generateWeekRunPlan(
       phaseConfig,
@@ -352,7 +376,7 @@ export async function regeneratePlansFromNow(
         | undefined ?? null,
       weekGreen,
       weekGate,
-      weekComeback,
+      runComeback,
       weekProgression,
     );
     const strengthPlan: WeekStrengthPlan = generateWeekStrengthPlan(
@@ -367,7 +391,7 @@ export async function regeneratePlansFromNow(
       (plan as { loadOverrideWeek?: number | null }).loadOverrideWeek as
         | 1 | 2 | 3 | 4 | null
         | undefined ?? null,
-      weekComeback,
+      strengthComeback,
     );
 
     const mergedSessions: SessionPlan[] = planWeekSchedule(
@@ -434,6 +458,14 @@ export async function regeneratePlansFromNow(
       active: layoff.active,
       gapDays: layoff.gapDays,
       restartWeekStart: layoff.restartWeekStart,
+    },
+    layoffByDiscipline: {
+      run: { active: layoffs.run.active, gapDays: layoffs.run.gapDays, restartWeekStart: layoffs.run.restartWeekStart },
+      strength: {
+        active: layoffs.strength.active,
+        gapDays: layoffs.strength.gapDays,
+        restartWeekStart: layoffs.strength.restartWeekStart,
+      },
     },
     progression,
   };
