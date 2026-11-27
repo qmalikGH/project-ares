@@ -23,6 +23,28 @@ export function freeRunPlannedSession(date: Date, durationMin: number) {
   };
 }
 
+/**
+ * Coach, 27.11. (#28 a): a free run the cron made of a recording stays
+ * claimable for a planned run card of the same day until somebody rates it —
+ * typically a threshold run not started from the pushed workout. Only a row
+ * the auto-import created and nobody touched qualifies.
+ */
+export function isClaimableAutoRun(w: {
+  type: string;
+  status: string;
+  rpe: number | null;
+  plannedSession: unknown;
+  executedSession: unknown;
+}): boolean {
+  return (
+    w.type === "easy_run" &&
+    w.status === "completed" &&
+    w.rpe == null &&
+    (w.plannedSession as { unplanned?: unknown } | null)?.unplanned === true &&
+    (w.executedSession as { autoMatch?: unknown } | null)?.autoMatch === "free_run"
+  );
+}
+
 export async function createFreeRunWorkout(
   client: WorkoutWriter,
   input: {

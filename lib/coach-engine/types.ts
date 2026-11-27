@@ -439,8 +439,11 @@ export const StrengthExecutedExerciseSchema = z.object({
  *   identity — started from the workout we pushed (activity.workoutId)
  *   same_day — a run on the day of an open easy/long run (never quality)
  *   free_run — a run ≥ 15 min that matched nothing; stored as its own easy run
+ *   claimed  — such a free run that the athlete then claimed for a planned
+ *              run in /confirm (coach, 27.11.): the free run is deleted and
+ *              the activity moves to the planned session
  */
-export const AutoMatchSchema = z.enum(["identity", "same_day", "free_run"]);
+export const AutoMatchSchema = z.enum(["identity", "same_day", "free_run", "claimed"]);
 export type AutoMatch = z.infer<typeof AutoMatchSchema>;
 
 export const RunExecutedSessionSchema = z.object({

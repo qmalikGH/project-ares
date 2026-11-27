@@ -147,3 +147,29 @@ describe("unplannedRunActivities", () => {
     expect(r.map((c) => c.activityId)).toEqual([10, 11]);
   });
 });
+
+// Coach, 27.11. (#28 a): the activity behind an unrated free run.
+describe("claimable free runs", () => {
+  const run = { id: "w-thr", date: "2026-09-01", discipline: "run" as const, plannedDurationMin: 40 };
+  const gym = { id: "w-gym", date: "2026-09-01", discipline: "strength" as const, plannedDurationMin: 60 };
+  const auto = act({ activityId: 42, startTimeLocal: "2026-09-01 18:00:00", durationSec: 1500 });
+
+  it("is offered to a run card of the same day, marked fromAutoRun, although linked", () => {
+    const r = matchConfirmCandidates([run], [auto], new Set(["42"]), new Set(["42"]));
+    expect(r["w-thr"]).toEqual([expect.objectContaining({ activityId: 42, fromAutoRun: true, dayOffset: 0 })]);
+  });
+
+  it("not to a card on the day before or after", () => {
+    const tue = { ...run, date: "2026-09-02" };
+    expect(matchConfirmCandidates([tue], [auto], new Set(["42"]), new Set(["42"]))).toEqual({});
+  });
+
+  it("not to a strength card", () => {
+    const lifted = act({ ...auto, category: "strength" });
+    expect(matchConfirmCandidates([gym], [lifted], new Set(["42"]), new Set(["42"]))).toEqual({});
+  });
+
+  it("other linked activities stay excluded", () => {
+    expect(matchConfirmCandidates([run], [auto], new Set(["42"]))).toEqual({});
+  });
+});

@@ -15,6 +15,11 @@
 // (GarminActivity), which the nightly cron fills for the last 14 days. One
 // live page is fetched first so a run from this morning shows up too; if
 // Garmin is down, the stored activities still make suggestions.
+//
+// Coach, 27.11. (#28 a): a run card also offers the activity behind an
+// unrated free run the cron created on the same day (`fromAutoRun`) — the
+// threshold run that was not started from the pushed workout. Picking it
+// moves the activity to the card (POST /api/sessions/confirm).
 import { NextResponse, type NextRequest } from "next/server";
 
 import { db } from "@/lib/db/client";
@@ -29,6 +34,7 @@ import {
   unplannedRunActivities,
 } from "@/lib/garmin/confirm-candidates";
 import type { SessionPlan } from "@/lib/coach-engine/types";
+import { isClaimableAutoRun } from "@/lib/sessions/free-run";
 
 export async function GET(req: NextRequest) {
   const userId = await getCurrentUserId();
@@ -74,6 +80,22 @@ export async function GET(req: NextRequest) {
   });
   const linkedIds = new Set(linked.map((w) => w.garminActivityId as string));
 
+  // Free runs the cron created that nobody rated yet: their activity stays on
+  // offer for a run card of the same day.
+  const autoRuns = await db.workout.findMany({
+    where: { userId, type: "easy_run", status: "completed", rpe: null, date: { gte: from, lt: today0 } },
+    select: {
+      id: true, type: true, status: true, rpe: true, plannedSession: true, executedSession: true,
+      garminActivityId: true,
+    },
+  });
+  const claimable = new Set(
+    autoRuns.filter((w) => isClaimableAutoRun(w) && w.garminActivityId).map((w) => w.garminActivityId as string),
+  );
+  const claimableWorkoutIds = autoRuns
+    .filter((w) => w.garminActivityId && claimable.has(w.garminActivityId))
+    .map((w) => w.id);
+
   // Freshen the store with the newest page; best-effort.
   let garminError: string | null = null;
   try {
@@ -84,7 +106,11 @@ export async function GET(req: NextRequest) {
   }
 
   const stored = await db.garminActivity.findMany({
-    where: { userId, workoutRefId: null, localDate: { gte: activitiesFrom, lte: today0 } },
+    where: {
+      userId,
+      OR: [{ workoutRefId: null }, { workoutRefId: { in: claimableWorkoutIds } }],
+      localDate: { gte: activitiesFrom, lte: today0 },
+    },
     orderBy: [{ localDate: "asc" }, { startTimeLocal: "asc" }],
   });
   const activities: ActivitySummary[] = stored.map((a) => ({
@@ -109,7 +135,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     status: "ok",
     liveRefresh: garminError == null,
-    candidates: matchConfirmCandidates(sessions, activities, linkedIds),
+    candidates: matchConfirmCandidates(sessions, activities, linkedIds, claimable),
     freeRuns: unplannedRunActivities(
       easyRuns.map((w) => w.date.toISOString().slice(0, 10)),
       activities,
